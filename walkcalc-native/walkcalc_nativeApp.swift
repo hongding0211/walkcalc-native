@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct walkcalc_nativeApp: App {
+    @StateObject private var store = WalkcalcStore()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(store)
         }
     }
 }
