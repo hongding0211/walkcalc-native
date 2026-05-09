@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Xcode user state
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+
+# Build products
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Package.resolved
+
+# Xcode temporary files
+*.moved-aside
+*.xccheckout
+
+# Logs and local environment
+*.log
+.env
+.env.*
+
+# App distribution output
+*.xcarchive
+
