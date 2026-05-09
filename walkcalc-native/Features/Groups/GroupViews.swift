@@ -74,7 +74,7 @@ struct GroupView: View {
                         }
                     }
                     if let total = store.recordTotals[groupId], total <= records.count, !records.isEmpty {
-                        Text("- \(L("已经到底啦", "The End")) -")
+                        Text("- \(L("The End")) -")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 12)
@@ -102,7 +102,7 @@ struct GroupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(L("群组", "Group")).font(.headline)
+                Text(L("Group")).font(.headline)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -159,7 +159,7 @@ struct GroupTopCard: View {
                 }
                 Button(action: onAddMember) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(L("成员", "Members"))
+                        Text(L("Members"))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         HStack(spacing: -8) {
@@ -179,12 +179,12 @@ struct GroupTopCard: View {
                 .buttonStyle(.plain)
                 HStack {
                     Button(action: onDebtDetail) {
-                        Label(L("债务详情", "Debt detail"), systemImage: "chevron.right")
+                        Label(L("Debt detail"), systemImage: "chevron.right")
                             .labelStyle(.titleAndIcon)
                     }
                     Spacer()
                     StackText(
-                        top: Money.isNegative(myDebt) ? L("我欠别人", "I owed") : L("别人欠我", "Owed to me"),
+                        top: Money.isNegative(myDebt) ? L("I owed") : L("Owed to me"),
                         bottom: "\(Money.isNegative(myDebt) ? "" : "+")\(Money.display(myDebt))",
                         alignment: .trailing
                     )
@@ -229,7 +229,7 @@ struct RecordCard: View {
                     Text(Money.display(record.paidMinor))
                         .font(.headline)
                     if record.isDebtResolve {
-                        Text(L("债务和解", "Debt Resolve"))
+                        Text(L("Debt Resolve"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else if !record.text.isEmpty {
@@ -238,7 +238,7 @@ struct RecordCard: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("\(L("我的那份", "My part")): \(myPart)")
+                        Text("\(L("My part")): \(myPart)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -313,7 +313,7 @@ struct GroupSheetView: View {
             .navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L("取消", "Cancel")) { activeSheet = nil }
+                    Button(L("Cancel")) { activeSheet = nil }
                 }
             }
         }
@@ -322,13 +322,13 @@ struct GroupSheetView: View {
 
     private var title: String {
         switch sheet {
-        case .addRecord: L("添加记录", "Add record")
-        case .editRecord: L("编辑记录", "Edit record")
-        case .share: L("分享", "Share")
-        case .debtDetail: L("债务详情", "Debt detail")
-        case .recordDetail: L("记录详情", "Record detail")
-        case .settings: L("群组设置", "Group setting")
-        case .addMember: L("添加成员", "Add member")
+        case .addRecord: L("Add record")
+        case .editRecord: L("Edit record")
+        case .share: L("Share")
+        case .debtDetail: L("Debt detail")
+        case .recordDetail: L("Record detail")
+        case .settings: L("Group setting")
+        case .addMember: L("Add member")
         }
     }
 

@@ -34,8 +34,8 @@ struct ContentView: View {
                 }
             }
         }
-        .alert(L("提示", "Notice"), isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
-            Button(L("确认", "Confirm"), role: .cancel) { store.errorMessage = nil }
+        .alert(L("Notice"), isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
+            Button(L("Confirm"), role: .cancel) { store.errorMessage = nil }
         } message: {
             Text(store.errorMessage ?? "")
         }
@@ -55,7 +55,7 @@ struct LoginView: View {
                     .foregroundStyle(store.primaryColor)
                 Text("Walking Calculator")
                     .font(.title.bold())
-                Text(L("登录以继续", "Login to continue"))
+                Text(L("Login to continue"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -63,7 +63,7 @@ struct LoginView: View {
             Button {
                 showingSSO = true
             } label: {
-                Text(L("使用 hong97.ltd 继续", "Continue with hong97.ltd"))
+                Text(L("Continue with hong97.ltd"))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -108,7 +108,7 @@ struct RootHomeView: View {
                         .listRowChrome()
 
                     HStack {
-                        Text("\(L("全部群组", "All Groups")) (\(store.groups.count))")
+                        Text("\(L("All Groups")) (\(store.groups.count))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -129,7 +129,7 @@ struct RootHomeView: View {
                         .buttonStyle(.plain)
                         .listRowChrome(bottom: 14)
                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            Button(L("归档", "Archive"), systemImage: "archivebox") {
+                            Button(L("Archive"), systemImage: "archivebox") {
                                 Task { _ = await store.archiveGroup(group.id) }
                             }
                             .tint(.orange)
@@ -194,16 +194,16 @@ struct HomeSheetView: View {
             VStack(spacing: 16) {
                 switch sheet {
                 case .addChoice:
-                    Button(L("创建一个群组", "New group"), systemImage: "plus.circle") { activeSheet = .create }
+                    Button(L("New group"), systemImage: "plus.circle") { activeSheet = .create }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
-                    Button(L("加入一个群组", "Join group"), systemImage: "person.2.badge.plus") { activeSheet = .join }
+                    Button(L("Join group"), systemImage: "person.2.badge.plus") { activeSheet = .join }
                         .buttonStyle(.bordered)
                         .controlSize(.large)
                 case .create:
-                    TextField(L("群名", "Group name"), text: $text)
+                    TextField(L("Group name"), text: $text)
                         .textFieldStyle(.roundedBorder)
-                    Button(L("确认", "Confirm")) {
+                    Button(L("Confirm")) {
                         Task {
                             if await store.createGroup(name: text) {
                                 activeSheet = nil
@@ -213,17 +213,17 @@ struct HomeSheetView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(text.isEmpty)
                 case .join:
-                    TextField(L("群组 ID", "Group ID"), text: $text)
+                    TextField(L("Group ID"), text: $text)
                         .textFieldStyle(.roundedBorder)
                         .textInputAutocapitalization(.never)
                         .onChange(of: text) { _, newValue in
                             text = newValue.uppercased()
                         }
-                    Button(L("扫码加入", "Scan to join"), systemImage: "viewfinder") {
+                    Button(L("Scan to join"), systemImage: "viewfinder") {
                         showScanner = true
                     }
                     .buttonStyle(.bordered)
-                    Button(L("确认加入", "Confirm join")) {
+                    Button(L("Confirm join")) {
                         Task {
                             if await store.joinGroup(code: text) {
                                 activeSheet = nil
@@ -239,7 +239,7 @@ struct HomeSheetView: View {
                             .foregroundStyle(store.primaryColor)
                         Text("Walking Calculator")
                             .font(.title3.bold())
-                        Text(L("群组旅行和日常支出分账工具。", "Expense splitting for groups, trips, and daily costs."))
+                        Text(L("Expense splitting for groups, trips, and daily costs."))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -248,7 +248,7 @@ struct HomeSheetView: View {
             .navigationTitle(title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L("取消", "Cancel")) { activeSheet = nil }
+                    Button(L("Cancel")) { activeSheet = nil }
                 }
             }
         }
@@ -261,11 +261,11 @@ struct HomeSheetView: View {
                     }
                     showScanner = false
                 }
-                .navigationTitle(L("扫码加入", "Scan to join"))
+                .navigationTitle(L("Scan to join"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(L("取消", "Cancel")) { showScanner = false }
+                        Button(L("Cancel")) { showScanner = false }
                     }
                 }
             }
@@ -275,9 +275,9 @@ struct HomeSheetView: View {
     private var title: String {
         switch sheet {
         case .addChoice: ""
-        case .create: L("创建一个群组", "New group")
-        case .join: L("加入一个群组", "Join group")
-        case .about: L("关于", "About")
+        case .create: L("New group")
+        case .join: L("Join group")
+        case .about: L("About")
         }
     }
 
@@ -301,7 +301,7 @@ struct HomeHeader: View {
     var body: some View {
         HStack {
             HStack(spacing: 8) {
-                Text(L("群组", "Group"))
+                Text(L("Group"))
                     .font(.system(size: 36, weight: .bold))
                 Image(systemName: "plus.circle.fill")
                     .font(.title2)
@@ -310,13 +310,13 @@ struct HomeHeader: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: onAdd)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(L("群组", "Group"))
+            .accessibilityLabel(L("Group"))
             .accessibilityAddTraits(.isButton)
             Spacer()
             Menu {
-                Button(L("设置", "Settings"), systemImage: "gearshape", action: onSettings)
-                Button(L("关于", "About"), systemImage: "info.circle", action: onAbout)
-                Button(L("登出", "Logout"), systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                Button(L("Settings"), systemImage: "gearshape", action: onSettings)
+                Button(L("About"), systemImage: "info.circle", action: onAbout)
+                Button(L("Logout"), systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                     store.logout()
                 }
             } label: {
@@ -335,7 +335,7 @@ struct TotalDebtCard: View {
             VStack(alignment: .leading, spacing: 28) {
                 HStack(spacing: 12) {
                     Image(systemName: "wallet.pass.fill")
-                    Text(L("债务统计", "Total Debt"))
+                    Text(L("Total Debt"))
                         .font(.title2.weight(.medium))
                 }
                 .foregroundStyle(Money.isNegative(total) ? Color.red : Color.green)
@@ -368,9 +368,9 @@ struct GroupSummaryCard: View {
                         .foregroundStyle(store.primaryColor)
                 }
                 HStack {
-                    StackText(top: L("上次编辑", "Latest edited"), bottom: DateFormatter.walkDate.string(from: group.modifiedAt.walkDate), alignment: .leading)
+                    StackText(top: L("Latest edited"), bottom: DateFormatter.walkDate.string(from: group.modifiedAt.walkDate), alignment: .leading)
                     Spacer()
-                    StackText(top: Money.isNegative(myDebt) ? L("我欠别人", "I owed") : L("别人欠我", "Owed to me"), bottom: "\(Money.isNegative(myDebt) ? "" : "+")\(Money.display(myDebt))", alignment: .trailing)
+                    StackText(top: Money.isNegative(myDebt) ? L("I owed") : L("Owed to me"), bottom: "\(Money.isNegative(myDebt) ? "" : "+")\(Money.display(myDebt))", alignment: .trailing)
                 }
             }
         }
@@ -398,7 +398,7 @@ struct ArchivedView: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button(L("取消归档", "Unarchive")) {
+                        Button(L("Unarchive")) {
                             Task { _ = await store.unarchiveGroup(group.id) }
                         }
                     }
@@ -406,7 +406,7 @@ struct ArchivedView: View {
             }
             .scrollContentBackground(.hidden)
         }
-        .navigationTitle(L("已归档群组", "Archived Groups"))
+        .navigationTitle(L("Archived Groups"))
         .task { await store.refreshHome() }
     }
 }
@@ -420,16 +420,16 @@ struct SettingsView: View {
         ZStack {
             AppBackground()
             List {
-                Section(L("用户", "User")) {
+                Section(L("User")) {
                     HStack(spacing: 10) {
                         AvatarView(user: store.user, size: 28)
                         Text(store.user?.name ?? "")
                     }
-                    Button(L("编辑资料", "Edit Profile")) { showingProfile = true }
+                    Button(L("Edit Profile")) { showingProfile = true }
                 }
-                Section(L("通用", "General")) {
+                Section(L("General")) {
                     HStack {
-                        Text(L("主题色", "Theme Color"))
+                        Text(L("Theme Color"))
                         Spacer()
                         ForEach(themeColorOptions) { option in
                             Button {
@@ -449,16 +449,16 @@ struct SettingsView: View {
                     }
                 }
                 Section {
-                    Button(L("登出", "Logout"), role: .destructive) { confirmLogout = true }
+                    Button(L("Logout"), role: .destructive) { confirmLogout = true }
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
             .scrollContentBackground(.hidden)
         }
-        .navigationTitle(L("设置", "Settings"))
-        .alert(L("确认登出吗？", "Confirm logout?"), isPresented: $confirmLogout) {
-            Button(L("取消", "Cancel"), role: .cancel) {}
-            Button(L("确认", "Confirm"), role: .destructive) { store.logout() }
+        .navigationTitle(L("Settings"))
+        .alert(L("Confirm logout?"), isPresented: $confirmLogout) {
+            Button(L("Cancel"), role: .cancel) {}
+            Button(L("Confirm"), role: .destructive) { store.logout() }
         }
         .sheet(isPresented: $showingProfile) {
             SSOProfileView(url: store.api.profileURL(), token: store.token)

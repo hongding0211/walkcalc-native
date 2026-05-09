@@ -116,7 +116,7 @@ final class ScannerController: UIViewController, AVCaptureMetadataOutputObjectsD
 
     private func showNoAccess() {
         let label = UILabel()
-        label.text = L("无相机权限", "No access to camera")
+        label.text = L("No access to camera")
         label.textColor = .secondaryLabel
         label.font = .preferredFont(forTextStyle: .headline)
         label.translatesAutoresizingMaskIntoConstraints = false

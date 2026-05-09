@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "Walking Calculator";
+"NSCameraUsageDescription" = "允许 Walking Calculator 扫描群组二维码。";
+"NSLocalNetworkUsageDescription" = "Walking Calculator 会连接本地开发后端。";
+"NSLocationWhenInUseUsageDescription" = "允许 Walking Calculator 将当前位置附加到新记录。";

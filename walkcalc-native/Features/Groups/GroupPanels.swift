@@ -35,7 +35,7 @@ struct RecordEditorView: View {
     }
 
     private var submitTitle: String {
-        record == nil ? L("添加", "Add") : L("编辑", "Edit")
+        record == nil ? L("Add") : L("Edit")
     }
 
     var body: some View {
@@ -47,7 +47,7 @@ struct RecordEditorView: View {
                     .multilineTextAlignment(.center)
                     .padding()
                     .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 8))
-                Picker(L("谁支付的", "Who paid"), selection: $who) {
+                Picker(L("Who paid"), selection: $who) {
                     ForEach(members) { member in
                         Text(member.name).tag(member.uuid)
                     }
@@ -55,9 +55,9 @@ struct RecordEditorView: View {
                 .pickerStyle(.menu)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(L("为谁支付", "For whom")).font(.headline)
+                        Text(L("For whom")).font(.headline)
                         Spacer()
-                        Button(L("选择所有", "Select all")) {
+                        Button(L("Select all")) {
                             if forWhom.count == members.count {
                                 forWhom.removeAll()
                             } else {
@@ -76,7 +76,7 @@ struct RecordEditorView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(L("类别", "Category")).font(.headline)
+                    Text(L("Category")).font(.headline)
                     LazyVGrid(
                         columns: Array(repeating: GridItem(.fixed(44), spacing: 10), count: 5),
                         alignment: .leading,
@@ -98,7 +98,7 @@ struct RecordEditorView: View {
                         }
                     }
                 }
-                TextField(L("备注", "Remark"), text: $text, axis: .vertical)
+                TextField(L("Remark"), text: $text, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                 if let message {
                     Text(message)
@@ -132,11 +132,11 @@ struct RecordEditorView: View {
         do {
             _ = try Money.parseDisplay(paid)
         } catch {
-            message = L("请输入最多 2 位小数的有效金额", "Enter a valid amount with up to 2 decimal places")
+            message = L("Enter a valid amount with up to 2 decimal places")
             return
         }
         guard !forWhom.isEmpty else {
-            message = L("至少选择一个被付款的人", "Select at least one people.")
+            message = L("Select at least one people.")
             return
         }
         let success: Bool
@@ -158,7 +158,7 @@ struct RecordEditorView: View {
         if success {
             onDone()
         } else {
-            message = record == nil ? L("添加失败", "Add fail") : L("编辑失败", "Edit fail")
+            message = record == nil ? L("Add fail") : L("Edit fail")
         }
     }
 }
@@ -187,10 +187,10 @@ struct RecordDetailView: View {
                     .foregroundStyle(.tint)
             }
             Divider()
-            DetailUserRow(title: L("谁支付的", "Who paid"), member: member(record.who), amount: record.paidMinor)
+            DetailUserRow(title: L("Who paid"), member: member(record.who), amount: record.paidMinor)
             Divider()
             VStack(alignment: .leading, spacing: 10) {
-                Text("\(L("为谁支付", "For whom"))(\(record.forWhom.count))")
+                Text("\(L("For whom"))(\(record.forWhom.count))")
                     .font(.headline)
                 ForEach(record.forWhom, id: \.self) { id in
                     DetailUserRow(member: member(id), amount: Money.splitFirst(record.paidMinor, count: record.forWhom.count))
@@ -198,28 +198,28 @@ struct RecordDetailView: View {
                 }
             }
             if !record.text.isEmpty {
-                Text("\(L("备注", "Remark")): \(record.text)")
+                Text("\(L("Remark")): \(record.text)")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
             }
             if let coordinate {
                 Map(initialPosition: .camera(MapCamera(centerCoordinate: coordinate, distance: 500))) {
-                    Marker(member(record.who)?.name ?? L("位置", "Location"), coordinate: coordinate)
+                    Marker(member(record.who)?.name ?? L("Location"), coordinate: coordinate)
                 }
                 .frame(height: 120)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             if !record.isDebtResolve {
-                Button(L("编辑记录", "Edit Record"), systemImage: "square.and.pencil", action: onEdit)
+                Button(L("Edit Record"), systemImage: "square.and.pencil", action: onEdit)
                     .font(.caption.weight(.medium))
             }
-            Button(L("删除", "Delete"), role: .destructive) { confirmDelete = true }
+            Button(L("Delete"), role: .destructive) { confirmDelete = true }
                 .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
         }
-        .alert(L("确认删除？", "Confirm delete?"), isPresented: $confirmDelete) {
-            Button(L("取消", "Cancel"), role: .cancel) {}
-            Button(L("确认", "Confirm"), role: .destructive, action: onDelete)
+        .alert(L("Confirm delete?"), isPresented: $confirmDelete) {
+            Button(L("Cancel"), role: .cancel) {}
+            Button(L("Confirm"), role: .destructive, action: onDelete)
         }
     }
 
@@ -277,7 +277,7 @@ struct DebtDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                SectionTitle("\(L("债务详情", "Debt detail"))(\(group.allMembers.count))")
+                SectionTitle("\(L("Debt detail"))(\(group.allMembers.count))")
                 VStack(spacing: 12) {
                     ForEach(group.allMembers) { member in
                         HStack {
@@ -289,7 +289,7 @@ struct DebtDetailView: View {
                         }
                     }
                 }
-                SectionTitle("\(L("和解所有债务", "Resolve all debt"))(\(debts.count))")
+                SectionTitle("\(L("Resolve all debt"))(\(debts.count))")
                 VStack(spacing: 14) {
                     ForEach(debts) { debt in
                         VStack(spacing: 6) {
@@ -315,20 +315,20 @@ struct DebtDetailView: View {
                         Divider()
                     }
                 }
-                Button(L("和解所有债务", "Resolve all debt"), role: .destructive) { confirmAll = true }
+                Button(L("Resolve all debt"), role: .destructive) { confirmAll = true }
                     .buttonStyle(.borderedProminent)
                     .disabled(debts.isEmpty)
             }
         }
-        .alert(L("确认和解所有债务吗?", "Confirm resolve all debts?"), isPresented: $confirmAll) {
-            Button(L("取消", "Cancel"), role: .cancel) {}
-            Button(L("确认", "Confirm"), role: .destructive) {
+        .alert(L("Confirm resolve all debts?"), isPresented: $confirmAll) {
+            Button(L("Cancel"), role: .cancel) {}
+            Button(L("Confirm"), role: .destructive) {
                 Task { _ = await store.resolveAll(groupId: group.id, debts: debts) }
             }
         }
-        .alert(L("确认和解单笔债务吗?", "Confirm resolve single debt?"), isPresented: Binding(get: { singleDebt != nil }, set: { if !$0 { singleDebt = nil } })) {
-            Button(L("取消", "Cancel"), role: .cancel) { singleDebt = nil }
-            Button(L("确认", "Confirm"), role: .destructive) {
+        .alert(L("Confirm resolve single debt?"), isPresented: Binding(get: { singleDebt != nil }, set: { if !$0 { singleDebt = nil } })) {
+            Button(L("Cancel"), role: .cancel) { singleDebt = nil }
+            Button(L("Confirm"), role: .destructive) {
                 if let singleDebt {
                     Task { _ = await store.resolveSingle(groupId: group.id, debt: singleDebt) }
                 }
@@ -351,7 +351,7 @@ struct AddMemberView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            TextField(L("通过用户名搜索", "Search by user name"), text: $search)
+            TextField(L("Search by user name"), text: $search)
                 .textFieldStyle(.roundedBorder)
             if isSearching {
                 ProgressView()
@@ -371,19 +371,19 @@ struct AddMemberView: View {
             }
             if group.isOwner {
                 HStack {
-                    TextField(L("输入名字", "Enter name"), text: $tempName)
+                    TextField(L("Enter name"), text: $tempName)
                         .textFieldStyle(.roundedBorder)
-                    Button(L("添加临时成员", "Add temporary user")) {
+                    Button(L("Add temporary user")) {
                         guard !tempName.isEmpty, !tempUsers.contains(tempName) else { return }
                         tempUsers.append(tempName)
                         tempName = ""
                     }
                 }
             }
-            SectionTitle(L("新增成员", "New member"))
+            SectionTitle(L("New member"))
             FlowTags(values: users.map(\.name) + tempUsers)
             Spacer()
-            Button(L("确认", "Confirm")) {
+            Button(L("Confirm")) {
                 Task {
                     if await store.addMembers(groupId: group.id, users: users, tempUsers: tempUsers) {
                         onDone()
@@ -425,21 +425,21 @@ struct GroupSettingsPanel: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            TextField(L("群组名称", "Group name"), text: $name)
+            TextField(L("Group name"), text: $name)
                 .textFieldStyle(.roundedBorder)
-            Button(L("修改群组名称", "Modify group name")) {
+            Button(L("Modify group name")) {
                 Task { _ = await store.changeGroupName(group.id, name: name) }
             }
             .buttonStyle(.bordered)
-            LabeledContent(L("群组 ID", "Group ID"), value: group.id)
-            LabeledContent(L("记录条数", "Record count"), value: "\(recordCount)")
-            LabeledContent(L("人均", "Average cost"), value: averageCost)
-            Button(L("解散群组", "Dismiss group"), role: .destructive) { confirmDismiss = true }
+            LabeledContent(L("Group ID"), value: group.id)
+            LabeledContent(L("Record count"), value: "\(recordCount)")
+            LabeledContent(L("Average cost"), value: averageCost)
+            Button(L("Dismiss group"), role: .destructive) { confirmDismiss = true }
                 .buttonStyle(.borderedProminent)
         }
-        .alert(L("确认解散群组", "Confirm dismiss group?"), isPresented: $confirmDismiss) {
-            Button(L("取消", "Cancel"), role: .cancel) {}
-            Button(L("确认", "Confirm"), role: .destructive, action: onDismiss)
+        .alert(L("Confirm dismiss group?"), isPresented: $confirmDismiss) {
+            Button(L("Cancel"), role: .cancel) {}
+            Button(L("Confirm"), role: .destructive, action: onDismiss)
         }
     }
 
@@ -463,11 +463,11 @@ struct ShareGroupView: View {
                 .background(.white, in: RoundedRectangle(cornerRadius: 8))
             Text(groupId)
                 .font(.title2.monospaced().bold())
-            Text(L("邀请朋友加入群组 🥳", "Invite friends to join the group 🥳"))
+            Text(L("Invite friends to join the group 🥳"))
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
             ShareLink(item: value) {
-                Label(L("邀请朋友加入群组 🥳", "Invite friends to join the group 🥳"), systemImage: "square.and.arrow.up")
+                Label(L("Invite friends to join the group 🥳"), systemImage: "square.and.arrow.up")
             }
             .buttonStyle(.borderedProminent)
         }
@@ -483,11 +483,11 @@ struct SSOProfileView: View {
     var body: some View {
         NavigationStack {
             WebView(url: url, token: token, injectAuthCookie: true, onToken: nil)
-                .navigationTitle(L("我的资料", "My Profile"))
+                .navigationTitle(L("My Profile"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(L("取消", "Cancel")) { dismiss() }
+                        Button(L("Cancel")) { dismiss() }
                     }
                 }
         }

@@ -20,11 +20,11 @@ struct SSOLoginView: View {
                     }
                 }
             }
-            .navigationTitle(L("登录", "Login"))
+            .navigationTitle(L("Login"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(L("取消", "Cancel")) { dismiss() }
+                    Button(L("Cancel")) { dismiss() }
                 }
             }
         }

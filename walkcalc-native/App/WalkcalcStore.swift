@@ -77,15 +77,14 @@ final class WalkcalcStore: ObservableObject {
                 logout()
             }
         } catch {
-            errorMessage = L("网络开小差", "Network issues")
+            errorMessage = L("Network issues")
         }
     }
 
     func postUserMeta() async {
         guard let token else { return }
-        let language = Locale.current.language.languageCode?.identifier == "zh" ? "cn" : "en"
         let metadata: [String: Any] = [
-            "language": language,
+            "language": L10n.serverLanguageCode,
             "deviceInfo": [
                 "os": "ios",
                 "version": UIDevice.current.systemVersion
@@ -114,10 +113,10 @@ final class WalkcalcStore: ObservableObject {
             if response.success {
                 groups = response.data ?? []
             } else {
-                errorMessage = response.message ?? L("网络开小差", "Network issues")
+                errorMessage = response.message ?? L("Network issues")
             }
         } catch {
-            errorMessage = L("网络开小差", "Network issues")
+            errorMessage = L("Network issues")
         }
     }
 
@@ -141,7 +140,7 @@ final class WalkcalcStore: ObservableObject {
                 recordTotals[id] = recordResult.pagination?.total ?? recordResult.data?.count ?? 0
             }
         } catch {
-            errorMessage = L("网络开小差", "Network issues")
+            errorMessage = L("Network issues")
         }
     }
 
@@ -159,7 +158,7 @@ final class WalkcalcStore: ObservableObject {
                 recordTotals[groupId] = response.pagination?.total ?? total
             }
         } catch {
-            errorMessage = L("网络开小差", "Network issues")
+            errorMessage = L("Network issues")
         }
     }
 
@@ -291,7 +290,7 @@ final class WalkcalcStore: ObservableObject {
                 paidMinor: debt.amountMinor,
                 forWhom: [debt.to.uuid],
                 type: "debtResolve",
-                text: L("债务和解", "Debt Resolve"),
+                text: L("Debt Resolve"),
                 token: token,
                 isDebtResolve: true
             )
@@ -386,7 +385,7 @@ final class WalkcalcStore: ObservableObject {
         do {
             return try await action()
         } catch {
-            errorMessage = L("网络开小差", "Network issues")
+            errorMessage = L("Network issues")
             return false
         }
     }
