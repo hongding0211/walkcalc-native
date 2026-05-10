@@ -1,3 +1,4 @@
+#if DEBUG
 import SwiftUI
 import UIKit
 
@@ -839,3 +840,4 @@ private extension View {
 #Preview("Group Home Empty") {
     SoftLedgerGroupHomePlayground(groups: [])
 }
+#endif

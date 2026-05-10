@@ -1,3 +1,4 @@
+#if DEBUG
 import SwiftUI
 import UIKit
 
@@ -1846,3 +1847,4 @@ private func adaptive(light: UInt32, dark: UInt32) -> Color {
         SoftLedgerGroupDetailPlayground(scenario: .peopleSetupEmpty)
     }
 }
+#endif
