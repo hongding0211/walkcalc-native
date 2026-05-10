@@ -18,8 +18,6 @@
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -31,6 +29,19 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Allow Walking Calculator to scan group QR codes.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Walking Calculator connects to the local development backend.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Allow Walking Calculator to attach your current location to new records.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -53,16 +64,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Walking Calculator connects to the local development backend.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Allow Walking Calculator to scan group QR codes.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Allow Walking Calculator to attach your current location to new records.</string>
 </dict>
 </plist>

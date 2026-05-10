@@ -1677,7 +1677,7 @@ private struct GroupDetailAvatar: View {
     }
 }
 
-private struct GroupDetailPreviewHost: View {
+struct GroupDetailPreviewHost: View {
     var body: some View {
         NavigationStack {
             GroupDetailTheme.canvas

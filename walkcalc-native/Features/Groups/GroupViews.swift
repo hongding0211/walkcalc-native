@@ -1,23 +1,19 @@
 import SwiftUI
 
 enum GroupSheet: Identifiable {
-    case addRecord
-    case editRecord(WalkRecord)
-    case share
-    case debtDetail
-    case recordDetail(WalkRecord)
-    case settings
-    case addMember
+    case newExpense
+    case editExpense(WalkRecord)
+    case groupSettings
+    case balances(Member?)
+    case peopleSetup
 
     var id: String {
         switch self {
-        case .addRecord: "addRecord"
-        case .editRecord(let record): "editRecord-\(record.recordId)"
-        case .share: "share"
-        case .debtDetail: "debtDetail"
-        case .recordDetail(let record): "recordDetail-\(record.recordId)"
-        case .settings: "settings"
-        case .addMember: "addMember"
+        case .newExpense: "newExpense"
+        case .editExpense(let record): "editExpense-\(record.recordId)"
+        case .groupSettings: "groupSettings"
+        case .balances(let member): "balances-\(member?.id ?? "root")"
+        case .peopleSetup: "peopleSetup"
         }
     }
 }
@@ -25,319 +21,399 @@ enum GroupSheet: Identifiable {
 struct GroupView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
-    var groupId: String
-    @State private var activeSheet: GroupSheet?
-    @State private var confirmDismiss = false
 
-    var group: WalkGroup? {
+    let groupId: String
+    @State private var activeSheet: GroupSheet?
+    @State private var searchText = ""
+
+    private var group: WalkGroup? {
         store.group(id: groupId)
     }
 
-    var records: [WalkRecord] {
-        store.recordsByGroup[groupId] ?? []
+    private var records: [WalkRecord] {
+        let source = store.recordsByGroup[groupId] ?? []
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return source }
+        return source.filter { record in
+            recordTitle(record).localizedCaseInsensitiveContains(query)
+                || Money.display(record.paidMinor).contains(query)
+        }
+    }
+
+    private var shouldShowPeopleSetup: Bool {
+        guard let group else { return false }
+        return group.allMembers.count == 1 && records.isEmpty
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            AppBackground()
+        ZStack {
+            SoftLedgerBackground()
+
             ScrollView {
-                LazyVStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     if let group {
-                        GroupTopCard(
-                            group: group,
-                            onShare: { activeSheet = .share },
-                            onDebtDetail: { activeSheet = .debtDetail },
-                            onAddMember: { activeSheet = .addMember }
-                        )
-                        .padding(.bottom, 4)
-                    } else {
-                        ProgressView()
-                    }
-                    ForEach(sectionedRecords(), id: \.record.recordId) { item in
-                        if item.isSectionHead {
-                            Text(DateFormatter.walkDate.string(from: item.record.modifiedAt.walkDate))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 8)
-                        }
-                        Button {
-                            activeSheet = .recordDetail(item.record)
-                        } label: {
-                            RecordCard(record: item.record, group: group)
-                        }
-                        .buttonStyle(.plain)
-                        .onAppear {
-                            if item.record == records.last {
-                                Task { await store.loadMoreRecords(groupId: groupId) }
+                        if shouldShowPeopleSetup {
+                            PeopleSetupEmptyState {
+                                activeSheet = .peopleSetup
+                            }
+                        } else {
+                            GroupSummaryCard(group: group)
+                            GroupBalancesSection(group: group) { selectedMember in
+                                activeSheet = .balances(selectedMember)
+                            }
+                            GroupExpensesSection(group: group, records: records) { record in
+                                activeSheet = .editExpense(record)
                             }
                         }
-                    }
-                    if let total = store.recordTotals[groupId], total <= records.count, !records.isEmpty {
-                        Text("- \(L("The End")) -")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 12)
+                    } else {
+                        VStack(spacing: 10) {
+                            ProgressView()
+                            Text(L("Loading groups..."))
+                                .font(.callout)
+                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 80)
                     }
                 }
-                .padding(20)
-                .padding(.bottom, 88)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 34)
             }
             .refreshable { await store.refreshGroup(groupId) }
-
-            Button {
-                activeSheet = .addRecord
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 60, height: 60)
-                    .background(store.primaryColor, in: Circle())
-                    .shadow(radius: 8, y: 4)
-            }
-            .padding(.trailing, 20)
-            .padding(.bottom, 30)
         }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(group?.name ?? L("Group"))
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(L("Group")).font(.headline)
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    activeSheet = .settings
+                    activeSheet = .groupSettings
                 } label: {
-                    Image(systemName: "gearshape")
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(.primary)
                 }
+                .accessibilityLabel(L("Group settings"))
+            }
+
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            ToolbarSpacer(placement: .bottomBar)
+
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    activeSheet = .newExpense
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel(L("Add expense"))
             }
         }
+        .searchable(text: $searchText, placement: .toolbar, prompt: L("Search"))
+        .toolbarBackground(.hidden, for: .navigationBar)
         .task { await store.refreshGroup(groupId) }
         .sheet(item: $activeSheet) { sheet in
-            GroupSheetView(groupId: groupId, sheet: sheet, activeSheet: $activeSheet, dismissGroup: {
+            GroupSheetView(groupId: groupId, sheet: sheet, activeSheet: $activeSheet) {
                 dismiss()
-            })
-        }
-    }
-
-    private func sectionedRecords() -> [(record: WalkRecord, isSectionHead: Bool)] {
-        var lastDay: Int?
-        return records.map { record in
-            let day = Calendar.current.ordinality(of: .day, in: .era, for: record.createdAt.walkDate) ?? 0
-            let isHead = day != lastDay
-            lastDay = day
-            return (record, isHead)
+            }
         }
     }
 }
 
-struct GroupTopCard: View {
+private struct GroupSummaryCard: View {
     @EnvironmentObject private var store: WalkcalcStore
-    var group: WalkGroup
-    var onShare: () -> Void
-    var onDebtDetail: () -> Void
-    var onAddMember: () -> Void
+    let group: WalkGroup
 
-    var myDebt: MoneyMinor {
+    private var myBalance: MoneyMinor {
         group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? "0"
     }
 
     var body: some View {
-        CardContainer {
-            VStack(spacing: 20) {
-                HStack {
-                    Text(group.name)
-                        .font(.title2.bold())
-                        .lineLimit(1)
-                    Spacer()
-                    if group.isOwner {
-                        Image(systemName: "crown.fill").foregroundStyle(.yellow)
-                    }
-                    Button(action: onShare) {
-                        Image(systemName: "qrcode")
-                    }
-                }
-                Button(action: onAddMember) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(L("Members"))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: -8) {
-                            ForEach(Array(group.allMembers.prefix(4))) { member in
-                                AvatarView(member: member, size: 28)
-                                    .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
-                            }
-                            if group.allMembers.count < 4 {
-                                Image(systemName: "plus.circle.fill")
-                                    .padding(.leading, 14)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                HStack {
-                    Button(action: onDebtDetail) {
-                        Label(L("Debt detail"), systemImage: "chevron.right")
-                            .labelStyle(.titleAndIcon)
-                    }
-                    Spacer()
-                    StackText(
-                        top: Money.isNegative(myDebt) ? L("I owed") : L("Owed to me"),
-                        bottom: "\(Money.isNegative(myDebt) ? "" : "+")\(Money.display(myDebt))",
-                        alignment: .trailing
-                    )
-                }
-            }
-        }
-    }
-}
-
-struct RecordCard: View {
-    @EnvironmentObject private var store: WalkcalcStore
-    var record: WalkRecord
-    var group: WalkGroup?
-
-    var payer: Member? {
-        group?.allMembers.first(where: { $0.uuid == record.who })
-    }
-
-    var body: some View {
-        CardContainer {
-            HStack {
-                VStack(spacing: 2) {
-                    Text(categoryEmoji[record.type] ?? "🍎")
-                        .font(.title2)
-                    Label("\(record.forWhom.count)", systemImage: "person.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Divider().frame(height: 34).padding(.horizontal, 10)
+        SoftLedgerCard(usesGlass: true) {
+            VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(payer?.name ?? "")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color(.systemGray5), in: Capsule())
-                    Text(record.createdAt.walkDate, style: .time)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text(L("My balance"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    Text(signedMoney(myBalance))
+                        .font(.system(size: 44, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(SoftLedgerTheme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                 }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 6) {
-                    Text(Money.display(record.paidMinor))
-                        .font(.headline)
-                    if record.isDebtResolve {
-                        Text(L("Debt Resolve"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if !record.text.isEmpty {
-                        Text(record.text)
-                            .lineLimit(1)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("\(L("My part")): \(myPart)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+
+                HStack(spacing: -8) {
+                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 4, size: 32, showsTotal: false)
+                        .accessibilityHidden(true)
+                    Text(L("%@ members").replacingOccurrences(of: "%@", with: "\(group.allMembers.count)"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .padding(.leading, 14)
+                    Spacer()
                 }
             }
         }
-    }
-
-    var myPart: String {
-        guard record.forWhom.contains(store.user?.uuid ?? "") else { return "0.00" }
-        return Money.display(Money.splitFirst(record.paidMinor, count: record.forWhom.count))
+        .accessibilityElement(children: .combine)
     }
 }
 
-struct GroupSheetView: View {
+private struct GroupBalancesSection: View {
     @EnvironmentObject private var store: WalkcalcStore
-    var groupId: String
-    var sheet: GroupSheet
-    @Binding var activeSheet: GroupSheet?
-    var dismissGroup: () -> Void
+    let group: WalkGroup
+    let onSelect: (Member?) -> Void
 
-    var group: WalkGroup? { store.group(id: groupId) }
+    private var currentUserId: String {
+        store.user?.uuid ?? ""
+    }
+
+    private var balances: [Member] {
+        group.allMembers.filter { $0.uuid != currentUserId }
+    }
+
+    private var visibleBalances: [Member] {
+        Array(balances.prefix(3))
+    }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                switch sheet {
-                case .addRecord:
-                    RecordEditorView(groupId: groupId) {
-                        activeSheet = nil
-                    }
-                case .editRecord(let record):
-                    RecordEditorView(groupId: groupId, record: record) {
-                        activeSheet = nil
-                    }
-                case .share:
-                    ShareGroupView(groupId: groupId)
-                case .debtDetail:
-                    if let group {
-                        DebtDetailView(group: group)
-                    }
-                case .recordDetail(let record):
-                    RecordDetailView(record: record, group: group, onEdit: {
-                        activeSheet = .editRecord(record)
-                    }, onDelete: {
-                        Task {
-                            if await store.deleteRecord(groupId: groupId, recordId: record.recordId) {
-                                activeSheet = nil
-                            }
+        VStack(alignment: .leading, spacing: 9) {
+            Text(L("Balances"))
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.ink)
+
+            VStack(spacing: 0) {
+                if visibleBalances.isEmpty {
+                    Text(L("No balances"))
+                        .font(.subheadline)
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                } else {
+                    ForEach(visibleBalances) { member in
+                        BalancePreviewRow(member: member, recordCount: recordCount(for: member)) {
+                            onSelect(member)
                         }
-                    })
-                case .settings:
-                    if let group {
-                        GroupSettingsPanel(group: group, recordCount: store.recordTotals[groupId] ?? 0, onDismiss: {
-                            Task {
-                                if await store.deleteGroup(groupId) {
-                                    activeSheet = nil
-                                    dismissGroup()
-                                }
-                            }
-                        })
+                        if member.id != visibleBalances.last?.id {
+                            Divider()
+                                .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                                .padding(.leading, 54)
+                        }
                     }
-                case .addMember:
-                    if let group {
-                        AddMemberView(group: group) {
-                            activeSheet = nil
+
+                    Divider()
+                        .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                        .padding(.leading, 54)
+
+                    Button {
+                        onSelect(nil)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(balances.count > 3 ? L("View all") : L("View details"))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(SoftLedgerTheme.accent)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+                        }
+                        .frame(minHeight: 48)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+            }
+        }
+    }
+
+    private func recordCount(for member: Member) -> Int {
+        (store.recordsByGroup[group.id] ?? []).filter { record in
+            record.who == member.uuid || record.forWhom.contains(member.uuid)
+        }.count
+    }
+}
+
+struct BalancePreviewRow: View {
+    let member: Member
+    let recordCount: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                SoftLedgerAvatar(member: member, size: 30)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(member.name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.ink)
+                        .lineLimit(1)
+                    Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(recordCount)"))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                }
+
+                Spacer()
+
+                Text(signedMoney(member.debtMinor))
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(moneyColor(member.debtMinor))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+            }
+            .frame(minHeight: 54)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct GroupExpensesSection: View {
+    let group: WalkGroup
+    let records: [WalkRecord]
+    let onEdit: (WalkRecord) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L("Expenses"))
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.ink)
+
+            VStack(spacing: 0) {
+                if records.isEmpty {
+                    Text(L("No expenses yet"))
+                        .font(.subheadline)
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                } else {
+                    ForEach(records) { record in
+                        ExpenseRow(record: record, group: group) {
+                            onEdit(record)
+                        }
+                        if record.id != records.last?.id {
+                            Divider()
+                                .overlay(SoftLedgerTheme.rule.opacity(0.56))
+                                .padding(.leading, 54)
                         }
                     }
                 }
             }
-            .padding(20)
-            .navigationTitle(title)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L("Cancel")) { activeSheet = nil }
-                }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
-        .presentationDetents(presentationDetents)
+    }
+}
+
+struct ExpenseRow: View {
+    let record: WalkRecord
+    let group: WalkGroup
+    let action: () -> Void
+
+    private var payer: Member? {
+        group.allMembers.first(where: { $0.uuid == record.who })
     }
 
-    private var title: String {
-        switch sheet {
-        case .addRecord: L("Add record")
-        case .editRecord: L("Edit record")
-        case .share: L("Share")
-        case .debtDetail: L("Debt detail")
-        case .recordDetail: L("Record detail")
-        case .settings: L("Group setting")
-        case .addMember: L("Add member")
-        }
+    private var category: ExpenseCategory {
+        expenseCategory(for: record.type)
     }
 
-    private var presentationDetents: Set<PresentationDetent> {
-        switch sheet {
-        case .addRecord, .editRecord:
-            return [.large]
-        default:
-            return [.medium, .large]
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: category.symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(category.color)
+                    .frame(width: 38, height: 38)
+                    .background(category.color.opacity(0.12), in: Circle())
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(recordTitle(record))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.ink)
+                        .lineLimit(1)
+                    Text("\(payer?.name ?? L("Unknown")) \(L("paid")) · \(record.forWhom.count) \(L("people"))")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("¥\(Money.display(record.paidMinor))")
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.62)
+                        .allowsTightening(true)
+                        .frame(maxWidth: 132, alignment: .trailing)
+                    Text(record.createdAt.walkDate, style: .time)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.mutedInk)
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+            }
+            .frame(minHeight: 54)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct PeopleSetupEmptyState: View {
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "person.2")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(SoftLedgerTheme.accent)
+                .frame(width: 64, height: 64)
+                .background(SoftLedgerTheme.paper, in: Circle())
+                .overlay {
+                    Circle().stroke(SoftLedgerTheme.rule.opacity(0.65), lineWidth: 1)
+                }
+
+            VStack(spacing: 6) {
+                Text(L("Add people"))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.ink)
+
+                Text(L("Add members or temporary members when this becomes a shared expense group."))
+                    .font(.callout)
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button {
+                action()
+            } label: {
+                Label(L("Add people"), systemImage: "person.badge.plus")
+            }
+            .buttonStyle(.glass)
+            .controlSize(.regular)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18)
+        .padding(.top, 80)
+        .padding(.bottom, 40)
     }
 }
