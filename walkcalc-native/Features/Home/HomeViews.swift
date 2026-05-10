@@ -7,12 +7,14 @@ enum Route: Hashable {
 enum HomeSheet: Identifiable {
     case create
     case settings
+    case archivedGroups
     case about
 
     var id: String {
         switch self {
         case .create: "create"
         case .settings: "settings"
+        case .archivedGroups: "archivedGroups"
         case .about: "about"
         }
     }
@@ -70,7 +72,7 @@ struct LoginView: View {
                 Text("Walking Calculator")
                     .font(.title.bold())
                     .foregroundStyle(SoftLedgerTheme.ink)
-                Text(L("Login to continue"))
+                Text(L("Login"))
                     .font(.subheadline)
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
             }
@@ -78,7 +80,7 @@ struct LoginView: View {
             Button {
                 showingSSO = true
             } label: {
-                Text(L("Continue with hong97.ltd"))
+                Text(L("Login"))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -105,9 +107,8 @@ struct RootHomeView: View {
     @State private var activeSheet: HomeSheet?
     @State private var isJoiningGroup = false
     @State private var joinGroupID = ""
+    @State private var archiveCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
-    @State private var undoGroup: WalkGroup?
-    @State private var undoTask: Task<Void, Never>?
 
     private var activeGroups: [WalkGroup] {
         guard let user = store.user else { return store.groups }
@@ -152,13 +153,13 @@ struct RootHomeView: View {
                                         Button {
                                             archive(group)
                                         } label: {
-                                            Label(L("Archive"), systemImage: "archivebox")
+                                            Label(L("Archive group"), systemImage: "archivebox")
                                         }
 
                                         Button(role: .destructive) {
                                             deleteCandidate = group
                                         } label: {
-                                            Label(L("Delete"), systemImage: "trash")
+                                            Label(L("Delete group"), systemImage: "trash")
                                         }
                                     }
                                 }
@@ -170,13 +171,6 @@ struct RootHomeView: View {
                     .padding(.bottom, 34)
                 }
                 .refreshable { await store.refreshHome() }
-
-                if let undoGroup {
-                    SoftLedgerToast(message: L("%@ archived").replacingOccurrences(of: "%@", with: undoGroup.name), actionTitle: L("Undo")) {
-                        undoArchive(undoGroup)
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
             }
             .navigationTitle(L("Groups"))
             .navigationBarTitleDisplayMode(.large)
@@ -202,8 +196,18 @@ struct RootHomeView: View {
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        activeSheet = .settings
+                    Menu {
+                        Button {
+                            activeSheet = .archivedGroups
+                        } label: {
+                            Label(L("Archived groups"), systemImage: "archivebox")
+                        }
+
+                        Button {
+                            activeSheet = .settings
+                        } label: {
+                            Label(L("Settings"), systemImage: "gearshape")
+                        }
                     } label: {
                         Image(systemName: "ellipsis")
                             .foregroundStyle(.primary)
@@ -235,6 +239,12 @@ struct RootHomeView: View {
                 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+            case .archivedGroups:
+                NavigationStack {
+                    ArchivedGroupsView(groups: archivedGroups)
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             case .about:
                 AboutSheet()
                     .presentationDetents([.medium])
@@ -259,14 +269,23 @@ struct RootHomeView: View {
             }
             .disabled(!canJoinGroup)
         }
-        .confirmationDialog(L("Delete group?"), isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } }), titleVisibility: .visible) {
+        .alert(L("Archive group?"), isPresented: Binding(get: { archiveCandidate != nil }, set: { if !$0 { archiveCandidate = nil } })) {
+            Button(L("Cancel"), role: .cancel) {}
+            Button(L("Archive group")) {
+                if let group = archiveCandidate {
+                    Task { _ = await store.archiveGroup(group.id) }
+                }
+                archiveCandidate = nil
+            }
+        }
+        .alert(L("Delete group?"), isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } })) {
+            Button(L("Cancel"), role: .cancel) {}
             Button(L("Delete group"), role: .destructive) {
                 if let group = deleteCandidate {
                     Task { _ = await store.deleteGroup(group.id) }
                 }
                 deleteCandidate = nil
             }
-            Button(L("Cancel"), role: .cancel) {}
         } message: {
             Text(L("%@ will be permanently deleted.").replacingOccurrences(of: "%@", with: deleteCandidate?.name ?? ""))
         }
@@ -282,31 +301,7 @@ struct RootHomeView: View {
     }
 
     private func archive(_ group: WalkGroup) {
-        undoTask?.cancel()
-        Task {
-            if await store.archiveGroup(group.id) {
-                withAnimation(.snappy) {
-                    undoGroup = group
-                }
-                undoTask = Task {
-                    try? await Task.sleep(for: .seconds(5))
-                    guard !Task.isCancelled else { return }
-                    await MainActor.run {
-                        withAnimation(.snappy) {
-                            undoGroup = nil
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func undoArchive(_ group: WalkGroup) {
-        undoTask?.cancel()
-        withAnimation(.snappy) {
-            undoGroup = nil
-        }
-        Task { _ = await store.unarchiveGroup(group.id) }
+        archiveCandidate = group
     }
 }
 
@@ -354,10 +349,10 @@ private struct HomeBalanceCard: View {
                 if !Money.isZero(owedToMe) || !Money.isZero(iOwe) {
                     HStack(spacing: 18) {
                         if !Money.isZero(owedToMe) {
-                            SoftLedgerInlineStat(title: L("Owed to me"), value: "+¥\(Money.display(owedToMe))", color: SoftLedgerTheme.positive)
+                            SoftLedgerInlineStat(title: L("Owed to me"), value: "+¥\(Money.compactDisplay(owedToMe))", color: SoftLedgerTheme.positive)
                         }
                         if !Money.isZero(iOwe) {
-                            SoftLedgerInlineStat(title: L("I owe"), value: "-¥\(Money.display(iOwe))", color: SoftLedgerTheme.negative)
+                            SoftLedgerInlineStat(title: L("I owe"), value: "-¥\(Money.compactDisplay(iOwe))", color: SoftLedgerTheme.negative)
                         }
                     }
                 }

@@ -238,6 +238,14 @@ private func arrayPayload(_ raw: Any?) -> [[String: Any]] {
     raw as? [[String: Any]] ?? []
 }
 
+private func avatarValue(profile: [String: Any], fallback: [String: Any]) -> String {
+    profile["avatar"] as? String
+        ?? profile["avatarUrl"] as? String
+        ?? fallback["avatar"] as? String
+        ?? fallback["avatarUrl"] as? String
+        ?? ""
+}
+
 private func mapUser(_ raw: Any?) -> UserProfile {
     let dict = dictPayload(raw)
     let profile = dict["profile"] as? [String: Any] ?? [:]
@@ -245,7 +253,7 @@ private func mapUser(_ raw: Any?) -> UserProfile {
     return UserProfile(
         uuid: uuid,
         name: profile["name"] as? String ?? dict["name"] as? String ?? uuid,
-        avatar: profile["avatar"] as? String ?? dict["avatar"] as? String ?? ""
+        avatar: avatarValue(profile: profile, fallback: dict)
     )
 }
 
@@ -257,7 +265,7 @@ private func mapMember(_ raw: [String: Any], temporary: Bool = false) -> Member 
     return Member(
         uuid: uuid,
         name: profile["name"] as? String ?? raw["name"] as? String ?? uuid,
-        avatar: profile["avatar"] as? String ?? raw["avatar"] as? String ?? "",
+        avatar: avatarValue(profile: profile, fallback: raw),
         debtMinor: debtMinor,
         costMinor: costMinor,
         isTemporary: temporary

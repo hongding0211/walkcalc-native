@@ -330,9 +330,13 @@ struct ExpenseRow: View {
         expenseCategory(for: record.type)
     }
 
+    private var payerName: String {
+        payer?.name ?? L("Unknown")
+    }
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: category.symbol)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(category.color)
@@ -344,22 +348,29 @@ struct ExpenseRow: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
-                    Text("\(payer?.name ?? L("Unknown")) \(L("paid")) · \(record.forWhom.count) \(L("people"))")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .lineLimit(1)
+                    HStack(spacing: 0) {
+                        Text(payerName)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(1)
+                        Text(" \(L("paid for")) \(record.forWhom.count)")
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 }
+                .layoutPriority(1)
 
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("¥\(Money.display(record.paidMinor))")
+                    Text("¥\(Money.compactDisplay(record.paidMinor))")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.62)
                         .allowsTightening(true)
-                        .frame(maxWidth: 132, alignment: .trailing)
+                        .frame(minWidth: 70, alignment: .trailing)
                     Text(record.createdAt.walkDate, style: .time)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.mutedInk)
@@ -373,7 +384,8 @@ struct ExpenseRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(recordTitle(record)), \(payerName) \(L("paid for")) \(record.forWhom.count), ¥\(Money.compactDisplay(record.paidMinor)), \(record.createdAt.walkDate.formatted(date: .omitted, time: .shortened))")
     }
 }
 

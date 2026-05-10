@@ -92,6 +92,42 @@ enum Money {
         return "\(negative ? "-" : "")\(integerString).\(String(format: "%02d", fraction))"
     }
 
+    static func editableDisplay(_ value: MoneyMinor?) -> String {
+        let minor = NSDecimalNumber(decimal: decimal(value)).int64Value
+        let negative = minor < 0
+        let absValue = Swift.abs(minor)
+        let integer = absValue / 100
+        let fraction = absValue % 100
+        return "\(negative ? "-" : "")\(integer).\(String(format: "%02d", fraction))"
+    }
+
+    static func compactDisplay(_ value: MoneyMinor?, localeIdentifier: String = L10n.preferredLanguageIdentifier) -> String {
+        let amount = NSDecimalNumber(decimal: decimal(value) / 100).doubleValue
+        let negative = amount < 0
+        let absAmount = Swift.abs(amount)
+        let usesChineseUnits = localeIdentifier.hasPrefix("zh")
+        let scales: [(threshold: Double, divisor: Double, suffix: String)] = usesChineseUnits
+            ? [(100_000_000, 100_000_000, "亿"), (10_000, 10_000, "万")]
+            : [(1_000_000_000, 1_000_000_000, "B"), (1_000_000, 1_000_000, "M"), (1_000, 1_000, "K")]
+
+        guard let scale = scales.first(where: { absAmount >= $0.threshold }) else {
+            return display(value)
+        }
+
+        let scaled = absAmount / scale.divisor
+        let formatted = compactNumberString(scaled)
+        let separator = " "
+        return "\(negative ? "-" : "")\(formatted)\(separator)\(scale.suffix)"
+    }
+
+    private static func compactNumberString(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = value < 10 ? 1 : 0
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
     private static func isValidMinor(_ value: String) -> Bool {
         value.range(of: #"^-?(0|[1-9]\d*)$"#, options: .regularExpression) != nil
     }

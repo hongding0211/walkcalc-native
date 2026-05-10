@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct GroupSheetView: View {
     @EnvironmentObject private var store: WalkcalcStore
@@ -202,9 +203,9 @@ struct SettingsSheet: View {
         Form {
             Section(L("Account")) {
                 HStack(spacing: 12) {
-                    SoftLedgerAvatar(user: store.user, size: 44)
+                    SoftLedgerAvatar(user: store.user, size: 32)
                     Text(store.user?.name ?? "")
-                        .font(.body.weight(.semibold))
+                        .font(.body)
                         .foregroundStyle(SoftLedgerTheme.ink)
                     Spacer()
                 }
@@ -280,7 +281,7 @@ struct SettingsSheet: View {
     }
 }
 
-private struct ArchivedGroupsView: View {
+struct ArchivedGroupsView: View {
     @EnvironmentObject private var store: WalkcalcStore
     let groups: [WalkGroup]
     @State private var deleteCandidate: WalkGroup?
@@ -303,11 +304,19 @@ private struct ArchivedGroupsView: View {
                                     .font(.subheadline)
                                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
                             }
-                            Spacer()
-                            Button(L("Restore")) {
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Button {
                                 Task { _ = await store.unarchiveGroup(group.id) }
+                            } label: {
+                                Text(L("Restore"))
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(SoftLedgerTheme.accent)
+                                    .padding(.horizontal, 6)
+                                    .frame(minHeight: 44)
+                                    .contentShape(Rectangle())
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.plain)
                         }
                         .contextMenu {
                             Button(L("Restore")) {
@@ -316,6 +325,16 @@ private struct ArchivedGroupsView: View {
                             Button(L("Delete"), role: .destructive) {
                                 deleteCandidate = group
                             }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(L("Delete"), role: .destructive) {
+                                deleteCandidate = group
+                            }
+
+                            Button(L("Restore")) {
+                                Task { _ = await store.unarchiveGroup(group.id) }
+                            }
+                            .tint(SoftLedgerTheme.accent)
                         }
                     }
                 }
@@ -326,14 +345,14 @@ private struct ArchivedGroupsView: View {
         .background(SoftLedgerTheme.canvas)
         .navigationTitle(L("Archived groups"))
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(L("Delete group?"), isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } }), titleVisibility: .visible) {
+        .alert(L("Delete group?"), isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } })) {
+            Button(L("Cancel"), role: .cancel) {}
             Button(L("Delete group"), role: .destructive) {
                 if let group = deleteCandidate {
                     Task { _ = await store.deleteGroup(group.id) }
                 }
                 deleteCandidate = nil
             }
-            Button(L("Cancel"), role: .cancel) {}
         }
     }
 }
@@ -387,7 +406,7 @@ struct GroupSettingsSheet: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            Section(L("People")) {
+            Section(L("Members")) {
                 NavigationLink {
                     AddMemberSearchView(existingMemberIds: Set(group.allMembers.map(\.uuid))) { users in
                         Task {
@@ -472,10 +491,11 @@ struct GroupSettingsSheet: View {
             }
             .disabled(!canAddTempMember)
         }
-        .confirmationDialog(confirmationTitle, isPresented: confirmationBinding, titleVisibility: .visible) {
+        .alert(confirmationTitle, isPresented: confirmationBinding) {
             switch confirmation {
             case .archive:
                 Button(L("Archive group")) {
+                    confirmation = nil
                     Task {
                         if await store.archiveGroup(group.id) {
                             dismiss()
@@ -485,6 +505,7 @@ struct GroupSettingsSheet: View {
                 }
             case .delete:
                 Button(L("Delete group"), role: .destructive) {
+                    confirmation = nil
                     Task {
                         if await store.deleteGroup(group.id) {
                             dismiss()
@@ -726,7 +747,7 @@ struct RecordEditorView: View {
         self.groupId = groupId
         self.record = record
         self.onDone = onDone
-        _amount = State(initialValue: record.map { Money.display($0.paidMinor) } ?? "")
+        _amount = State(initialValue: record.map { Money.editableDisplay($0.paidMinor) } ?? "")
         _paidBy = State(initialValue: record?.who ?? "")
         _splitMembers = State(initialValue: Set(record?.forWhom ?? []))
         _categoryId = State(initialValue: record?.type ?? "food")
@@ -808,6 +829,7 @@ struct RecordEditorView: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
         .background(SoftLedgerTheme.canvas)
         .tint(SoftLedgerTheme.accent)
         .navigationTitle(title)
@@ -840,6 +862,12 @@ struct RecordEditorView: View {
                 paidBy = store.user?.uuid ?? members.first?.uuid ?? ""
             }
             focusedField = .amount
+        }
+        .overlay {
+            KeyboardDismissTapLayer(isActive: focusedField != nil) {
+                focusedField = nil
+            }
+            .frame(width: 0, height: 0)
         }
         .alert(L("Confirm delete?"), isPresented: $confirmDelete) {
             Button(L("Cancel"), role: .cancel) {}
@@ -904,6 +932,75 @@ private enum ExpenseEditorField {
     case note
 }
 
+private struct KeyboardDismissTapLayer: UIViewRepresentable {
+    let isActive: Bool
+    let dismiss: () -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        KeyboardDismissTapView(isActive: isActive, dismiss: dismiss)
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard let uiView = uiView as? KeyboardDismissTapView else { return }
+        uiView.isActive = isActive
+        uiView.dismiss = dismiss
+    }
+
+    final class KeyboardDismissTapView: UIView, UIGestureRecognizerDelegate {
+        var isActive: Bool
+        var dismiss: () -> Void
+        private weak var installedWindow: UIWindow?
+        private lazy var recognizer: UITapGestureRecognizer = {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        init(isActive: Bool, dismiss: @escaping () -> Void) {
+            self.isActive = isActive
+            self.dismiss = dismiss
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if installedWindow !== window {
+                installedWindow?.removeGestureRecognizer(recognizer)
+                installedWindow = window
+                window?.addGestureRecognizer(recognizer)
+            }
+        }
+
+        deinit {
+            installedWindow?.removeGestureRecognizer(recognizer)
+        }
+
+        @objc func handleTap() {
+            guard isActive else { return }
+            dismiss()
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard isActive else { return false }
+            var touchedView: UIView? = touch.view
+            while let view = touchedView {
+                if view is UITextField || view is UITextView {
+                    return false
+                }
+                touchedView = view.superview
+            }
+            return true
+        }
+    }
+}
+
 private struct SplitInlineEditor: View {
     let members: [Member]
     @Binding var selection: Set<String>
@@ -921,6 +1018,9 @@ private struct SplitInlineEditor: View {
                     }
                 }
                 .font(.caption.weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
             }
 
             JustifiedGrid(items: members, id: \.id, itemWidth: 56, rowSpacing: 10, estimatedItemHeight: 58) { member in
@@ -928,11 +1028,7 @@ private struct SplitInlineEditor: View {
                     toggle(member)
                 } label: {
                     VStack(spacing: 5) {
-                        Text(member.name.prefix(1).uppercased())
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(selection.contains(member.uuid) ? Color.white : SoftLedgerTheme.secondaryInk)
-                            .frame(width: 36, height: 36)
-                            .background(selection.contains(member.uuid) ? SoftLedgerTheme.accent : SoftLedgerTheme.canvas, in: Circle())
+                        SelectableSplitAvatar(member: member, isSelected: selection.contains(member.uuid))
 
                         Text(member.name)
                             .font(.caption2.weight(.medium))
@@ -956,6 +1052,40 @@ private struct SplitInlineEditor: View {
         } else {
             selection.insert(member.uuid)
         }
+    }
+}
+
+private struct SelectableSplitAvatar: View {
+    let member: Member
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            SoftLedgerAvatar(member: member, size: 36)
+                .overlay {
+                    Circle()
+                        .stroke(isSelected ? SoftLedgerTheme.accent : SoftLedgerTheme.rule.opacity(0.45), lineWidth: isSelected ? 2 : 1)
+                }
+                .overlay {
+                    if isSelected {
+                        Circle()
+                            .fill(SoftLedgerTheme.accent.opacity(0.16))
+                    }
+                }
+
+            if isSelected {
+                Circle()
+                    .fill(SoftLedgerTheme.accent)
+                    .frame(width: 15, height: 15)
+                    .overlay {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Color.white)
+                    }
+                    .offset(x: 2, y: 2)
+            }
+        }
+        .frame(width: 38, height: 38)
     }
 }
 
@@ -1122,7 +1252,7 @@ private struct BalancesRootView: View {
                 Button(L("Resolve %@ transfers").replacingOccurrences(of: "%@", with: "\(debts.count)")) {
                     Task { _ = await store.resolveAll(groupId: group.id, debts: debts) }
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.glass)
                 .controlSize(.large)
                 .padding(.bottom, 14)
             }
@@ -1156,7 +1286,7 @@ private struct SettlementPlanSection: View {
                             .foregroundStyle(SoftLedgerTheme.ink)
                             .lineLimit(1)
                         Spacer()
-                        Text("¥\(Money.display(debt.amountMinor))")
+                        Text("¥\(Money.compactDisplay(debt.amountMinor))")
                             .font(.subheadline.monospacedDigit().weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.ink)
                     }

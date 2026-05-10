@@ -67,6 +67,8 @@ private struct SoftLedgerGlassModifier: ViewModifier {
 }
 
 struct SoftLedgerAvatar: View {
+    @Environment(\.displayScale) private var displayScale
+
     var user: UserProfile?
     var member: Member?
     var initial: String?
@@ -81,12 +83,14 @@ struct SoftLedgerAvatar: View {
         user?.avatar ?? member?.avatar ?? ""
     }
 
+    private var optimizedURL: URL? {
+        SoftLedgerAvatarURL.url(from: avatarURL, displaySize: size, displayScale: displayScale)
+    }
+
     var body: some View {
         Group {
-            if let url = URL(string: avatarURL), !avatarURL.isEmpty {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
+            if let optimizedURL {
+                SoftLedgerCachedAvatarImage(url: optimizedURL) {
                     fallback
                 }
             } else {
@@ -105,6 +109,136 @@ struct SoftLedgerAvatar: View {
                     .font(.system(size: size * 0.42, weight: .semibold))
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
             }
+    }
+}
+
+private enum SoftLedgerAvatarURL {
+    static func url(from rawValue: String, displaySize: CGFloat, displayScale: CGFloat) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        guard let url = URL(string: trimmed) ?? percentEncodedURL(from: trimmed) else {
+            return nil
+        }
+
+        return urlWithAvatarSize(url, displaySize: displaySize, displayScale: displayScale)
+    }
+
+    private static func percentEncodedURL(from value: String) -> URL? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.insert(charactersIn: "#")
+        return value
+            .addingPercentEncoding(withAllowedCharacters: allowed)
+            .flatMap(URL.init(string:))
+    }
+
+    private static func urlWithAvatarSize(_ url: URL, displaySize: CGFloat, displayScale: CGFloat) -> URL {
+        guard url.host?.contains("aliyuncs.com") == true,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+
+        let queryItems = components.queryItems ?? []
+        guard !queryItems.contains(where: { $0.name == "x-oss-process" }) else {
+            return url
+        }
+
+        let scale = max(displayScale, 2)
+        let pixelWidth = max(64, Int((displaySize * scale).rounded(.up)))
+        components.queryItems = queryItems + [
+            URLQueryItem(name: "x-oss-process", value: "image/resize,w_\(pixelWidth)")
+        ]
+        return components.url ?? url
+    }
+}
+
+private struct SoftLedgerCachedAvatarImage<Placeholder: View>: View {
+    let url: URL
+    @ViewBuilder var placeholder: Placeholder
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                placeholder
+            }
+        }
+        .task(id: url) {
+            await loadImage()
+        }
+    }
+
+    @MainActor
+    private func loadImage() async {
+        if let cachedImage = SoftLedgerAvatarImageCache.shared.image(for: url) {
+            image = cachedImage
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.cachePolicy = .returnCacheDataElseLoad
+
+        if let cachedImage = SoftLedgerAvatarImageCache.shared.diskImage(for: request) {
+            SoftLedgerAvatarImageCache.shared.insert(cachedImage, for: url)
+            image = cachedImage
+            return
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard !Task.isCancelled,
+                  let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode),
+                  let downloadedImage = UIImage(data: data) else {
+                return
+            }
+            SoftLedgerAvatarImageCache.shared.store(data: data, response: response, for: request)
+            SoftLedgerAvatarImageCache.shared.insert(downloadedImage, for: url)
+            image = downloadedImage
+        } catch {
+            return
+        }
+    }
+}
+
+private final class SoftLedgerAvatarImageCache {
+    static let shared = SoftLedgerAvatarImageCache()
+
+    private let cache = NSCache<NSURL, UIImage>()
+    private let diskCache = URLCache(
+        memoryCapacity: 32 * 1024 * 1024,
+        diskCapacity: 128 * 1024 * 1024,
+        diskPath: "walkcalc-avatar-cache"
+    )
+
+    private init() {
+        cache.countLimit = 240
+        cache.totalCostLimit = 24 * 1024 * 1024
+    }
+
+    func image(for url: URL) -> UIImage? {
+        cache.object(forKey: url as NSURL)
+    }
+
+    func insert(_ image: UIImage, for url: URL) {
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        cache.setObject(image, forKey: url as NSURL, cost: cost)
+    }
+
+    func diskImage(for request: URLRequest) -> UIImage? {
+        guard let response = diskCache.cachedResponse(for: request) else {
+            return nil
+        }
+        return UIImage(data: response.data)
+    }
+
+    func store(data: Data, response: URLResponse, for request: URLRequest) {
+        diskCache.storeCachedResponse(CachedURLResponse(response: response, data: data), for: request)
     }
 }
 
@@ -233,12 +367,12 @@ func expenseCategory(for id: String) -> ExpenseCategory {
 
 func signedMoney(_ value: MoneyMinor?) -> String {
     if Money.isZero(value) {
-        return "¥\(Money.display(value))"
+        return "¥\(Money.compactDisplay(value))"
     }
     if Money.isNegative(value) {
-        return "-¥\(Money.display(Money.negate(value ?? "0")))"
+        return "-¥\(Money.compactDisplay(Money.negate(value ?? "0")))"
     }
-    return "+¥\(Money.display(value))"
+    return "+¥\(Money.compactDisplay(value))"
 }
 
 func moneyColor(_ value: MoneyMinor?) -> Color {
