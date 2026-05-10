@@ -313,6 +313,12 @@
       "skillPath": "plugins/kubernetes-operations/skills/helm-chart-scaffolding/SKILL.md",
       "computedHash": "227baa46e7fcf59448b7f670ba504a0dbd6ae0e5d80338c066037e01b2b15755"
     },
+    "huashu-design": {
+      "source": "alchaincyf/huashu-design",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "d7c78973485ab1744b2bc7fb70f15d365f6565d3377052da3a8d5c033277f25a"
+    },
     "hybrid-cloud-networking": {
       "source": "wshobson/agents",
       "sourceType": "github",
