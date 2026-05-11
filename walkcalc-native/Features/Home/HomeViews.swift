@@ -109,8 +109,6 @@ struct RootHomeView: View {
     @State private var joinGroupID = ""
     @State private var archiveCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
-    @State private var searchText = ""
-    @State private var hasLoadedInitialGroups = false
 
     private var activeGroups: [WalkGroup] {
         guard let user = store.user else { return store.groups }
@@ -192,8 +190,6 @@ struct RootHomeView: View {
             }
             .navigationTitle(L("Groups"))
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $searchText, placement: .toolbar, prompt: L("Search"))
-            .searchPresentationToolbarBehavior(.avoidHidingContent)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -318,13 +314,6 @@ struct RootHomeView: View {
         }
         .task {
             await store.refreshHome()
-            hasLoadedInitialGroups = true
-        }
-        .task(id: searchText) {
-            guard hasLoadedInitialGroups else { return }
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            if Task.isCancelled { return }
-            await store.refreshHome(search: searchText)
         }
     }
 
@@ -365,7 +354,7 @@ private struct HomeBalanceCard: View {
                     Text(L("Total balance"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    Text(signedMoney(total))
+                    Text(signedMoney(total, style: .exact))
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(SoftLedgerTheme.ink)
@@ -395,6 +384,7 @@ private struct GroupSummaryRow: View {
     @ScaledMetric(relativeTo: .caption) private var metadataSpacing = 8
     @ScaledMetric(relativeTo: .caption) private var statusInset = 12
     @ScaledMetric(relativeTo: .caption) private var statusWidth = 3
+    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 82
 
     let group: WalkGroup
 
@@ -441,6 +431,8 @@ private struct GroupSummaryRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
                 .allowsTightening(true)
+                .frame(minWidth: amountMinWidth, alignment: .trailing)
+                .layoutPriority(2)
 
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))

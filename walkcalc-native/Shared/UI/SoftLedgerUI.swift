@@ -399,14 +399,28 @@ func expenseCategory(for record: WalkRecord) -> ExpenseCategory {
     record.isDebtResolve ? transferCategory : expenseCategory(for: record.type)
 }
 
-func signedMoney(_ value: MoneyMinor?) -> String {
+enum MoneyDisplayStyle {
+    case compact
+    case exact
+
+    func string(_ value: MoneyMinor?) -> String {
+        switch self {
+        case .compact:
+            Money.compactDisplay(value)
+        case .exact:
+            Money.display(value)
+        }
+    }
+}
+
+func signedMoney(_ value: MoneyMinor?, style: MoneyDisplayStyle = .compact) -> String {
     if Money.isZero(value) {
-        return "¥\(Money.compactDisplay(value))"
+        return "¥\(style.string(value))"
     }
     if Money.isNegative(value) {
-        return "-¥\(Money.compactDisplay(Money.negate(value ?? "0")))"
+        return "-¥\(style.string(Money.negate(value ?? "0")))"
     }
-    return "+¥\(Money.compactDisplay(value))"
+    return "+¥\(style.string(value))"
 }
 
 func moneyColor(_ value: MoneyMinor?) -> Color {

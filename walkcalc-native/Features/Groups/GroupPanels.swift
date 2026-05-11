@@ -832,10 +832,9 @@ struct RecordEditorView: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            if record != nil && hasEditIntent {
+            if record != nil {
                 Section {
                     Button(L("Delete expense"), role: .destructive) {
-                        beginEditing()
                         confirmDelete = true
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -922,6 +921,8 @@ struct RecordEditorView: View {
         message = nil
         focusedField = nil
         hasEditIntent = false
+        dismiss()
+        onDone()
     }
 
     private func resetDraft() {
@@ -1452,6 +1453,7 @@ private struct SettlementPlanSection: View {
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 6
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 82
 
     let debts: [ResolvedDebt]
 
@@ -1468,10 +1470,17 @@ private struct SettlementPlanSection: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.ink)
                             .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(1)
                         Spacer()
                         Text("¥\(Money.compactDisplay(debt.amountMinor))")
                             .font(.subheadline.monospacedDigit().weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .allowsTightening(true)
+                            .frame(minWidth: amountMinWidth, alignment: .trailing)
+                            .layoutPriority(2)
                     }
                     .frame(minHeight: rowMinHeight)
 
@@ -1521,6 +1530,10 @@ private struct MemberBalanceDetailView: View {
         store.memberRecordTotal(groupId: group.id, memberId: member.uuid)
     }
 
+    private var balanceTextColor: Color {
+        Money.isZero(member.debtMinor) ? SoftLedgerTheme.ink : moneyColor(member.debtMinor)
+    }
+
     var body: some View {
         ZStack {
             SoftLedgerBackground()
@@ -1532,10 +1545,10 @@ private struct MemberBalanceDetailView: View {
                             Text(L("Balance with %@").replacingOccurrences(of: "%@", with: member.name))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                            Text(signedMoney(member.debtMinor))
+                            Text(signedMoney(member.debtMinor, style: .exact))
                                 .font(.system(size: balanceFontSize, weight: .semibold, design: .rounded))
                                 .monospacedDigit()
-                                .foregroundStyle(moneyColor(member.debtMinor))
+                                .foregroundStyle(balanceTextColor)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.82)
                         }

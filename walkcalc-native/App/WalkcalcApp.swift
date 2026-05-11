@@ -18,6 +18,9 @@ struct walkcalc_nativeApp: App {
         if ProcessInfo.processInfo.arguments.contains("--verify-temporal-display") {
             TemporalDisplayVerification.assertAllCasesPass()
         }
+        if ProcessInfo.processInfo.arguments.contains("--verify-money-display") {
+            MoneyDisplayVerification.assertAllCasesPass()
+        }
         #endif
     }
 

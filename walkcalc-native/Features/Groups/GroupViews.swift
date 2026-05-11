@@ -136,7 +136,7 @@ private struct GroupSummaryCard: View {
                 Text(L("My balance"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                Text(signedMoney(myBalance))
+                Text(signedMoney(myBalance, style: .exact))
                     .font(.system(size: 42, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(SoftLedgerTheme.ink)
@@ -235,6 +235,7 @@ struct BalancePreviewRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
     @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
+    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 82
 
     let member: Member
     let recordCount: Int
@@ -265,6 +266,8 @@ struct BalancePreviewRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
                     .allowsTightening(true)
+                    .frame(minWidth: amountMinWidth, alignment: .trailing)
+                    .layoutPriority(2)
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -332,7 +335,7 @@ private struct GroupExpensesSection: View {
 }
 
 struct ExpenseRow: View {
-    @ScaledMetric(relativeTo: .subheadline) private var trailingColumnWidth = 92
+    @ScaledMetric(relativeTo: .subheadline) private var trailingColumnWidth = 106
     @ScaledMetric(relativeTo: .subheadline) private var iconSize = 30
     @ScaledMetric(relativeTo: .subheadline) private var iconFontSize = 14
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
@@ -398,6 +401,7 @@ struct ExpenseRow: View {
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                         .allowsTightening(true)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     Text(compactCreatedAt)

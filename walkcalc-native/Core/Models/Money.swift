@@ -107,8 +107,8 @@ enum Money {
         let absAmount = Swift.abs(amount)
         let usesChineseUnits = localeIdentifier.hasPrefix("zh")
         let scales: [(threshold: Double, divisor: Double, suffix: String)] = usesChineseUnits
-            ? [(100_000_000, 100_000_000, "亿"), (10_000, 10_000, "万")]
-            : [(1_000_000_000, 1_000_000_000, "B"), (1_000_000, 1_000_000, "M"), (1_000, 1_000, "K")]
+            ? [(100_000_000, 100_000_000, "亿"), (100_000, 10_000, "万")]
+            : [(1_000_000_000, 1_000_000_000, "B"), (1_000_000, 1_000_000, "M"), (100_000, 1_000, "K")]
 
         guard let scale = scales.first(where: { absAmount >= $0.threshold }) else {
             return display(value)
