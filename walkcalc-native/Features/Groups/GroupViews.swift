@@ -46,7 +46,7 @@ struct GroupView: View {
             SoftLedgerBackground()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     if let group {
                         if shouldShowPeopleSetup {
                             PeopleSetupEmptyState {
@@ -57,10 +57,12 @@ struct GroupView: View {
                             GroupBalancesSection(group: group) { selectedMember in
                                 activeSheet = .balances(selectedMember)
                             }
-                            GroupExpensesSection(group: group, records: records) { record in
+                            GroupExpensesSection(
+                                group: group,
+                                records: records,
+                                isLoadingMore: store.isLoadingRecords(groupId: group.id)
+                            ) { record in
                                 activeSheet = .editExpense(record)
-                            } onLoadMore: {
-                                Task { await store.loadMoreRecords(groupId: group.id) }
                             }
                         }
                     } else {
@@ -79,6 +81,15 @@ struct GroupView: View {
                 .padding(.bottom, 34)
             }
             .refreshable { await store.refreshGroup(groupId) }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
+                let triggerY = max(0, geometry.contentSize.height - 160)
+                return visibleBottom >= triggerY
+            } action: { _, isNearBottom in
+                guard isNearBottom, let group else { return }
+                guard store.canLoadMoreRecords(groupId: group.id), !store.isLoadingRecords(groupId: group.id) else { return }
+                Task { await store.loadMoreRecords(groupId: group.id) }
+            }
         }
         .navigationTitle(group?.name ?? L("Group"))
         .navigationBarTitleDisplayMode(.large)
@@ -156,6 +167,10 @@ private struct RecordSearchCanvas: View {
 
     private var hasLoadedSearch: Bool {
         store.hasLoadedSearchRecords(groupId: group.id, search: trimmedQuery)
+    }
+
+    private var canLoadMoreSearch: Bool {
+        store.canLoadMoreRecords(groupId: group.id, search: trimmedQuery)
     }
 
     var body: some View {
@@ -245,13 +260,6 @@ private struct RecordSearchCanvas: View {
                         ExpenseRow(record: record, group: group) {
                             selectedRecord = record
                         }
-                        .onAppear {
-                            if record.id == records.last?.id {
-                                Task {
-                                    await store.loadMoreRecords(groupId: group.id, search: trimmedQuery)
-                                }
-                            }
-                        }
 
                         if record.id != records.last?.id {
                             Divider()
@@ -277,6 +285,15 @@ private struct RecordSearchCanvas: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
+            let triggerY = max(0, geometry.contentSize.height - 160)
+            return visibleBottom >= triggerY
+        } action: { _, isNearBottom in
+            guard isNearBottom, !trimmedQuery.isEmpty else { return }
+            guard canLoadMoreSearch, !store.isLoadingRecords(groupId: group.id, search: trimmedQuery) else { return }
+            Task { await store.loadMoreRecords(groupId: group.id, search: trimmedQuery) }
         }
     }
 
@@ -461,8 +478,8 @@ private struct GroupExpensesSection: View {
 
     let group: WalkGroup
     let records: [WalkRecord]
+    let isLoadingMore: Bool
     let onEdit: (WalkRecord) -> Void
-    let onLoadMore: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -477,19 +494,23 @@ private struct GroupExpensesSection: View {
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         .frame(maxWidth: .infinity, minHeight: rowMinHeight, alignment: .leading)
                 } else {
-                    ForEach(records) { record in
-                        ExpenseRow(record: record, group: group) {
-                            onEdit(record)
-                        }
-                        .onAppear {
-                            if record.id == records.last?.id {
-                                onLoadMore()
+                    LazyVStack(spacing: 0) {
+                        ForEach(records) { record in
+                            ExpenseRow(record: record, group: group) {
+                                onEdit(record)
+                            }
+                            if record.id != records.last?.id {
+                                Divider()
+                                    .overlay(SoftLedgerTheme.rule.opacity(0.56))
+                                    .padding(.leading, dividerLeadingPadding)
                             }
                         }
-                        if record.id != records.last?.id {
+
+                        if isLoadingMore {
                             Divider()
                                 .overlay(SoftLedgerTheme.rule.opacity(0.56))
                                 .padding(.leading, dividerLeadingPadding)
+                            loadMoreFooter
                         }
                     }
                 }
@@ -502,6 +523,18 @@ private struct GroupExpensesSection: View {
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
+    }
+
+    private var loadMoreFooter: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(L("Loading more..."))
+                .font(.subheadline)
+                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: rowMinHeight, alignment: .leading)
     }
 }
 

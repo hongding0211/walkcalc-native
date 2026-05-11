@@ -1382,8 +1382,8 @@ private struct BalancesRootView: View {
             SoftLedgerBackground()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    LazyVStack(spacing: 0) {
                         ForEach(members) { member in
                             BalancePreviewRow(member: member, recordCount: recordCount(for: member)) {
                                 onSelect(member)
@@ -1463,7 +1463,7 @@ private struct SettlementPlanSection: View {
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(SoftLedgerTheme.ink)
 
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 ForEach(debts) { debt in
                     HStack(spacing: rowSpacing) {
                         Text("\(debt.from.name) \(L("pays")) \(debt.to.name)")
@@ -1539,7 +1539,7 @@ private struct MemberBalanceDetailView: View {
             SoftLedgerBackground()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: summarySpacing) {
                             Text(L("Balance with %@").replacingOccurrences(of: "%@", with: member.name))
@@ -1582,23 +1582,23 @@ private struct MemberBalanceDetailView: View {
                                         .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                                 }
                         } else {
-                            VStack(spacing: 0) {
+                            LazyVStack(spacing: 0) {
                                 ForEach(records) { record in
                                     ExpenseRow(record: record, group: group) {
                                         editingRecord = record
-                                    }
-                                    .onAppear {
-                                        if record.id == records.last?.id {
-                                            Task {
-                                                await store.loadMoreMemberRecords(groupId: group.id, memberId: member.uuid)
-                                            }
-                                        }
                                     }
                                     if record.id != records.last?.id {
                                         Divider()
                                             .overlay(SoftLedgerTheme.rule.opacity(0.52))
                                             .padding(.leading, dividerLeadingPadding)
                                     }
+                                }
+
+                                if store.isLoadingMemberRecords(groupId: group.id, memberId: member.uuid) {
+                                    Divider()
+                                        .overlay(SoftLedgerTheme.rule.opacity(0.52))
+                                        .padding(.leading, dividerLeadingPadding)
+                                    memberLoadMoreFooter
                                 }
                             }
                             .padding(.horizontal, compactRowHorizontalPadding)
@@ -1614,6 +1614,16 @@ private struct MemberBalanceDetailView: View {
                 .padding(.horizontal, horizontalPadding)
                 .padding(.top, topPadding)
                 .padding(.bottom, bottomPadding)
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
+                let triggerY = max(0, geometry.contentSize.height - 160)
+                return visibleBottom >= triggerY
+            } action: { _, isNearBottom in
+                guard isNearBottom else { return }
+                guard store.canLoadMoreMemberRecords(groupId: group.id, memberId: member.uuid),
+                      !store.isLoadingMemberRecords(groupId: group.id, memberId: member.uuid) else { return }
+                Task { await store.loadMoreMemberRecords(groupId: group.id, memberId: member.uuid) }
             }
         }
         .navigationTitle(member.name)
@@ -1631,6 +1641,18 @@ private struct MemberBalanceDetailView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+    }
+
+    private var memberLoadMoreFooter: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(L("Loading more..."))
+                .font(.subheadline)
+                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: emptyRowMinHeight, alignment: .leading)
     }
 }
 

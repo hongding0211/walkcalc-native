@@ -260,6 +260,11 @@ final class WalkcalcStore: ObservableObject {
         return loadingRecordKeys.contains(recordListKey(groupId: groupId, search: query))
     }
 
+    func canLoadMoreRecords(groupId: String, search: String = "") -> Bool {
+        let query = normalizedQuery(search)
+        return cachedRecords(groupId: groupId, search: query).count < cachedRecordTotal(groupId: groupId, search: query)
+    }
+
     func hasLoadedSearchRecords(groupId: String, search: String) -> Bool {
         let query = normalizedQuery(search)
         guard !query.isEmpty else { return true }
@@ -304,6 +309,14 @@ final class WalkcalcStore: ObservableObject {
     func memberRecordTotal(groupId: String, memberId: String) -> Int {
         let key = memberRecordKey(groupId: groupId, memberId: memberId)
         return memberRecordTotalsByKey[key] ?? memberRecords(groupId: groupId, memberId: memberId).count
+    }
+
+    func isLoadingMemberRecords(groupId: String, memberId: String) -> Bool {
+        loadingRecordKeys.contains(memberRecordKey(groupId: groupId, memberId: memberId))
+    }
+
+    func canLoadMoreMemberRecords(groupId: String, memberId: String) -> Bool {
+        memberRecords(groupId: groupId, memberId: memberId).count < memberRecordTotal(groupId: groupId, memberId: memberId)
     }
 
     func refreshMemberRecords(groupId: String, memberId: String) async {
