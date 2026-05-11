@@ -28,9 +28,9 @@ enum TemporalDisplayVerification {
         let zhFull = ["14:05", "昨天 14:05", "周一 14:05", "5月8日 14:05", "2025年5月8日 14:05"]
         let zhCompact = ["14:05", "昨天 14:05", "周一 14:05", "5月8日", "2025年5月8日"]
         let zhDense = zhCompact
-        let enFull = ["2:05 PM", "Yesterday 2:05 PM", "Mon 2:05 PM", "May 8, 2:05 PM", "May 8, 2025, 2:05 PM"]
-        let enCompact = ["2:05 PM", "Yesterday 2:05 PM", "Mon 2:05 PM", "May 8", "May 8, 2025"]
-        let enDense = ["2:05 PM", "Yest 2:05 PM", "Mon 2:05 PM", "May 8", "May 8, 2025"]
+        let enFull = ["14:05", "Yesterday 14:05", "Mon 14:05", "May 8, 14:05", "May 8, 2025, 14:05"]
+        let enCompact = ["14:05", "Yesterday 14:05", "Mon 14:05", "May 8", "May 8, 2025"]
+        let enDense = ["14:05", "Yest 14:05", "Mon 14:05", "May 8", "May 8, 2025"]
 
         return results(
             prefix: "zh-full",

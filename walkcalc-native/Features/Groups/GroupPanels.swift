@@ -193,6 +193,8 @@ struct CreateGroupSheet: View {
 struct SettingsSheet: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .body) private var accountAvatarSize = 32
+    @ScaledMetric(relativeTo: .body) private var accountRowSpacing = 12
 
     let archivedGroups: [WalkGroup]
     let onDone: () -> Void
@@ -202,8 +204,8 @@ struct SettingsSheet: View {
     var body: some View {
         Form {
             Section(L("Account")) {
-                HStack(spacing: 12) {
-                    SoftLedgerAvatar(user: store.user, size: 32)
+                HStack(spacing: accountRowSpacing) {
+                    SoftLedgerAvatar(user: store.user, size: accountAvatarSize)
                     Text(store.user?.name ?? "")
                         .font(.body)
                         .foregroundStyle(SoftLedgerTheme.ink)
@@ -283,6 +285,11 @@ struct SettingsSheet: View {
 
 struct ArchivedGroupsView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @ScaledMetric(relativeTo: .body) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
+    @ScaledMetric(relativeTo: .body) private var restoreHorizontalPadding = 6
+    @ScaledMetric(relativeTo: .body) private var restoreMinHeight = 44
+
     let groups: [WalkGroup]
     @State private var deleteCandidate: WalkGroup?
 
@@ -294,8 +301,8 @@ struct ArchivedGroupsView: View {
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 } else {
                     ForEach(groups) { group in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: rowSpacing) {
+                            VStack(alignment: .leading, spacing: textSpacing) {
                                 Text(group.name)
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(SoftLedgerTheme.ink)
@@ -312,8 +319,8 @@ struct ArchivedGroupsView: View {
                                 Text(L("Restore"))
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(SoftLedgerTheme.accent)
-                                    .padding(.horizontal, 6)
-                                    .frame(minHeight: 44)
+                                    .padding(.horizontal, restoreHorizontalPadding)
+                                    .frame(minHeight: restoreMinHeight)
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -626,6 +633,8 @@ struct PeopleSetupSheet: View {
 struct AddMemberSearchView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
 
     let existingMemberIds: Set<String>
     let onAdd: ([UserProfile]) -> Void
@@ -656,8 +665,8 @@ struct AddMemberSearchView: View {
                     Button {
                         toggle(user)
                     } label: {
-                        HStack(spacing: 12) {
-                            SoftLedgerAvatar(user: user, size: 30)
+                        HStack(spacing: rowSpacing) {
+                            SoftLedgerAvatar(user: user, size: avatarSize)
                             Text(user.name)
                                 .foregroundStyle(.primary)
                             Spacer()
@@ -966,31 +975,39 @@ struct RecordEditorView: View {
 }
 
 private struct PaidByInlineEditor: View {
+    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 10
+    @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
+    @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
+    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 58
+    @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
+    @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
+    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
+
     let members: [Member]
     @Binding var selection: String
     let onEdit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: sectionSpacing) {
             Text(L("Paid by"))
                 .foregroundStyle(SoftLedgerTheme.ink)
 
-            JustifiedGrid(items: members, id: \.id, itemWidth: 56, rowSpacing: 10, estimatedItemHeight: 58) { member in
+            JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { member in
                 Button {
                     onEdit()
                     selection = member.uuid
                 } label: {
-                    VStack(spacing: 5) {
-                        SelectableSplitAvatar(member: member, isSelected: selection == member.uuid)
+                    VStack(spacing: textSpacing) {
+                        SelectableSplitAvatar(member: member, isSelected: selection == member.uuid, avatarSize: avatarSize)
 
                         Text(member.name)
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(SoftLedgerTheme.secondaryInk)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .frame(width: 56)
+                            .frame(width: itemWidth)
                     }
-                    .frame(width: 56)
+                    .frame(width: itemWidth)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -998,7 +1015,7 @@ private struct PaidByInlineEditor: View {
                 .accessibilityAddTraits(selection == member.uuid ? .isSelected : [])
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, verticalPadding)
     }
 }
 
@@ -1077,12 +1094,20 @@ private struct KeyboardDismissTapLayer: UIViewRepresentable {
 }
 
 private struct SplitInlineEditor: View {
+    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 10
+    @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
+    @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
+    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 58
+    @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
+    @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
+    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
+
     let members: [Member]
     @Binding var selection: Set<String>
     let onEdit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: sectionSpacing) {
             HStack {
                 Text(L("Split"))
                 Spacer()
@@ -1100,28 +1125,28 @@ private struct SplitInlineEditor: View {
                 .contentShape(Rectangle())
             }
 
-            JustifiedGrid(items: members, id: \.id, itemWidth: 56, rowSpacing: 10, estimatedItemHeight: 58) { member in
+            JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { member in
                 Button {
                     onEdit()
                     toggle(member)
                 } label: {
-                    VStack(spacing: 5) {
-                        SelectableSplitAvatar(member: member, isSelected: selection.contains(member.uuid))
+                    VStack(spacing: textSpacing) {
+                        SelectableSplitAvatar(member: member, isSelected: selection.contains(member.uuid), avatarSize: avatarSize)
 
                         Text(member.name)
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(SoftLedgerTheme.secondaryInk)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .frame(width: 56)
+                            .frame(width: itemWidth)
                     }
-                    .frame(width: 56)
+                    .frame(width: itemWidth)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, verticalPadding)
     }
 
     private func toggle(_ member: Member) {
@@ -1136,13 +1161,30 @@ private struct SplitInlineEditor: View {
 private struct SelectableSplitAvatar: View {
     let member: Member
     let isSelected: Bool
+    let avatarSize: CGFloat
+
+    private var frameSize: CGFloat {
+        avatarSize + max(2, avatarSize / 18)
+    }
+
+    private var checkSize: CGFloat {
+        max(12, avatarSize * 0.42)
+    }
+
+    private var checkFontSize: CGFloat {
+        max(7, checkSize * 0.52)
+    }
+
+    private var checkOffset: CGFloat {
+        max(1.5, avatarSize / 18)
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            SoftLedgerAvatar(member: member, size: 36)
+            SoftLedgerAvatar(member: member, size: avatarSize)
                 .overlay {
                     Circle()
-                        .stroke(isSelected ? SoftLedgerTheme.accent : SoftLedgerTheme.rule.opacity(0.45), lineWidth: isSelected ? 2 : 1)
+                        .stroke(isSelected ? SoftLedgerTheme.accent : SoftLedgerTheme.rule.opacity(0.45), lineWidth: isSelected ? max(1.5, avatarSize / 18) : 1)
                 }
                 .overlay {
                     if isSelected {
@@ -1154,41 +1196,50 @@ private struct SelectableSplitAvatar: View {
             if isSelected {
                 Circle()
                     .fill(SoftLedgerTheme.accent)
-                    .frame(width: 15, height: 15)
+                    .frame(width: checkSize, height: checkSize)
                     .overlay {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: checkFontSize, weight: .bold))
                             .foregroundStyle(Color.white)
                     }
-                    .offset(x: 2, y: 2)
+                    .offset(x: checkOffset, y: checkOffset)
             }
         }
-        .frame(width: 38, height: 38)
+        .frame(width: frameSize, height: frameSize)
     }
 }
 
 private struct CategoryInlineEditor: View {
+    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 12
+    @ScaledMetric(relativeTo: .caption2) private var itemWidth = 58
+    @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 62
+    @ScaledMetric(relativeTo: .caption2) private var textSpacing = 6
+    @ScaledMetric(relativeTo: .caption2) private var iconSize = 38
+    @ScaledMetric(relativeTo: .caption2) private var iconFontSize = 15
+    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
+
     @Binding var selection: String
     let onEdit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: sectionSpacing) {
             Text(L("Category"))
 
-            JustifiedGrid(items: expenseCategories, id: \.id, itemWidth: 58, rowSpacing: 12, estimatedItemHeight: 62) { category in
+            JustifiedGrid(items: expenseCategories, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { category in
                 Button {
                     onEdit()
                     selection = category.id
                 } label: {
-                    VStack(spacing: 6) {
+                    VStack(spacing: textSpacing) {
                         Image(systemName: category.symbol)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: iconFontSize, weight: .semibold))
                             .foregroundStyle(category.color)
-                            .frame(width: 38, height: 38)
+                            .frame(width: iconSize, height: iconSize)
                             .background(category.color.opacity(0.13), in: Circle())
                             .overlay {
                                 Circle()
-                                    .stroke(selection == category.id ? SoftLedgerTheme.accent : Color.clear, lineWidth: 2)
+                                    .stroke(selection == category.id ? SoftLedgerTheme.accent : Color.clear, lineWidth: max(1.5, iconSize / 19))
                             }
 
                         Text(L(category.titleKey))
@@ -1196,15 +1247,15 @@ private struct CategoryInlineEditor: View {
                             .foregroundStyle(selection == category.id ? SoftLedgerTheme.ink : SoftLedgerTheme.secondaryInk)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .frame(width: 58)
+                            .frame(width: itemWidth)
                     }
-                    .frame(width: 58)
+                    .frame(width: itemWidth)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, verticalPadding)
     }
 }
 
@@ -1282,6 +1333,15 @@ struct BalancesWorkspace: View {
 
 private struct BalancesRootView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
+    @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
+    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    @ScaledMetric(relativeTo: .body) private var horizontalPadding = 20
+    @ScaledMetric(relativeTo: .caption) private var topPadding = 8
+    @ScaledMetric(relativeTo: .body) private var bottomPadding = 82
+    @ScaledMetric(relativeTo: .body) private var resolveButtonBottomPadding = 14
+
     let group: WalkGroup
     let onSelect: (Member) -> Void
 
@@ -1314,15 +1374,15 @@ private struct BalancesRootView: View {
                             if member.id != members.last?.id {
                                 Divider()
                                     .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                                    .padding(.leading, 54)
+                                    .padding(.leading, dividerLeadingPadding)
                             }
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 4)
-                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal, rowHorizontalPadding)
+                    .padding(.vertical, rowVerticalPadding)
+                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                     }
 
@@ -1330,9 +1390,9 @@ private struct BalancesRootView: View {
                         SettlementPlanSection(debts: debts)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 82)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.top, topPadding)
+                .padding(.bottom, bottomPadding)
             }
 
             if !debts.isEmpty {
@@ -1341,7 +1401,7 @@ private struct BalancesRootView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
-                .padding(.bottom, 14)
+                .padding(.bottom, resolveButtonBottomPadding)
             }
         }
         .navigationTitle(L("Balances"))
@@ -1357,17 +1417,25 @@ private struct BalancesRootView: View {
 }
 
 private struct SettlementPlanSection: View {
+    @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
+    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
+    @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 6
+    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+
     let debts: [ResolvedDebt]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: sectionSpacing) {
             Text(L("Suggested settlement"))
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(SoftLedgerTheme.ink)
 
             VStack(spacing: 0) {
                 ForEach(debts) { debt in
-                    HStack(spacing: 12) {
+                    HStack(spacing: rowSpacing) {
                         Text("\(debt.from.name) \(L("pays")) \(debt.to.name)")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.ink)
@@ -1377,20 +1445,20 @@ private struct SettlementPlanSection: View {
                             .font(.subheadline.monospacedDigit().weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.ink)
                     }
-                    .frame(minHeight: 54)
+                    .frame(minHeight: rowMinHeight)
 
                     if debt.id != debts.last?.id {
                         Divider()
                             .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                            .padding(.leading, 54)
+                            .padding(.leading, dividerLeadingPadding)
                     }
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, rowHorizontalPadding)
+            .padding(.vertical, rowVerticalPadding)
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
@@ -1399,6 +1467,20 @@ private struct SettlementPlanSection: View {
 
 private struct MemberBalanceDetailView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @ScaledMetric(relativeTo: .title) private var balanceFontSize = 36
+    @ScaledMetric(relativeTo: .body) private var summaryPadding = 18
+    @ScaledMetric(relativeTo: .caption) private var summarySpacing = 5
+    @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 10
+    @ScaledMetric(relativeTo: .subheadline) private var emptyRowMinHeight = 54
+    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
+    @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
+    @ScaledMetric(relativeTo: .subheadline) private var compactRowHorizontalPadding = 12
+    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 48
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    @ScaledMetric(relativeTo: .body) private var horizontalPadding = 20
+    @ScaledMetric(relativeTo: .caption) private var topPadding = 8
+    @ScaledMetric(relativeTo: .body) private var bottomPadding = 28
+
     let group: WalkGroup
     let member: Member
     @State private var editingRecord: WalkRecord?
@@ -1416,12 +1498,12 @@ private struct MemberBalanceDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(alignment: .leading, spacing: summarySpacing) {
                             Text(L("Balance with %@").replacingOccurrences(of: "%@", with: member.name))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
                             Text(signedMoney(member.debtMinor))
-                                .font(.system(size: 36, weight: .semibold, design: .rounded))
+                                .font(.system(size: balanceFontSize, weight: .semibold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(moneyColor(member.debtMinor))
                                 .lineLimit(1)
@@ -1432,14 +1514,14 @@ private struct MemberBalanceDetailView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.mutedInk)
                     }
-                    .padding(18)
-                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(summaryPadding)
+                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                     }
 
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: sectionSpacing) {
                         Text(L("Records"))
                             .font(.headline.weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.ink)
@@ -1448,12 +1530,12 @@ private struct MemberBalanceDetailView: View {
                             Text(L("No records yet"))
                                 .font(.subheadline)
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                                .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 4)
-                                .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .frame(maxWidth: .infinity, minHeight: emptyRowMinHeight, alignment: .leading)
+                                .padding(.horizontal, rowHorizontalPadding)
+                                .padding(.vertical, rowVerticalPadding)
+                                .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                                 .overlay {
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                                         .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                                 }
                         } else {
@@ -1465,23 +1547,23 @@ private struct MemberBalanceDetailView: View {
                                     if record.id != records.last?.id {
                                         Divider()
                                             .overlay(SoftLedgerTheme.rule.opacity(0.52))
-                                            .padding(.leading, 48)
+                                            .padding(.leading, dividerLeadingPadding)
                                     }
                                 }
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
-                            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .padding(.horizontal, compactRowHorizontalPadding)
+                            .padding(.vertical, rowVerticalPadding)
+                            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                             .overlay {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                             }
                         }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 28)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.top, topPadding)
+                .padding(.bottom, bottomPadding)
             }
         }
         .navigationTitle(member.name)

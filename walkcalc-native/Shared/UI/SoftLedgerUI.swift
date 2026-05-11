@@ -243,11 +243,17 @@ private final class SoftLedgerAvatarImageCache {
 }
 
 struct SoftLedgerAvatarStack: View {
+    @ScaledMetric(relativeTo: .caption) private var defaultSize = 28
+
     let members: [Member]
     var visibleCount = 4
-    var size: CGFloat = 28
+    var size: CGFloat?
     var borderColor: Color = SoftLedgerTheme.paper
     var showsTotal = false
+
+    private var avatarSize: CGFloat {
+        size ?? defaultSize
+    }
 
     private var visibleMembers: [Member] {
         Array(members.prefix(visibleCount))
@@ -257,13 +263,25 @@ struct SoftLedgerAvatarStack: View {
         max(members.count - visibleMembers.count, 0)
     }
 
+    private var overlapSpacing: CGFloat {
+        -(avatarSize / 3)
+    }
+
+    private var borderWidth: CGFloat {
+        max(1, avatarSize / 12)
+    }
+
+    private var labelSpacing: CGFloat {
+        max(4, avatarSize / 3)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: -8) {
+        HStack(spacing: labelSpacing) {
+            HStack(spacing: overlapSpacing) {
                 ForEach(visibleMembers) { member in
-                    SoftLedgerAvatar(member: member, size: size)
+                    SoftLedgerAvatar(member: member, size: avatarSize)
                         .overlay {
-                            Circle().stroke(borderColor, lineWidth: 2)
+                            Circle().stroke(borderColor, lineWidth: borderWidth)
                         }
                         .accessibilityHidden(true)
                 }
@@ -271,14 +289,14 @@ struct SoftLedgerAvatarStack: View {
                 if hiddenCount > 0 {
                     Circle()
                         .fill(SoftLedgerTheme.canvas)
-                        .frame(width: size, height: size)
+                        .frame(width: avatarSize, height: avatarSize)
                         .overlay {
                             Text("+\(hiddenCount)")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         }
                         .overlay {
-                            Circle().stroke(borderColor, lineWidth: 2)
+                            Circle().stroke(borderColor, lineWidth: borderWidth)
                         }
                         .accessibilityHidden(true)
                 }

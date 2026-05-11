@@ -526,6 +526,17 @@ private struct GroupHomeSectionHeader: View {
 }
 
 private struct GroupHomeRow: View {
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 72
+    @ScaledMetric(relativeTo: .subheadline) private var horizontalPadding = 14
+    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding = 10
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    @ScaledMetric(relativeTo: .caption) private var titleSpacing = 6
+    @ScaledMetric(relativeTo: .caption) private var metadataSpacing = 8
+    @ScaledMetric(relativeTo: .caption2) private var trailingSpacing = 4
+    @ScaledMetric(relativeTo: .caption) private var statusInset = 12
+    @ScaledMetric(relativeTo: .caption) private var statusWidth = 3
+
     let group: GroupHomeMockGroup
 
     private var amountColor: Color {
@@ -535,15 +546,15 @@ private struct GroupHomeRow: View {
     var body: some View {
         Button {
         } label: {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: rowSpacing) {
+                VStack(alignment: .leading, spacing: titleSpacing) {
                     Text(group.name)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(GroupHomeTheme.ink)
                         .lineLimit(1)
                         .truncationMode(.tail)
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: metadataSpacing) {
                         GroupHomeMemberAvatarStack(members: group.members)
                         Text("\(group.members.count) members")
                             .font(.caption.weight(.medium))
@@ -555,7 +566,7 @@ private struct GroupHomeRow: View {
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: trailingSpacing) {
                     Text(group.amount)
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(amountColor)
@@ -574,19 +585,19 @@ private struct GroupHomeRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(GroupHomeTheme.mutedInk.opacity(0.7))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(minHeight: 72)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .frame(minHeight: rowMinHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(GroupHomeTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(GroupHomeTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(alignment: .leading) {
                 Rectangle()
                     .fill(amountColor.opacity(group.amount == "¥0.00" ? 0.32 : 0.58))
-                    .frame(width: 3)
-                    .padding(.vertical, 12)
+                    .frame(width: statusWidth)
+                    .padding(.vertical, statusInset)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(GroupHomeTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
@@ -704,18 +715,20 @@ private struct GroupHomeAddMemberSheet: View {
 }
 
 private struct GroupHomeMemberAvatarStack: View {
+    @ScaledMetric(relativeTo: .caption) private var avatarSize = 24
+
     let members: [String]
 
     var body: some View {
-        HStack(spacing: -6) {
+        HStack(spacing: -avatarSize * 0.25) {
             ForEach(Array(members.prefix(3).enumerated()), id: \.offset) { _, member in
-                GroupHomeAvatar(initial: member, size: 24)
+                GroupHomeAvatar(initial: member, size: avatarSize)
                     .overlay {
-                        Circle().stroke(GroupHomeTheme.paper, lineWidth: 2)
+                        Circle().stroke(GroupHomeTheme.paper, lineWidth: max(1, avatarSize / 12))
                     }
             }
         }
-        .frame(height: 24)
+        .frame(height: avatarSize)
         .accessibilityHidden(true)
     }
 }

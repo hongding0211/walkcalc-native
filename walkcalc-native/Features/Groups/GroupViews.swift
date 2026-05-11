@@ -108,6 +108,7 @@ struct GroupView: View {
             }
         }
         .searchable(text: $searchText, placement: .toolbar, prompt: L("Search"))
+        .searchPresentationToolbarBehavior(.avoidHidingContent)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task { await store.refreshGroup(groupId) }
         .sheet(item: $activeSheet) { sheet in
@@ -146,6 +147,12 @@ private struct GroupSummaryCard: View {
 
 private struct GroupBalancesSection: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
+    @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
+    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
+    @ScaledMetric(relativeTo: .subheadline) private var detailRowMinHeight = 48
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+
     let group: WalkGroup
     let onSelect: (Member?) -> Void
 
@@ -177,13 +184,13 @@ private struct GroupBalancesSection: View {
                         if member.id != visibleBalances.last?.id {
                             Divider()
                                 .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                                .padding(.leading, 54)
+                                .padding(.leading, dividerLeadingPadding)
                         }
                     }
 
                     Divider()
                         .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                        .padding(.leading, 54)
+                        .padding(.leading, dividerLeadingPadding)
 
                     Button {
                         onSelect(nil)
@@ -197,17 +204,17 @@ private struct GroupBalancesSection: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
                         }
-                        .frame(minHeight: 48)
+                        .frame(minHeight: detailRowMinHeight)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 4)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, rowHorizontalPadding)
+            .padding(.vertical, rowVerticalPadding)
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
@@ -221,16 +228,21 @@ private struct GroupBalancesSection: View {
 }
 
 struct BalancePreviewRow: View {
+    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
+
     let member: Member
     let recordCount: Int
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                SoftLedgerAvatar(member: member, size: 30)
+            HStack(spacing: rowSpacing) {
+                SoftLedgerAvatar(member: member, size: avatarSize)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: textSpacing) {
                     Text(member.name)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
@@ -255,7 +267,7 @@ struct BalancePreviewRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
             }
-            .frame(minHeight: 54)
+            .frame(minHeight: rowMinHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -264,6 +276,12 @@ struct BalancePreviewRow: View {
 }
 
 private struct GroupExpensesSection: View {
+    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
+    @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
+    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+
     let group: WalkGroup
     let records: [WalkRecord]
     let onEdit: (WalkRecord) -> Void
@@ -279,7 +297,7 @@ private struct GroupExpensesSection: View {
                     Text(L("No expenses yet"))
                         .font(.subheadline)
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: rowMinHeight, alignment: .leading)
                 } else {
                     ForEach(records) { record in
                         ExpenseRow(record: record, group: group) {
@@ -288,16 +306,16 @@ private struct GroupExpensesSection: View {
                         if record.id != records.last?.id {
                             Divider()
                                 .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                .padding(.leading, 54)
+                                .padding(.leading, dividerLeadingPadding)
                         }
                     }
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 4)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, rowHorizontalPadding)
+            .padding(.vertical, rowVerticalPadding)
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
@@ -305,7 +323,13 @@ private struct GroupExpensesSection: View {
 }
 
 struct ExpenseRow: View {
-    private let trailingColumnWidth: CGFloat = 92
+    @ScaledMetric(relativeTo: .subheadline) private var trailingColumnWidth = 92
+    @ScaledMetric(relativeTo: .subheadline) private var iconSize = 30
+    @ScaledMetric(relativeTo: .subheadline) private var iconFontSize = 14
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
+    @ScaledMetric(relativeTo: .caption2) private var trailingSpacing = 4
 
     let record: WalkRecord
     let group: WalkGroup
@@ -337,14 +361,14 @@ struct ExpenseRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            HStack(spacing: rowSpacing) {
                 Image(systemName: category.symbol)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: iconFontSize, weight: .semibold))
                     .foregroundStyle(category.color)
-                    .frame(width: 30, height: 30)
+                    .frame(width: iconSize, height: iconSize)
                     .background(category.color.opacity(0.12), in: Circle())
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: textSpacing) {
                     Text(recordTitle(record))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
@@ -360,7 +384,7 @@ struct ExpenseRow: View {
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: trailingSpacing) {
                     Text("¥\(Money.compactDisplay(record.paidMinor))")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
@@ -382,7 +406,7 @@ struct ExpenseRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
             }
-            .frame(minHeight: 54)
+            .frame(minHeight: rowMinHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

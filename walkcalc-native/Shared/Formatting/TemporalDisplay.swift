@@ -20,7 +20,7 @@ enum TemporalDisplay {
         context: TemporalDisplayContext,
         now: Date = Date(),
         locale: Locale = appLocale,
-        calendar: Calendar = .current
+        calendar: Calendar = .autoupdatingCurrent
     ) -> String {
         let bucket = bucket(for: date, now: now, calendar: calendar)
         let language = TemporalDisplayLanguage(locale: locale)
@@ -47,7 +47,7 @@ enum TemporalDisplay {
         context: TemporalDisplayContext,
         now: Date = Date(),
         locale: Locale = appLocale,
-        calendar: Calendar = .current
+        calendar: Calendar = .autoupdatingCurrent
     ) -> String {
         string(
             from: milliseconds.walkDate,
@@ -61,7 +61,7 @@ enum TemporalDisplay {
     static func bucket(
         for date: Date,
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .autoupdatingCurrent
     ) -> TemporalDisplayBucket {
         if calendar.isDate(date, inSameDayAs: now) {
             return .today
@@ -117,7 +117,7 @@ private struct TemporalDisplayLanguage {
     }
 
     func timeString(from date: Date, calendar: Calendar) -> String {
-        formatted(date, format: isChinese ? "HH:mm" : "h:mm a", locale: formatterLocale, calendar: calendar)
+        formatted(date, format: "HH:mm", locale: formatterLocale, calendar: calendar)
     }
 
     func monthDayString(from date: Date, calendar: Calendar) -> String {

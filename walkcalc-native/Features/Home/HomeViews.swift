@@ -357,6 +357,18 @@ private struct HomeBalanceCard: View {
 
 private struct GroupSummaryRow: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @ScaledMetric(relativeTo: .caption) private var memberAvatarSize = 24
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 72
+    @ScaledMetric(relativeTo: .subheadline) private var horizontalPadding = 14
+    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding = 10
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    @ScaledMetric(relativeTo: .caption) private var titleSpacing = 6
+    @ScaledMetric(relativeTo: .caption) private var metadataSpacing = 8
+    @ScaledMetric(relativeTo: .caption2) private var trailingSpacing = 4
+    @ScaledMetric(relativeTo: .caption) private var statusInset = 12
+    @ScaledMetric(relativeTo: .caption) private var statusWidth = 3
+
     let group: WalkGroup
 
     private var myBalance: MoneyMinor {
@@ -368,16 +380,16 @@ private struct GroupSummaryRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: rowSpacing) {
+            VStack(alignment: .leading, spacing: titleSpacing) {
                 Text(group.name)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.ink)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                HStack(spacing: 8) {
-                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 3, size: 24, showsTotal: false)
+                HStack(spacing: metadataSpacing) {
+                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 3, size: memberAvatarSize, showsTotal: false)
                     Text(memberCountText)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -388,7 +400,7 @@ private struct GroupSummaryRow: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: trailingSpacing) {
                 Text(signedMoney(myBalance))
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                     .foregroundStyle(moneyColor(myBalance))
@@ -407,19 +419,19 @@ private struct GroupSummaryRow: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(minHeight: 72)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
+        .frame(minHeight: rowMinHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(moneyColor(myBalance).opacity(Money.isZero(myBalance) ? 0.32 : 0.58))
-                .frame(width: 3)
-                .padding(.vertical, 12)
+                .frame(width: statusWidth)
+                .padding(.vertical, statusInset)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
