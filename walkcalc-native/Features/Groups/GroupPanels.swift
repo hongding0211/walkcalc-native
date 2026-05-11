@@ -799,14 +799,7 @@ struct RecordEditorView: View {
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section {
-                Picker(L("Paid by"), selection: $paidBy) {
-                    ForEach(members) { member in
-                        Text(member.name).tag(member.uuid)
-                    }
-                }
-                .pickerStyle(.menu)
-                .simultaneousGesture(TapGesture().onEnded { beginEditing() })
-                .onChange(of: paidBy) { _, _ in beginEditing() }
+                PaidByInlineEditor(members: members, selection: $paidBy, onEdit: beginEditing)
 
                 SplitInlineEditor(members: members, selection: $splitMembers, onEdit: beginEditing)
                 CategoryInlineEditor(selection: $categoryId, onEdit: beginEditing)
@@ -969,6 +962,43 @@ struct RecordEditorView: View {
         } else {
             message = record == nil ? L("Add fail") : L("Edit fail")
         }
+    }
+}
+
+private struct PaidByInlineEditor: View {
+    let members: [Member]
+    @Binding var selection: String
+    let onEdit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L("Paid by"))
+                .foregroundStyle(SoftLedgerTheme.ink)
+
+            JustifiedGrid(items: members, id: \.id, itemWidth: 56, rowSpacing: 10, estimatedItemHeight: 58) { member in
+                Button {
+                    onEdit()
+                    selection = member.uuid
+                } label: {
+                    VStack(spacing: 5) {
+                        SelectableSplitAvatar(member: member, isSelected: selection == member.uuid)
+
+                        Text(member.name)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(width: 56)
+                    }
+                    .frame(width: 56)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(L("Paid by")) \(member.name)")
+                .accessibilityAddTraits(selection == member.uuid ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

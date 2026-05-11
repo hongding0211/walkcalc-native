@@ -766,14 +766,7 @@ private struct GroupDetailNewExpenseSheet: View {
             .listRowBackground(GroupDetailTheme.formPaper)
 
             Section {
-                Picker("Paid by", selection: $paidBy) {
-                    ForEach(members, id: \.self) { member in
-                        Text(member).tag(member)
-                    }
-                }
-                .pickerStyle(.menu)
-                .simultaneousGesture(TapGesture().onEnded { beginEditing() })
-                .onChange(of: paidBy) { _, _ in beginEditing() }
+                GroupDetailPaidByInlineEditor(members: members, selection: $paidBy, onEdit: beginEditing)
 
                 GroupDetailSplitInlineEditor(
                     members: members,
@@ -871,6 +864,81 @@ private struct GroupDetailNewExpenseSheet: View {
         note = ""
         focusedField = nil
         hasEditIntent = false
+    }
+}
+
+private struct GroupDetailPaidByInlineEditor: View {
+    let members: [String]
+    @Binding var selection: String
+    let onEdit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Paid by")
+                .foregroundStyle(GroupDetailTheme.ink)
+
+            GroupDetailJustifiedGrid(items: members, id: \.self, itemWidth: 56, rowSpacing: 10) { member in
+                Button {
+                    onEdit()
+                    selection = member
+                } label: {
+                    VStack(spacing: 5) {
+                        GroupDetailSelectableMemberAvatar(
+                            name: member,
+                            isSelected: selection == member
+                        )
+
+                        Text(member)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(GroupDetailTheme.secondaryInk)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(width: 56)
+                    }
+                    .frame(width: 56)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Paid by \(member)")
+                .accessibilityAddTraits(selection == member ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct GroupDetailSelectableMemberAvatar: View {
+    let name: String
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Text(name.prefix(1))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isSelected ? Color.white : GroupDetailTheme.secondaryInk)
+                .frame(width: 36, height: 36)
+                .background(
+                    isSelected ? GroupDetailTheme.accent : GroupDetailTheme.canvas,
+                    in: Circle()
+                )
+                .overlay {
+                    Circle()
+                        .stroke(isSelected ? GroupDetailTheme.accent : GroupDetailTheme.rule.opacity(0.45), lineWidth: isSelected ? 2 : 1)
+                }
+
+            if isSelected {
+                Circle()
+                    .fill(GroupDetailTheme.accent)
+                    .frame(width: 15, height: 15)
+                    .overlay {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Color.white)
+                    }
+                    .offset(x: 2, y: 2)
+            }
+        }
+        .frame(width: 38, height: 38)
     }
 }
 
