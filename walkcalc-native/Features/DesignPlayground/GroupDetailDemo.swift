@@ -752,10 +752,6 @@ private struct GroupDetailNewExpenseSheet: View {
         return decimalAmount > 0
     }
 
-    private var dateLabel: String {
-        date.formatted(date: .abbreviated, time: .shortened)
-    }
-
     var body: some View {
         Form {
             Section {

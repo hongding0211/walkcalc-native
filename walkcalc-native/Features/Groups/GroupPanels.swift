@@ -300,7 +300,7 @@ struct ArchivedGroupsView: View {
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(SoftLedgerTheme.ink)
                                     .lineLimit(1)
-                                Text(DateFormatter.walkDate.string(from: group.modifiedAt.walkDate))
+                                Text(TemporalDisplay.string(fromMilliseconds: group.modifiedAt, context: .compact))
                                     .font(.subheadline)
                                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
                             }

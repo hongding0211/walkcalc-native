@@ -256,7 +256,7 @@ private struct GroupHomeArchivedGroupRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(group.name), \(group.amount), archived \(group.updated)")
+        .accessibilityLabel("\(group.name), \(group.amount), archived \(group.updatedFull)")
     }
 }
 
@@ -587,7 +587,7 @@ private struct GroupHomeRow: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(group.name), \(group.amount), \(group.status), updated \(group.updated)")
+        .accessibilityLabel("\(group.name), \(group.amount), \(group.status), updated \(group.updatedFull)")
         .accessibilityHint("Opens group details")
         .contextMenu {
             Button {
@@ -737,16 +737,24 @@ private struct GroupHomeMockGroup: Identifiable {
     let name: String
     let amount: String
     let status: String
-    let updated: String
+    let updatedAt: Date
     let members: [String]
     let isPositive: Bool
+
+    var updated: String {
+        TemporalDisplay.string(from: updatedAt, context: .compact, now: Self.sampleNow, calendar: Self.sampleCalendar)
+    }
+
+    var updatedFull: String {
+        TemporalDisplay.string(from: updatedAt, context: .full, now: Self.sampleNow, calendar: Self.sampleCalendar)
+    }
 
     static let samples: [GroupHomeMockGroup] = [
         .init(
             name: "May Trip",
             amount: "+¥86.20",
             status: "owed to me",
-            updated: "Today",
+            updatedAt: sampleDate(year: 2026, month: 5, day: 15, hour: 14, minute: 5),
             members: ["H", "L", "M", "Y"],
             isPositive: true
         ),
@@ -754,7 +762,7 @@ private struct GroupHomeMockGroup: Identifiable {
             name: "Studio Lunch",
             amount: "-¥42.00",
             status: "I owe",
-            updated: "Yesterday",
+            updatedAt: sampleDate(year: 2026, month: 5, day: 14, hour: 14, minute: 5),
             members: ["H", "A", "J"],
             isPositive: false
         ),
@@ -762,7 +770,7 @@ private struct GroupHomeMockGroup: Identifiable {
             name: "Apartment",
             amount: "¥0.00",
             status: "settled",
-            updated: "May 8",
+            updatedAt: sampleDate(year: 2026, month: 5, day: 11, hour: 14, minute: 5),
             members: ["H", "K"],
             isPositive: true
         )
@@ -773,7 +781,7 @@ private struct GroupHomeMockGroup: Identifiable {
             name: "Winter House",
             amount: "¥0.00",
             status: "archived",
-            updated: "Mar 2",
+            updatedAt: sampleDate(year: 2026, month: 3, day: 2, hour: 14, minute: 5),
             members: ["H", "L", "A"],
             isPositive: true
         ),
@@ -781,11 +789,34 @@ private struct GroupHomeMockGroup: Identifiable {
             name: "Tokyo Weekend",
             amount: "¥0.00",
             status: "archived",
-            updated: "Jan 18",
+            updatedAt: sampleDate(year: 2025, month: 1, day: 18, hour: 14, minute: 5),
             members: ["H", "M"],
             isPositive: true
         )
     ]
+
+    private static var sampleNow: Date {
+        sampleDate(year: 2026, month: 5, day: 15, hour: 16, minute: 30)
+    }
+
+    private static var sampleCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        calendar.firstWeekday = 2
+        return calendar
+    }
+
+    private static func sampleDate(year: Int, month: Int, day: Int, hour: Int, minute: Int) -> Date {
+        DateComponents(
+            calendar: sampleCalendar,
+            timeZone: sampleCalendar.timeZone,
+            year: year,
+            month: month,
+            day: day,
+            hour: hour,
+            minute: minute
+        ).date ?? Date(timeIntervalSince1970: 0)
+    }
 }
 
 private enum GroupHomeTheme {

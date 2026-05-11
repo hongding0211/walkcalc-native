@@ -117,22 +117,6 @@ extension UIColor {
     }
 }
 
-extension DateFormatter {
-    static let walkDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter
-    }()
-
-    static let walkFullDate: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
-}
-
 extension TimeInterval {
     var walkDate: Date {
         Date(timeIntervalSince1970: self / 1000)

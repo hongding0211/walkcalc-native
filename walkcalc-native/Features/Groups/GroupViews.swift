@@ -318,6 +318,8 @@ private struct GroupExpensesSection: View {
 }
 
 struct ExpenseRow: View {
+    private let trailingColumnWidth: CGFloat = 92
+
     let record: WalkRecord
     let group: WalkGroup
     let action: () -> Void
@@ -334,9 +336,17 @@ struct ExpenseRow: View {
         payer?.name ?? L("Unknown")
     }
 
+    private var compactCreatedAt: String {
+        TemporalDisplay.string(fromMilliseconds: record.createdAt, context: .dense)
+    }
+
+    private var fullCreatedAt: String {
+        TemporalDisplay.string(fromMilliseconds: record.createdAt, context: .full)
+    }
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: category.symbol)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(category.color)
@@ -348,6 +358,7 @@ struct ExpenseRow: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                     HStack(spacing: 0) {
                         Text(payerName)
                             .lineLimit(1)
@@ -370,11 +381,17 @@ struct ExpenseRow: View {
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
                         .allowsTightening(true)
-                        .frame(minWidth: 70, alignment: .trailing)
-                    Text(record.createdAt.walkDate, style: .time)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text(compactCreatedAt)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.mutedInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                        .allowsTightening(true)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
+                .frame(width: trailingColumnWidth, alignment: .trailing)
+                .layoutPriority(2)
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -385,7 +402,7 @@ struct ExpenseRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(recordTitle(record)), \(payerName) \(L("paid for")) \(record.forWhom.count), ¥\(Money.compactDisplay(record.paidMinor)), \(record.createdAt.walkDate.formatted(date: .omitted, time: .shortened))")
+        .accessibilityLabel("\(recordTitle(record)), \(payerName) \(L("paid for")) \(record.forWhom.count), ¥\(Money.compactDisplay(record.paidMinor)), \(fullCreatedAt)")
     }
 }
 

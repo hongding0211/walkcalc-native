@@ -379,7 +379,7 @@ private struct GroupSummaryRow: View {
                     .lineLimit(1)
 
                 HStack(spacing: 8) {
-                    Text(DateFormatter.walkDate.string(from: group.modifiedAt.walkDate))
+                    Text(TemporalDisplay.string(fromMilliseconds: group.modifiedAt, context: .compact))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         .lineLimit(1)

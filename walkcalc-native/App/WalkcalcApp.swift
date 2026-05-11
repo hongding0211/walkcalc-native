@@ -11,6 +11,14 @@ import SwiftUI
 struct walkcalc_nativeApp: App {
     @StateObject private var store = WalkcalcStore()
 
+    #if DEBUG
+    init() {
+        if ProcessInfo.processInfo.arguments.contains("--verify-temporal-display") {
+            TemporalDisplayVerification.assertAllCasesPass()
+        }
+    }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             #if DEBUG
