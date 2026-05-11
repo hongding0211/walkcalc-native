@@ -22,13 +22,13 @@ final class WalkcalcStore: ObservableObject {
     @Published private var recordSearchTotalsByKey: [String: Int] = [:]
     @Published private var memberRecordsByKey: [String: [WalkRecord]] = [:]
     @Published private var memberRecordTotalsByKey: [String: Int] = [:]
+    @Published private var loadingRecordKeys: Set<String> = []
 
     let api = APIClient()
     private let groupPageSize = 20
     private let recordPageSize = 10
     private var groupsPage = 0
     private var groupSearchQuery = ""
-    private var loadingRecordKeys: Set<String> = []
 
     var primaryColor: Color {
         themeColorOptions.first(where: { $0.id == themeColorId })?.color ?? themeColorOptions[0].color
@@ -224,15 +224,17 @@ final class WalkcalcStore: ObservableObject {
         defer { loadingRecordKeys.remove(key) }
         let page = current.count / recordPageSize + 1
         do {
-            let response = try await api.records(groupCode: groupId, page: page, pageSize: recordPageSize, search: optionalQuery(query), token: token)
+            let response = try await api.records(groupCode: groupId, page: page, pageSize: recordPageSize, recordSearch: recordSearchRequest(for: query), token: token)
             applyRefreshedToken(response)
             if response.success {
+                let localMatches = query.isEmpty ? [] : localSearchMatches(groupId: groupId, query: query)
                 if query.isEmpty {
                     recordsByGroup[groupId] = current + (response.data ?? [])
                     recordTotals[groupId] = response.pagination?.total ?? total
                 } else {
-                    recordSearchResultsByKey[key] = current + (response.data ?? [])
-                    recordSearchTotalsByKey[key] = response.pagination?.total ?? total
+                    let merged = mergedRecords(current + (response.data ?? []), with: localMatches)
+                    recordSearchResultsByKey[key] = merged
+                    recordSearchTotalsByKey[key] = max(response.pagination?.total ?? total, merged.count)
                 }
             }
         } catch {
@@ -246,10 +248,22 @@ final class WalkcalcStore: ObservableObject {
             return recordsByGroup[groupId] ?? []
         }
         let key = recordListKey(groupId: groupId, search: query)
+        let localMatches = localSearchMatches(groupId: groupId, query: query)
         if let remote = recordSearchResultsByKey[key] {
-            return remote
+            return mergedRecords(remote, with: localMatches)
         }
-        return (recordsByGroup[groupId] ?? []).filter { localRecordMatches($0, query: query) }
+        return localMatches
+    }
+
+    func isLoadingRecords(groupId: String, search: String = "") -> Bool {
+        let query = normalizedQuery(search)
+        return loadingRecordKeys.contains(recordListKey(groupId: groupId, search: query))
+    }
+
+    func hasLoadedSearchRecords(groupId: String, search: String) -> Bool {
+        let query = normalizedQuery(search)
+        guard !query.isEmpty else { return true }
+        return recordSearchResultsByKey[recordListKey(groupId: groupId, search: query)] != nil
     }
 
     func searchRecords(groupId: String, query rawQuery: String) async {
@@ -267,11 +281,12 @@ final class WalkcalcStore: ObservableObject {
         loadingRecordKeys.insert(key)
         defer { loadingRecordKeys.remove(key) }
         do {
-            let response = try await api.records(groupCode: groupId, page: 1, pageSize: recordPageSize, search: query, token: token)
+            let response = try await api.records(groupCode: groupId, page: 1, pageSize: recordPageSize, recordSearch: recordSearchRequest(for: query), token: token)
             applyRefreshedToken(response)
             if response.success {
-                recordSearchResultsByKey[key] = response.data ?? []
-                recordSearchTotalsByKey[key] = response.pagination?.total ?? response.data?.count ?? 0
+                let merged = mergedRecords(response.data ?? [], with: localSearchMatches(groupId: groupId, query: query))
+                recordSearchResultsByKey[key] = merged
+                recordSearchTotalsByKey[key] = max(response.pagination?.total ?? response.data?.count ?? 0, merged.count)
             }
         } catch {
             errorMessage = L("Network issues")
@@ -704,15 +719,30 @@ final class WalkcalcStore: ObservableObject {
         query.isEmpty ? nil : query
     }
 
+    private func recordSearchRequest(for query: String) -> RecordSearchRequest? {
+        query.isEmpty ? nil : .noteOrCategoryName(query: query)
+    }
+
+    private func localSearchMatches(groupId: String, query: String) -> [WalkRecord] {
+        (recordsByGroup[groupId] ?? []).filter { localRecordMatches($0, query: query) }
+    }
+
+    private func mergedRecords(_ primary: [WalkRecord], with secondary: [WalkRecord]) -> [WalkRecord] {
+        var seenRecordIds = Set<String>()
+        var result: [WalkRecord] = []
+        for record in primary + secondary where seenRecordIds.insert(record.recordId).inserted {
+            result.append(record)
+        }
+        return result
+    }
+
     private func recordIncludesParticipant(_ record: WalkRecord, participantId: String) -> Bool {
         record.who == participantId || record.forWhom.contains(participantId)
     }
 
     private func localRecordMatches(_ record: WalkRecord, query: String) -> Bool {
-        recordTitle(record).localizedCaseInsensitiveContains(query)
-            || Money.display(record.paidMinor).localizedCaseInsensitiveContains(query)
-            || Money.compactDisplay(record.paidMinor).localizedCaseInsensitiveContains(query)
-            || record.type.localizedCaseInsensitiveContains(query)
+        record.text.localizedCaseInsensitiveContains(query)
+            || L(expenseCategory(for: record).titleKey).localizedCaseInsensitiveContains(query)
     }
 
     private func applyRefreshedToken<T>(_ response: APIEnvelope<T>) {

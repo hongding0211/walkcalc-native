@@ -10,6 +10,7 @@
 "Average cost" = "Average cost";
 "Cancel" = "Cancel";
 "Category" = "Category";
+"Clear search" = "Clear search";
 "Confirm" = "Confirm";
 "Confirm delete?" = "Confirm delete?";
 "Confirm dismiss group?" = "Confirm dismiss group?";
@@ -116,6 +117,7 @@
 "No balances" = "No balances";
 "No expenses yet" = "No expenses yet";
 "No groups yet" = "No groups yet";
+"No matching records" = "No matching records";
 "No records yet" = "No records yet";
 "Opens group details" = "Opens group details";
 "Optional note" = "Optional note";
@@ -132,6 +134,9 @@
 "Save" = "Save";
 "Search" = "Search";
 "Search by name" = "Search by name";
+"Search notes and categories" = "Search notes and categories";
+"Search records" = "Search records";
+"Searching records..." = "Searching records...";
 "Selected" = "Selected";
 "Shopping" = "Shopping";
 "Split" = "Split";

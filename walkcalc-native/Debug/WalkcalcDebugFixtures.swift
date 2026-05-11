@@ -135,6 +135,19 @@ extension WalkcalcStore {
                 createdAt: Date().addingTimeInterval(-3600).timeIntervalSince1970 * 1000,
                 modifiedAt: Date().addingTimeInterval(-3600).timeIntervalSince1970 * 1000,
                 isDebtResolve: false
+            ),
+            WalkRecord(
+                recordId: "edge-record-3",
+                who: "edge-member-2",
+                paidMinor: "987654",
+                forWhom: ["edge-member-2", "edge-member-3"],
+                type: "food",
+                text: "",
+                long: "",
+                lat: "",
+                createdAt: Date().addingTimeInterval(-7200).timeIntervalSince1970 * 1000,
+                modifiedAt: Date().addingTimeInterval(-7200).timeIntervalSince1970 * 1000,
+                isDebtResolve: false
             )
         ]
         recordTotals[group.id] = recordsByGroup[group.id]?.count ?? 0

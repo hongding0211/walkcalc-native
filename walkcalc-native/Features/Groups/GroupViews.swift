@@ -24,14 +24,16 @@ struct GroupView: View {
 
     let groupId: String
     @State private var activeSheet: GroupSheet?
-    @State private var searchText = ""
+    @State private var isSearchPresented = false
+    @State private var isSystemSearchPresented = false
+    @State private var ignoredSearchText = ""
 
     private var group: WalkGroup? {
         store.group(id: groupId)
     }
 
     private var records: [WalkRecord] {
-        store.records(groupId: groupId, search: searchText)
+        store.records(groupId: groupId)
     }
 
     private var shouldShowPeopleSetup: Bool {
@@ -58,7 +60,7 @@ struct GroupView: View {
                             GroupExpensesSection(group: group, records: records) { record in
                                 activeSheet = .editExpense(record)
                             } onLoadMore: {
-                                Task { await store.loadMoreRecords(groupId: group.id, search: searchText) }
+                                Task { await store.loadMoreRecords(groupId: group.id) }
                             }
                         }
                     } else {
@@ -103,22 +105,191 @@ struct GroupView: View {
                 .accessibilityLabel(L("Add expense"))
             }
         }
-        .searchable(text: $searchText, placement: .toolbar, prompt: L("Search"))
+        .searchable(text: $ignoredSearchText, isPresented: $isSystemSearchPresented, placement: .toolbar, prompt: L("Search records"))
         .searchPresentationToolbarBehavior(.avoidHidingContent)
+        .onChange(of: isSystemSearchPresented) { _, isPresented in
+            guard isPresented else { return }
+            ignoredSearchText = ""
+            isSystemSearchPresented = false
+            isSearchPresented = true
+        }
         .toolbarBackground(.hidden, for: .navigationBar)
         .task { await store.refreshGroup(groupId) }
-        .task(id: searchText) {
-            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else { return }
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            if Task.isCancelled { return }
-            await store.searchRecords(groupId: groupId, query: query)
+        .sheet(isPresented: $isSearchPresented) {
+            if let group {
+                NavigationStack {
+                    RecordSearchCanvas(group: group)
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
         }
         .sheet(item: $activeSheet) { sheet in
             GroupSheetView(groupId: groupId, sheet: sheet, activeSheet: $activeSheet) {
                 dismiss()
             }
         }
+    }
+}
+
+private struct RecordSearchCanvas: View {
+    @EnvironmentObject private var store: WalkcalcStore
+    @FocusState private var isSearchFocused: Bool
+    @State private var query = ""
+    @State private var selectedRecord: WalkRecord?
+    @State private var isPreparingSearch = false
+
+    let group: WalkGroup
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var records: [WalkRecord] {
+        guard !trimmedQuery.isEmpty else { return [] }
+        return store.records(groupId: group.id, search: trimmedQuery)
+    }
+
+    private var isSearching: Bool {
+        !trimmedQuery.isEmpty && (isPreparingSearch || store.isLoadingRecords(groupId: group.id, search: trimmedQuery))
+    }
+
+    private var hasLoadedSearch: Bool {
+        store.hasLoadedSearchRecords(groupId: group.id, search: trimmedQuery)
+    }
+
+    var body: some View {
+        ZStack {
+            SoftLedgerBackground()
+
+            VStack(alignment: .leading, spacing: 14) {
+                searchField
+
+                if !trimmedQuery.isEmpty {
+                    resultList
+                } else {
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 24)
+        }
+        .navigationTitle(L("Search records"))
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedRecord) { record in
+            RecordEditorView(groupId: group.id, record: record) {}
+        }
+        .task {
+            await MainActor.run {
+                isSearchFocused = true
+            }
+        }
+        .task(id: trimmedQuery) {
+            let query = trimmedQuery
+            guard !query.isEmpty else {
+                isPreparingSearch = false
+                return
+            }
+            isPreparingSearch = true
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            await store.searchRecords(groupId: group.id, query: query)
+            isPreparingSearch = false
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+
+            TextField(L("Search notes and categories"), text: $query)
+                .focused($isSearchFocused)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .submitLabel(.search)
+
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(SoftLedgerTheme.mutedInk)
+                }
+                .accessibilityLabel(L("Clear search"))
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 42)
+        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(SoftLedgerTheme.rule.opacity(0.68), lineWidth: 1)
+        }
+    }
+
+    private var resultList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                if records.isEmpty && isSearching {
+                    searchingRow
+                } else if records.isEmpty && !isSearching && hasLoadedSearch {
+                    Text(L("No matching records"))
+                        .font(.subheadline)
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                } else {
+                    ForEach(records) { record in
+                        ExpenseRow(record: record, group: group) {
+                            selectedRecord = record
+                        }
+                        .onAppear {
+                            if record.id == records.last?.id {
+                                Task {
+                                    await store.loadMoreRecords(groupId: group.id, search: trimmedQuery)
+                                }
+                            }
+                        }
+
+                        if record.id != records.last?.id {
+                            Divider()
+                                .overlay(SoftLedgerTheme.rule.opacity(0.56))
+                                .padding(.leading, 54)
+                        }
+                    }
+
+                    if isSearching {
+                        if !records.isEmpty {
+                            Divider()
+                                .overlay(SoftLedgerTheme.rule.opacity(0.56))
+                                .padding(.leading, 54)
+                        }
+                        searchingRow
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+            }
+        }
+    }
+
+    private var searchingRow: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(L("Searching records..."))
+                .font(.subheadline)
+                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
     }
 }
 

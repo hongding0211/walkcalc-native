@@ -10,6 +10,7 @@
 "Average cost" = "人均";
 "Cancel" = "取消";
 "Category" = "类别";
+"Clear search" = "清除搜索";
 "Confirm" = "确认";
 "Confirm delete?" = "确认删除？";
 "Confirm dismiss group?" = "确认解散群组";
@@ -116,6 +117,7 @@
 "No balances" = "暂无余额";
 "No expenses yet" = "暂无支出";
 "No groups yet" = "暂无群组";
+"No matching records" = "没有匹配记录";
 "No records yet" = "暂无记录";
 "Opens group details" = "打开群组详情";
 "Optional note" = "可选备注";
@@ -132,6 +134,9 @@
 "Save" = "保存";
 "Search" = "搜索";
 "Search by name" = "按姓名搜索";
+"Search notes and categories" = "搜索备注和分类";
+"Search records" = "搜索记录";
+"Searching records..." = "正在搜索记录...";
 "Selected" = "已选择";
 "Shopping" = "购物";
 "Split" = "分摊";

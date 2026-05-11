@@ -65,6 +65,26 @@ struct WalkRecord: Identifiable, Hashable {
     var modifiedBy: String?
 }
 
+struct RecordSearchRequest: Encodable, Hashable {
+    var `operator`: String
+    var conditions: [RecordSearchCondition]
+
+    static func noteOrCategoryName(query: String) -> RecordSearchRequest {
+        RecordSearchRequest(
+            operator: "or",
+            conditions: [
+                RecordSearchCondition(field: "note", query: query),
+                RecordSearchCondition(field: "categoryName", query: query)
+            ]
+        )
+    }
+}
+
+struct RecordSearchCondition: Encodable, Hashable {
+    var field: String
+    var query: String
+}
+
 struct ResolvedDebt: Identifiable, Hashable {
     var id = UUID()
     var from: Member

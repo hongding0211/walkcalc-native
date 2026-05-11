@@ -114,12 +114,14 @@ struct APIClient {
         }
     }
 
-    func records(groupCode: String, page: Int, pageSize: Int, search: String? = nil, participantId: String? = nil, token: String) async throws -> APIEnvelope<[WalkRecord]> {
+    func records(groupCode: String, page: Int, pageSize: Int, search: String? = nil, recordSearch: RecordSearchRequest? = nil, participantId: String? = nil, token: String) async throws -> APIEnvelope<[WalkRecord]> {
         var query = [
             "page": "\(page)",
             "pageSize": "\(pageSize)"
         ]
-        if let search, !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let recordSearch, let encodedSearch = encodedRecordSearch(recordSearch) {
+            query["search"] = encodedSearch
+        } else if let search, !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             query["search"] = search
         }
         if let participantId, !participantId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -177,6 +179,13 @@ struct APIClient {
         try await request(.post, path: "/walkcalc/records/resolve-debts", token: token, body: ["groupCode": groupCode, "transfers": transfers]) { raw in
             arrayPayload(raw).map(mapRecord)
         }
+    }
+
+    private func encodedRecordSearch(_ search: RecordSearchRequest) -> String? {
+        guard let data = try? JSONEncoder().encode(search) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     private func request<T>(_ method: HTTPMethod, path: String, query: [String: String] = [:], token: String, body: [String: Any]? = nil, mapper: (Any?) -> T) async throws -> APIEnvelope<T> {
