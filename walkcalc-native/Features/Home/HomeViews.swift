@@ -377,7 +377,7 @@ private struct GroupSummaryRow: View {
                     .truncationMode(.tail)
 
                 HStack(spacing: 8) {
-                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 3, size: 22, showsTotal: false)
+                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 3, size: 24, showsTotal: false)
                     Text(memberCountText)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -408,8 +408,8 @@ private struct GroupSummaryRow: View {
                 .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .frame(minHeight: 64)
+        .padding(.vertical, 10)
+        .frame(minHeight: 72)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(alignment: .leading) {

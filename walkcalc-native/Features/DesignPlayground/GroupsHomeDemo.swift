@@ -575,8 +575,8 @@ private struct GroupHomeRow: View {
                     .foregroundStyle(GroupHomeTheme.mutedInk.opacity(0.7))
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(minHeight: 64)
+            .padding(.vertical, 10)
+            .frame(minHeight: 72)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(GroupHomeTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(alignment: .leading) {
@@ -709,13 +709,13 @@ private struct GroupHomeMemberAvatarStack: View {
     var body: some View {
         HStack(spacing: -6) {
             ForEach(Array(members.prefix(3).enumerated()), id: \.offset) { _, member in
-                GroupHomeAvatar(initial: member, size: 22)
+                GroupHomeAvatar(initial: member, size: 24)
                     .overlay {
                         Circle().stroke(GroupHomeTheme.paper, lineWidth: 2)
                     }
             }
         }
-        .frame(height: 22)
+        .frame(height: 24)
         .accessibilityHidden(true)
     }
 }
