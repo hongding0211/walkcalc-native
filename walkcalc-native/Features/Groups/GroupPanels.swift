@@ -1514,9 +1514,11 @@ private struct MemberBalanceDetailView: View {
     @State private var editingRecord: WalkRecord?
 
     private var records: [WalkRecord] {
-        (store.recordsByGroup[group.id] ?? []).filter { record in
-            record.who == member.uuid || record.forWhom.contains(member.uuid)
-        }
+        store.memberRecords(groupId: group.id, memberId: member.uuid)
+    }
+
+    private var recordTotal: Int {
+        store.memberRecordTotal(groupId: group.id, memberId: member.uuid)
     }
 
     var body: some View {
@@ -1538,7 +1540,7 @@ private struct MemberBalanceDetailView: View {
                                 .minimumScaleFactor(0.82)
                         }
                         Spacer()
-                        Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(records.count)"))
+                        Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(recordTotal)"))
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.mutedInk)
                     }
@@ -1572,6 +1574,13 @@ private struct MemberBalanceDetailView: View {
                                     ExpenseRow(record: record, group: group) {
                                         editingRecord = record
                                     }
+                                    .onAppear {
+                                        if record.id == records.last?.id {
+                                            Task {
+                                                await store.loadMoreMemberRecords(groupId: group.id, memberId: member.uuid)
+                                            }
+                                        }
+                                    }
                                     if record.id != records.last?.id {
                                         Divider()
                                             .overlay(SoftLedgerTheme.rule.opacity(0.52))
@@ -1597,6 +1606,9 @@ private struct MemberBalanceDetailView: View {
         .navigationTitle(member.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .task {
+            await store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
+        }
         .sheet(item: $editingRecord) { record in
             NavigationStack {
                 RecordEditorView(groupId: group.id, record: record) {

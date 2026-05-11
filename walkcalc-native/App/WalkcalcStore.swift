@@ -11,13 +11,24 @@ final class WalkcalcStore: ObservableObject {
     @Published var groups: [WalkGroup] = []
     @Published var recordsByGroup: [String: [WalkRecord]] = [:]
     @Published var recordTotals: [String: Int] = [:]
+    @Published private(set) var groupTotal = 0
+    @Published private(set) var isLoadingMoreGroups = false
     @Published var isBootstrapping = true
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var themeColorId: String = UserDefaults.standard.string(forKey: "themeColor") ?? "blue"
     @Published var isFixtureMode = false
+    @Published private var recordSearchResultsByKey: [String: [WalkRecord]] = [:]
+    @Published private var recordSearchTotalsByKey: [String: Int] = [:]
+    @Published private var memberRecordsByKey: [String: [WalkRecord]] = [:]
+    @Published private var memberRecordTotalsByKey: [String: Int] = [:]
 
     let api = APIClient()
+    private let groupPageSize = 20
+    private let recordPageSize = 10
+    private var groupsPage = 0
+    private var groupSearchQuery = ""
+    private var loadingRecordKeys: Set<String> = []
 
     var primaryColor: Color {
         themeColorOptions.first(where: { $0.id == themeColorId })?.color ?? themeColorOptions[0].color
@@ -74,6 +85,14 @@ final class WalkcalcStore: ObservableObject {
         user = nil
         groups = []
         recordsByGroup = [:]
+        recordTotals = [:]
+        groupTotal = 0
+        groupsPage = 0
+        groupSearchQuery = ""
+        recordSearchResultsByKey = [:]
+        recordSearchTotalsByKey = [:]
+        memberRecordsByKey = [:]
+        memberRecordTotalsByKey = [:]
         UserDefaults.standard.removeObject(forKey: "walkcalc.token")
     }
 
@@ -116,14 +135,42 @@ final class WalkcalcStore: ObservableObject {
         _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
     }
 
-    func refreshHome() async {
+    var canLoadMoreGroups: Bool {
+        groups.count < groupTotal
+    }
+
+    func refreshHome(search: String? = nil) async {
         if isFixtureMode { return }
         guard let token else { return }
+        let query = normalizedQuery(search)
         do {
-            let response = try await api.groups(token: token)
+            let response = try await api.groups(page: 1, pageSize: groupPageSize, search: optionalQuery(query), token: token)
             applyRefreshedToken(response)
             if response.success {
+                groupSearchQuery = query
                 groups = response.data ?? []
+                groupsPage = response.pagination?.page ?? 1
+                groupTotal = response.pagination?.total ?? groups.count
+            } else {
+                errorMessage = response.message ?? L("Network issues")
+            }
+        } catch {
+            errorMessage = L("Network issues")
+        }
+    }
+
+    func loadMoreGroups() async {
+        if isFixtureMode { return }
+        guard let token, canLoadMoreGroups, !isLoadingMoreGroups else { return }
+        isLoadingMoreGroups = true
+        defer { isLoadingMoreGroups = false }
+        do {
+            let response = try await api.groups(page: groupsPage + 1, pageSize: groupPageSize, search: optionalQuery(groupSearchQuery), token: token)
+            applyRefreshedToken(response)
+            if response.success {
+                appendGroups(response.data ?? [])
+                groupsPage = response.pagination?.page ?? groupsPage + 1
+                groupTotal = response.pagination?.total ?? groupTotal
             } else {
                 errorMessage = response.message ?? L("Network issues")
             }
@@ -141,7 +188,7 @@ final class WalkcalcStore: ObservableObject {
         guard let token else { return }
         do {
             async let groupResponse = api.group(code: id, token: token)
-            async let recordsResponse = api.records(groupCode: id, page: 1, token: token)
+            async let recordsResponse = api.records(groupCode: id, page: 1, pageSize: recordPageSize, token: token)
             let (groupResult, recordResult) = try await (groupResponse, recordsResponse)
             applyRefreshedToken(groupResult)
             applyRefreshedToken(recordResult)
@@ -149,6 +196,7 @@ final class WalkcalcStore: ObservableObject {
                 replaceGroup(group)
             }
             if recordResult.success {
+                clearRecordCaches(for: id)
                 recordsByGroup[id] = recordResult.data ?? []
                 recordTotals[id] = recordResult.pagination?.total ?? recordResult.data?.count ?? 0
             }
@@ -157,19 +205,133 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
-    func loadMoreRecords(groupId: String) async {
+    func loadMoreRecords(groupId: String, search: String = "") async {
         if isFixtureMode { return }
         guard let token else { return }
-        let current = recordsByGroup[groupId] ?? []
-        let total = recordTotals[groupId] ?? current.count
+        let query = normalizedQuery(search)
+        let key = recordListKey(groupId: groupId, search: query)
+        guard !loadingRecordKeys.contains(key) else { return }
+
+        if !query.isEmpty && recordSearchResultsByKey[key] == nil {
+            await searchRecords(groupId: groupId, query: query)
+            return
+        }
+
+        let current = cachedRecords(groupId: groupId, search: query)
+        let total = cachedRecordTotal(groupId: groupId, search: query)
         guard current.count < total else { return }
-        let page = current.count / 10 + 1
+        loadingRecordKeys.insert(key)
+        defer { loadingRecordKeys.remove(key) }
+        let page = current.count / recordPageSize + 1
         do {
-            let response = try await api.records(groupCode: groupId, page: page, token: token)
+            let response = try await api.records(groupCode: groupId, page: page, pageSize: recordPageSize, search: optionalQuery(query), token: token)
             applyRefreshedToken(response)
             if response.success {
-                recordsByGroup[groupId] = current + (response.data ?? [])
-                recordTotals[groupId] = response.pagination?.total ?? total
+                if query.isEmpty {
+                    recordsByGroup[groupId] = current + (response.data ?? [])
+                    recordTotals[groupId] = response.pagination?.total ?? total
+                } else {
+                    recordSearchResultsByKey[key] = current + (response.data ?? [])
+                    recordSearchTotalsByKey[key] = response.pagination?.total ?? total
+                }
+            }
+        } catch {
+            errorMessage = L("Network issues")
+        }
+    }
+
+    func records(groupId: String, search: String = "") -> [WalkRecord] {
+        let query = normalizedQuery(search)
+        guard !query.isEmpty else {
+            return recordsByGroup[groupId] ?? []
+        }
+        let key = recordListKey(groupId: groupId, search: query)
+        if let remote = recordSearchResultsByKey[key] {
+            return remote
+        }
+        return (recordsByGroup[groupId] ?? []).filter { localRecordMatches($0, query: query) }
+    }
+
+    func searchRecords(groupId: String, query rawQuery: String) async {
+        let query = normalizedQuery(rawQuery)
+        guard !query.isEmpty else { return }
+        let key = recordListKey(groupId: groupId, search: query)
+        if isFixtureMode {
+            let matches = (recordsByGroup[groupId] ?? []).filter { localRecordMatches($0, query: query) }
+            recordSearchResultsByKey[key] = matches
+            recordSearchTotalsByKey[key] = matches.count
+            return
+        }
+        guard let token else { return }
+        guard !loadingRecordKeys.contains(key) else { return }
+        loadingRecordKeys.insert(key)
+        defer { loadingRecordKeys.remove(key) }
+        do {
+            let response = try await api.records(groupCode: groupId, page: 1, pageSize: recordPageSize, search: query, token: token)
+            applyRefreshedToken(response)
+            if response.success {
+                recordSearchResultsByKey[key] = response.data ?? []
+                recordSearchTotalsByKey[key] = response.pagination?.total ?? response.data?.count ?? 0
+            }
+        } catch {
+            errorMessage = L("Network issues")
+        }
+    }
+
+    func memberRecords(groupId: String, memberId: String) -> [WalkRecord] {
+        let key = memberRecordKey(groupId: groupId, memberId: memberId)
+        if let records = memberRecordsByKey[key] {
+            return records
+        }
+        return (recordsByGroup[groupId] ?? []).filter { recordIncludesParticipant($0, participantId: memberId) }
+    }
+
+    func memberRecordTotal(groupId: String, memberId: String) -> Int {
+        let key = memberRecordKey(groupId: groupId, memberId: memberId)
+        return memberRecordTotalsByKey[key] ?? memberRecords(groupId: groupId, memberId: memberId).count
+    }
+
+    func refreshMemberRecords(groupId: String, memberId: String) async {
+        let key = memberRecordKey(groupId: groupId, memberId: memberId)
+        if isFixtureMode {
+            let matches = (recordsByGroup[groupId] ?? []).filter { recordIncludesParticipant($0, participantId: memberId) }
+            memberRecordsByKey[key] = matches
+            memberRecordTotalsByKey[key] = matches.count
+            return
+        }
+        guard let token else { return }
+        guard !loadingRecordKeys.contains(key) else { return }
+        loadingRecordKeys.insert(key)
+        defer { loadingRecordKeys.remove(key) }
+        do {
+            let response = try await api.records(groupCode: groupId, page: 1, pageSize: recordPageSize, participantId: memberId, token: token)
+            applyRefreshedToken(response)
+            if response.success {
+                memberRecordsByKey[key] = response.data ?? []
+                memberRecordTotalsByKey[key] = response.pagination?.total ?? response.data?.count ?? 0
+            }
+        } catch {
+            errorMessage = L("Network issues")
+        }
+    }
+
+    func loadMoreMemberRecords(groupId: String, memberId: String) async {
+        if isFixtureMode { return }
+        guard let token else { return }
+        let key = memberRecordKey(groupId: groupId, memberId: memberId)
+        guard !loadingRecordKeys.contains(key) else { return }
+        let current = memberRecordsByKey[key] ?? []
+        let total = memberRecordTotalsByKey[key] ?? current.count
+        guard current.count < total else { return }
+        loadingRecordKeys.insert(key)
+        defer { loadingRecordKeys.remove(key) }
+        do {
+            let page = current.count / recordPageSize + 1
+            let response = try await api.records(groupCode: groupId, page: page, pageSize: recordPageSize, participantId: memberId, token: token)
+            applyRefreshedToken(response)
+            if response.success {
+                memberRecordsByKey[key] = current + (response.data ?? [])
+                memberRecordTotalsByKey[key] = response.pagination?.total ?? total
             }
         } catch {
             errorMessage = L("Network issues")
@@ -495,6 +657,62 @@ final class WalkcalcStore: ObservableObject {
         } else {
             groups.append(group)
         }
+    }
+
+    private func appendGroups(_ nextGroups: [WalkGroup]) {
+        for group in nextGroups {
+            replaceGroup(group)
+        }
+    }
+
+    private func clearRecordCaches(for groupId: String) {
+        recordSearchResultsByKey = recordSearchResultsByKey.filter { !$0.key.hasPrefix("\(groupId)::records::") }
+        recordSearchTotalsByKey = recordSearchTotalsByKey.filter { !$0.key.hasPrefix("\(groupId)::records::") }
+        memberRecordsByKey = memberRecordsByKey.filter { !$0.key.hasPrefix("\(groupId)::member::") }
+        memberRecordTotalsByKey = memberRecordTotalsByKey.filter { !$0.key.hasPrefix("\(groupId)::member::") }
+    }
+
+    private func cachedRecords(groupId: String, search: String) -> [WalkRecord] {
+        guard !search.isEmpty else {
+            return recordsByGroup[groupId] ?? []
+        }
+        return recordSearchResultsByKey[recordListKey(groupId: groupId, search: search)] ?? []
+    }
+
+    private func cachedRecordTotal(groupId: String, search: String) -> Int {
+        guard !search.isEmpty else {
+            let current = recordsByGroup[groupId] ?? []
+            return recordTotals[groupId] ?? current.count
+        }
+        let key = recordListKey(groupId: groupId, search: search)
+        return recordSearchTotalsByKey[key] ?? recordSearchResultsByKey[key]?.count ?? 0
+    }
+
+    private func recordListKey(groupId: String, search: String) -> String {
+        "\(groupId)::records::\(search)"
+    }
+
+    private func memberRecordKey(groupId: String, memberId: String) -> String {
+        "\(groupId)::member::\(memberId)"
+    }
+
+    private func normalizedQuery(_ query: String?) -> String {
+        query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func optionalQuery(_ query: String) -> String? {
+        query.isEmpty ? nil : query
+    }
+
+    private func recordIncludesParticipant(_ record: WalkRecord, participantId: String) -> Bool {
+        record.who == participantId || record.forWhom.contains(participantId)
+    }
+
+    private func localRecordMatches(_ record: WalkRecord, query: String) -> Bool {
+        recordTitle(record).localizedCaseInsensitiveContains(query)
+            || Money.display(record.paidMinor).localizedCaseInsensitiveContains(query)
+            || Money.compactDisplay(record.paidMinor).localizedCaseInsensitiveContains(query)
+            || record.type.localizedCaseInsensitiveContains(query)
     }
 
     private func applyRefreshedToken<T>(_ response: APIEnvelope<T>) {

@@ -24,7 +24,9 @@ struct APIClient {
     }
 
     func profileURL() -> URL {
-        webBaseURL.appendingPathComponent("sso/profile")
+        var components = URLComponents(url: webBaseURL.appendingPathComponent("sso/profile"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "hideNavbar", value: "1")]
+        return components.url!
     }
 
     func redirectPrefix() -> String {
@@ -41,8 +43,15 @@ struct APIClient {
         }
     }
 
-    func groups(token: String) async throws -> APIEnvelope<[WalkGroup]> {
-        try await request(.get, path: "/walkcalc/groups/my", query: ["pageSize": "100"], token: token) { raw in
+    func groups(page: Int, pageSize: Int, search: String? = nil, token: String) async throws -> APIEnvelope<[WalkGroup]> {
+        var query = [
+            "page": "\(page)",
+            "pageSize": "\(pageSize)"
+        ]
+        if let search, !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            query["search"] = search
+        }
+        return try await request(.get, path: "/walkcalc/groups/my", query: query, token: token) { raw in
             arrayPayload(raw).map(mapGroup)
         }
     }
@@ -105,8 +114,18 @@ struct APIClient {
         }
     }
 
-    func records(groupCode: String, page: Int, token: String) async throws -> APIEnvelope<[WalkRecord]> {
-        try await request(.get, path: "/walkcalc/records/group/\(groupCode)", query: ["page": "\(page)"], token: token) { raw in
+    func records(groupCode: String, page: Int, pageSize: Int, search: String? = nil, participantId: String? = nil, token: String) async throws -> APIEnvelope<[WalkRecord]> {
+        var query = [
+            "page": "\(page)",
+            "pageSize": "\(pageSize)"
+        ]
+        if let search, !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            query["search"] = search
+        }
+        if let participantId, !participantId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            query["participantId"] = participantId
+        }
+        return try await request(.get, path: "/walkcalc/groups/\(groupCode)/records", query: query, token: token) { raw in
             arrayPayload(raw).map(mapRecord)
         }
     }

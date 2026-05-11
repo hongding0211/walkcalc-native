@@ -109,6 +109,8 @@ struct RootHomeView: View {
     @State private var joinGroupID = ""
     @State private var archiveCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
+    @State private var searchText = ""
+    @State private var hasLoadedInitialGroups = false
 
     private var activeGroups: [WalkGroup] {
         guard let user = store.user else { return store.groups }
@@ -131,7 +133,12 @@ struct RootHomeView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        if activeGroups.isEmpty {
+                        if activeGroups.isEmpty, store.canLoadMoreGroups {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 80)
+                                .task { await store.loadMoreGroups() }
+                        } else if activeGroups.isEmpty {
                             GroupsEmptyState(
                                 onCreateGroup: { activeSheet = .create },
                                 onJoinGroup: { isJoiningGroup = true }
@@ -149,6 +156,11 @@ struct RootHomeView: View {
                                         GroupSummaryRow(group: group)
                                     }
                                     .buttonStyle(.plain)
+                                    .onAppear {
+                                        if group.id == activeGroups.last?.id {
+                                            Task { await store.loadMoreGroups() }
+                                        }
+                                    }
                                     .contextMenu {
                                         Button {
                                             archive(group)
@@ -163,6 +175,12 @@ struct RootHomeView: View {
                                         }
                                     }
                                 }
+
+                                if store.isLoadingMoreGroups {
+                                    ProgressView()
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                }
                             }
                         }
                     }
@@ -174,6 +192,8 @@ struct RootHomeView: View {
             }
             .navigationTitle(L("Groups"))
             .navigationBarTitleDisplayMode(.large)
+            .searchable(text: $searchText, placement: .toolbar, prompt: L("Search"))
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -296,7 +316,16 @@ struct RootHomeView: View {
             }
             path.append(.group(code))
         }
-        .task { await store.refreshHome() }
+        .task {
+            await store.refreshHome()
+            hasLoadedInitialGroups = true
+        }
+        .task(id: searchText) {
+            guard hasLoadedInitialGroups else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            await store.refreshHome(search: searchText)
+        }
     }
 
     private func archive(_ group: WalkGroup) {

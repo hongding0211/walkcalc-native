@@ -31,13 +31,7 @@ struct GroupView: View {
     }
 
     private var records: [WalkRecord] {
-        let source = store.recordsByGroup[groupId] ?? []
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return source }
-        return source.filter { record in
-            recordTitle(record).localizedCaseInsensitiveContains(query)
-                || Money.display(record.paidMinor).contains(query)
-        }
+        store.records(groupId: groupId, search: searchText)
     }
 
     private var shouldShowPeopleSetup: Bool {
@@ -63,6 +57,8 @@ struct GroupView: View {
                             }
                             GroupExpensesSection(group: group, records: records) { record in
                                 activeSheet = .editExpense(record)
+                            } onLoadMore: {
+                                Task { await store.loadMoreRecords(groupId: group.id, search: searchText) }
                             }
                         }
                     } else {
@@ -111,6 +107,13 @@ struct GroupView: View {
         .searchPresentationToolbarBehavior(.avoidHidingContent)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task { await store.refreshGroup(groupId) }
+        .task(id: searchText) {
+            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !query.isEmpty else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            await store.searchRecords(groupId: groupId, query: query)
+        }
         .sheet(item: $activeSheet) { sheet in
             GroupSheetView(groupId: groupId, sheet: sheet, activeSheet: $activeSheet) {
                 dismiss()
@@ -285,6 +288,7 @@ private struct GroupExpensesSection: View {
     let group: WalkGroup
     let records: [WalkRecord]
     let onEdit: (WalkRecord) -> Void
+    let onLoadMore: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -302,6 +306,11 @@ private struct GroupExpensesSection: View {
                     ForEach(records) { record in
                         ExpenseRow(record: record, group: group) {
                             onEdit(record)
+                        }
+                        .onAppear {
+                            if record.id == records.last?.id {
+                                onLoadMore()
+                            }
                         }
                         if record.id != records.last?.id {
                             Divider()
