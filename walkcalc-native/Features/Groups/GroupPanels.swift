@@ -742,6 +742,7 @@ struct RecordEditorView: View {
     @State private var note: String
     @State private var message: String?
     @State private var confirmDelete = false
+    @State private var hasEditIntent: Bool
 
     init(groupId: String, record: WalkRecord? = nil, onDone: @escaping () -> Void) {
         self.groupId = groupId
@@ -753,6 +754,7 @@ struct RecordEditorView: View {
         _categoryId = State(initialValue: record?.type ?? "food")
         _note = State(initialValue: record?.text ?? "")
         _date = State(initialValue: record?.createdAt.walkDate ?? Date())
+        _hasEditIntent = State(initialValue: record == nil)
     }
 
     private var group: WalkGroup? {
@@ -771,6 +773,10 @@ struct RecordEditorView: View {
         (try? Money.parseDisplay(amount)).map { !Money.isZero($0) } == true
             && !paidBy.isEmpty
             && !splitMembers.isEmpty
+    }
+
+    private var showsEditActions: Bool {
+        record == nil || hasEditIntent
     }
 
     var body: some View {
@@ -799,12 +805,16 @@ struct RecordEditorView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .simultaneousGesture(TapGesture().onEnded { beginEditing() })
+                .onChange(of: paidBy) { _, _ in beginEditing() }
 
-                SplitInlineEditor(members: members, selection: $splitMembers)
-                CategoryInlineEditor(selection: $categoryId)
+                SplitInlineEditor(members: members, selection: $splitMembers, onEdit: beginEditing)
+                CategoryInlineEditor(selection: $categoryId, onEdit: beginEditing)
 
                 DatePicker(L("Date"), selection: $date)
                     .datePickerStyle(.compact)
+                    .simultaneousGesture(TapGesture().onEnded { beginEditing() })
+                    .onChange(of: date) { _, _ in beginEditing() }
 
                 TextField(L("Optional note"), text: $note, axis: .vertical)
                     .lineLimit(3, reservesSpace: true)
@@ -821,6 +831,7 @@ struct RecordEditorView: View {
             if record != nil {
                 Section {
                     Button(L("Delete expense"), role: .destructive) {
+                        beginEditing()
                         confirmDelete = true
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -835,33 +846,41 @@ struct RecordEditorView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(role: .cancel) {
-                    dismiss()
-                    onDone()
-                } label: {
-                    Image(systemName: "xmark")
+            if showsEditActions {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .cancel) {
+                        cancelEditing()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel(L("Cancel"))
                 }
-                .accessibilityLabel(L("Cancel"))
-            }
 
-            ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    Task { await submit() }
-                } label: {
-                    Image(systemName: "checkmark")
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        Image(systemName: "checkmark")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(SoftLedgerTheme.accent)
+                    .disabled(!canSave)
+                    .accessibilityLabel(L("Save"))
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(SoftLedgerTheme.accent)
-                .disabled(!canSave)
-                .accessibilityLabel(L("Save"))
             }
         }
         .task {
             if paidBy.isEmpty {
                 paidBy = store.user?.uuid ?? members.first?.uuid ?? ""
             }
-            focusedField = .amount
+            if record == nil {
+                focusedField = .amount
+            }
+        }
+        .onChange(of: focusedField) { _, newValue in
+            if newValue != nil {
+                beginEditing()
+            }
         }
         .overlay {
             KeyboardDismissTapLayer(isActive: focusedField != nil) {
@@ -882,6 +901,32 @@ struct RecordEditorView: View {
                 }
             }
         }
+    }
+
+    private func beginEditing() {
+        guard record != nil else { return }
+        hasEditIntent = true
+    }
+
+    private func cancelEditing() {
+        guard record != nil else {
+            dismiss()
+            onDone()
+            return
+        }
+        resetDraft()
+        message = nil
+        focusedField = nil
+        hasEditIntent = false
+    }
+
+    private func resetDraft() {
+        amount = record.map { Money.editableDisplay($0.paidMinor) } ?? ""
+        paidBy = record?.who ?? store.user?.uuid ?? members.first?.uuid ?? ""
+        splitMembers = Set(record?.forWhom ?? [])
+        categoryId = record?.type ?? "food"
+        date = record?.createdAt.walkDate ?? Date()
+        note = record?.text ?? ""
     }
 
     private func submit() async {
@@ -1004,6 +1049,7 @@ private struct KeyboardDismissTapLayer: UIViewRepresentable {
 private struct SplitInlineEditor: View {
     let members: [Member]
     @Binding var selection: Set<String>
+    let onEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1011,6 +1057,7 @@ private struct SplitInlineEditor: View {
                 Text(L("Split"))
                 Spacer()
                 Button(L("All")) {
+                    onEdit()
                     if selection.count == members.count {
                         selection.removeAll()
                     } else {
@@ -1025,6 +1072,7 @@ private struct SplitInlineEditor: View {
 
             JustifiedGrid(items: members, id: \.id, itemWidth: 56, rowSpacing: 10, estimatedItemHeight: 58) { member in
                 Button {
+                    onEdit()
                     toggle(member)
                 } label: {
                     VStack(spacing: 5) {
@@ -1091,6 +1139,7 @@ private struct SelectableSplitAvatar: View {
 
 private struct CategoryInlineEditor: View {
     @Binding var selection: String
+    let onEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1098,6 +1147,7 @@ private struct CategoryInlineEditor: View {
 
             JustifiedGrid(items: expenseCategories, id: \.id, itemWidth: 58, rowSpacing: 12, estimatedItemHeight: 62) { category in
                 Button {
+                    onEdit()
                     selection = category.id
                 } label: {
                     VStack(spacing: 6) {
@@ -1206,11 +1256,18 @@ private struct BalancesRootView: View {
     let onSelect: (Member) -> Void
 
     private var members: [Member] {
-        group.allMembers.filter { $0.uuid != store.user?.uuid }
+        group.allMembers
     }
 
     private var debts: [ResolvedDebt] {
         store.resolvedDebts(for: group)
+    }
+
+    private var resolveAllTitle: String {
+        if debts.count == 1 {
+            return L("Resolve 1 transfer")
+        }
+        return L("Resolve %@ transfers").replacingOccurrences(of: "%@", with: "\(debts.count)")
     }
 
     var body: some View {
@@ -1249,7 +1306,7 @@ private struct BalancesRootView: View {
             }
 
             if !debts.isEmpty {
-                Button(L("Resolve %@ transfers").replacingOccurrences(of: "%@", with: "\(debts.count)")) {
+                Button(resolveAllTitle) {
                     Task { _ = await store.resolveAll(groupId: group.id, debts: debts) }
                 }
                 .buttonStyle(.glass)

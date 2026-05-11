@@ -65,8 +65,7 @@ private struct SoftLedgerGroupDetailPlayground: View {
                         }
                     } else {
                         GroupDetailSummaryCard(
-                            balance: scenario.myBalance,
-                            memberInitials: scenario.memberInitials
+                            balance: scenario.myBalance
                         )
                         GroupDetailDebtSection(
                             debts: debts,
@@ -734,6 +733,7 @@ private struct GroupDetailNewExpenseSheet: View {
     @State private var category: String
     @State private var date = Date()
     @State private var note = ""
+    @State private var hasEditIntent: Bool
 
     private let members = ["Hong", "Lin", "Ming", "Yan", "Ava", "Christopher", "Alexandra", "Ivy", "Owen", "Tara"]
     private let categories = GroupDetailExpenseCategory.samples
@@ -744,12 +744,17 @@ private struct GroupDetailNewExpenseSheet: View {
         _paidBy = State(initialValue: mode.payer)
         _splitMembers = State(initialValue: [])
         _category = State(initialValue: mode.category)
+        _hasEditIntent = State(initialValue: !mode.isEditing)
     }
 
     private var canSave: Bool {
         let normalizedAmount = amount.replacingOccurrences(of: ",", with: "")
         let decimalAmount = Decimal(string: normalizedAmount) ?? 0
         return decimalAmount > 0
+    }
+
+    private var showsEditActions: Bool {
+        !mode.isEditing || hasEditIntent
     }
 
     var body: some View {
@@ -767,19 +772,25 @@ private struct GroupDetailNewExpenseSheet: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .simultaneousGesture(TapGesture().onEnded { beginEditing() })
+                .onChange(of: paidBy) { _, _ in beginEditing() }
 
                 GroupDetailSplitInlineEditor(
                     members: members,
-                    selection: $splitMembers
+                    selection: $splitMembers,
+                    onEdit: beginEditing
                 )
 
                 GroupDetailCategoryInlineEditor(
                     categories: categories,
-                    selection: $category
+                    selection: $category,
+                    onEdit: beginEditing
                 )
 
                 DatePicker("Date", selection: $date)
                     .datePickerStyle(.compact)
+                    .simultaneousGesture(TapGesture().onEnded { beginEditing() })
+                    .onChange(of: date) { _, _ in beginEditing() }
 
                 TextField("Optional note", text: $note, axis: .vertical)
                     .lineLimit(3, reservesSpace: true)
@@ -790,6 +801,7 @@ private struct GroupDetailNewExpenseSheet: View {
             if mode.isEditing {
                 Section {
                     Button(role: .destructive) {
+                        beginEditing()
                         dismiss()
                     } label: {
                         Text("Delete expense")
@@ -806,30 +818,59 @@ private struct GroupDetailNewExpenseSheet: View {
         .navigationTitle(mode.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(role: .cancel) {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
+            if showsEditActions {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .cancel) {
+                        cancelEditing()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Cancel")
                 }
-                .accessibilityLabel("Cancel")
-            }
 
-            ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "checkmark")
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "checkmark")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(GroupDetailTheme.accent)
+                    .disabled(!canSave)
+                    .accessibilityLabel("Save")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(GroupDetailTheme.accent)
-                .disabled(!canSave)
-                .accessibilityLabel("Save")
             }
         }
         .task {
-            focusedField = .amount
+            if !mode.isEditing {
+                focusedField = .amount
+            }
         }
+        .onChange(of: focusedField) { _, newValue in
+            if newValue != nil {
+                beginEditing()
+            }
+        }
+    }
+
+    private func beginEditing() {
+        guard mode.isEditing else { return }
+        hasEditIntent = true
+    }
+
+    private func cancelEditing() {
+        guard mode.isEditing else {
+            dismiss()
+            return
+        }
+        amount = mode.amount
+        paidBy = mode.payer
+        splitMembers = []
+        category = mode.category
+        date = Date()
+        note = ""
+        focusedField = nil
+        hasEditIntent = false
     }
 }
 
@@ -858,6 +899,7 @@ private struct GroupDetailExpenseAmountField: View {
 private struct GroupDetailSplitInlineEditor: View {
     let members: [String]
     @Binding var selection: Set<String>
+    let onEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -865,6 +907,7 @@ private struct GroupDetailSplitInlineEditor: View {
                 Text("Split")
                 Spacer()
                 Button("All") {
+                    onEdit()
                     if selection.count == members.count {
                         selection.removeAll()
                     } else {
@@ -876,6 +919,7 @@ private struct GroupDetailSplitInlineEditor: View {
 
             GroupDetailJustifiedGrid(items: members, id: \.self, itemWidth: 56, rowSpacing: 10) { member in
                 Button {
+                    onEdit()
                     toggle(member)
                 } label: {
                     VStack(spacing: 5) {
@@ -917,6 +961,7 @@ private struct GroupDetailSplitInlineEditor: View {
 private struct GroupDetailCategoryInlineEditor: View {
     let categories: [GroupDetailExpenseCategory]
     @Binding var selection: String
+    let onEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -924,6 +969,7 @@ private struct GroupDetailCategoryInlineEditor: View {
 
             GroupDetailJustifiedGrid(items: categories, id: \.id, itemWidth: 58, rowSpacing: 12) { category in
                 Button {
+                    onEdit()
                     selection = category.title
                 } label: {
                     VStack(spacing: 6) {
@@ -1140,41 +1186,18 @@ private struct GroupDetailResolveTransfersButton: View {
 
 private struct GroupDetailSummaryCard: View {
     let balance: String
-    let memberInitials: [String]
-
-    private var memberCountText: String {
-        memberInitials.count == 1 ? "1 member" : "\(memberInitials.count) members"
-    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("My balance")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(GroupDetailTheme.secondaryInk)
-                Text(balance)
-                    .font(.system(size: 44, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(GroupDetailTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-            }
-
-            HStack(spacing: -8) {
-                ForEach(memberInitials, id: \.self) { initial in
-                    GroupDetailAvatar(initial: initial, size: 32)
-                        .overlay {
-                            Circle().stroke(GroupDetailTheme.paper, lineWidth: 2)
-                        }
-                }
-
-                Text(memberCountText)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(GroupDetailTheme.secondaryInk)
-                    .padding(.leading, 14)
-
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            Text("My balance")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(GroupDetailTheme.secondaryInk)
+            Text(balance)
+                .font(.system(size: 42, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(GroupDetailTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
         }
         .padding(20)
         .groupDetailGlass(cornerRadius: 18)
@@ -1184,7 +1207,6 @@ private struct GroupDetailSummaryCard: View {
         }
         .shadow(color: GroupDetailTheme.ink.opacity(0.045), radius: 12, y: 6)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("My balance \(balance). \(memberCountText).")
     }
 }
 
@@ -1493,16 +1515,22 @@ private struct GroupDetailDebtRow: View {
                     Text(debt.name)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(GroupDetailTheme.ink)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     Text(debt.recordSummary)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(GroupDetailTheme.secondaryInk)
                 }
+                .layoutPriority(1)
 
                 Spacer()
 
                 Text(debt.amount)
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                     .foregroundStyle(debt.isPositive ? GroupDetailTheme.positive : GroupDetailTheme.negative)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .allowsTightening(true)
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -1620,16 +1648,16 @@ private struct GroupDetailRecordRow: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: record.symbol)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(record.color)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 30, height: 30)
                     .background(record.color.opacity(0.12), in: Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(record.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(GroupDetailTheme.ink)
-                    Text("\(record.payer) paid · \(record.participants) people")
+                    Text("@\(record.payer)")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(GroupDetailTheme.secondaryInk)
                 }
@@ -1698,6 +1726,7 @@ private struct GroupDetailMockDebt: Identifiable {
     let isPositive: Bool
 
     static let samples: [GroupDetailMockDebt] = [
+        .init(initial: "H", name: "Hong", direction: "my balance", amount: "+¥86.20", recordSummary: "3 records", isPositive: true),
         .init(initial: "L", name: "Lin", direction: "owes me", amount: "+¥128.40", recordSummary: "3 records", isPositive: true),
         .init(initial: "M", name: "Ming", direction: "owes me", amount: "+¥42.00", recordSummary: "1 record", isPositive: true),
         .init(initial: "Y", name: "Yan", direction: "I owe", amount: "-¥84.20", recordSummary: "2 records", isPositive: false),
@@ -1724,6 +1753,8 @@ private struct GroupDetailMockRecord: Identifiable {
 
     static func records(relatedTo memberName: String) -> [GroupDetailMockRecord] {
         switch memberName {
+        case "Hong":
+            samples
         case "Lin":
             [
                 .init(title: "Hotel", payer: "Lin", amount: "¥420.00", participants: 4, time: "20:12", symbol: "bed.double.fill", color: GroupDetailTheme.accent),
