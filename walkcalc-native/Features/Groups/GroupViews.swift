@@ -340,7 +340,7 @@ struct ExpenseRow: View {
     }
 
     private var category: ExpenseCategory {
-        expenseCategory(for: record.type)
+        expenseCategory(for: record)
     }
 
     private var payerName: String {

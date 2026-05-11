@@ -11,13 +11,15 @@ import SwiftUI
 struct walkcalc_nativeApp: App {
     @StateObject private var store = WalkcalcStore()
 
-    #if DEBUG
     init() {
+        UIView.appearance().tintColor = SoftLedgerTheme.accentUIColor
+
+        #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--verify-temporal-display") {
             TemporalDisplayVerification.assertAllCasesPass()
         }
+        #endif
     }
-    #endif
 
     var body: some Scene {
         WindowGroup {

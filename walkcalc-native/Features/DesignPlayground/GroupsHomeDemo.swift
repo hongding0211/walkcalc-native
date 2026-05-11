@@ -540,7 +540,15 @@ private struct GroupHomeRow: View {
     let group: GroupHomeMockGroup
 
     private var amountColor: Color {
-        group.amount == "¥0.00" ? GroupHomeTheme.mutedInk : (group.isPositive ? GroupHomeTheme.positive : GroupHomeTheme.negative)
+        group.isSettled ? GroupHomeTheme.ink : signedAmountColor
+    }
+
+    private var signedAmountColor: Color {
+        group.isPositive ? GroupHomeTheme.positive : GroupHomeTheme.negative
+    }
+
+    private var statusColor: Color {
+        (group.isSettled ? GroupHomeTheme.mutedInk : signedAmountColor).opacity(group.isSettled ? 0.32 : 0.58)
     }
 
     var body: some View {
@@ -592,7 +600,7 @@ private struct GroupHomeRow: View {
             .background(GroupHomeTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(alignment: .leading) {
                 Rectangle()
-                    .fill(amountColor.opacity(group.amount == "¥0.00" ? 0.32 : 0.58))
+                    .fill(statusColor)
                     .frame(width: statusWidth)
                     .padding(.vertical, statusInset)
             }
@@ -757,6 +765,10 @@ private struct GroupHomeMockGroup: Identifiable {
     let updatedAt: Date
     let members: [String]
     let isPositive: Bool
+
+    var isSettled: Bool {
+        amount == "¥0.00"
+    }
 
     var updated: String {
         TemporalDisplay.string(from: updatedAt, context: .compact, now: Self.sampleNow, calendar: Self.sampleCalendar)

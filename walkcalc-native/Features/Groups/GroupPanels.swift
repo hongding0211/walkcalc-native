@@ -510,6 +510,7 @@ struct GroupSettingsSheet: View {
                         }
                     }
                 }
+                .keyboardShortcut(.defaultAction)
             case .delete:
                 Button(L("Delete group"), role: .destructive) {
                     confirmation = nil
@@ -760,7 +761,7 @@ struct RecordEditorView: View {
         _amount = State(initialValue: record.map { Money.editableDisplay($0.paidMinor) } ?? "")
         _paidBy = State(initialValue: record?.who ?? "")
         _splitMembers = State(initialValue: Set(record?.forWhom ?? []))
-        _categoryId = State(initialValue: record?.type ?? "food")
+        _categoryId = State(initialValue: record.map { expenseCategory(for: $0).id } ?? "food")
         _note = State(initialValue: record?.text ?? "")
         _date = State(initialValue: record?.createdAt.walkDate ?? Date())
         _hasEditIntent = State(initialValue: record == nil)
@@ -775,7 +776,8 @@ struct RecordEditorView: View {
     }
 
     private var title: String {
-        record == nil ? L("New expense") : L("Edit expense")
+        guard let record else { return L("New expense") }
+        return recordTitle(record)
     }
 
     private var canSave: Bool {
@@ -794,7 +796,7 @@ struct RecordEditorView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("¥")
                         .font(.system(size: 40, weight: .semibold, design: .rounded))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .foregroundStyle(SoftLedgerTheme.ink)
                     TextField("0.00", text: $amount)
                         .keyboardType(.decimalPad)
                         .font(.system(size: 44, weight: .semibold, design: .rounded))
@@ -830,7 +832,7 @@ struct RecordEditorView: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            if record != nil {
+            if record != nil && hasEditIntent {
                 Section {
                     Button(L("Delete expense"), role: .destructive) {
                         beginEditing()
@@ -926,7 +928,7 @@ struct RecordEditorView: View {
         amount = record.map { Money.editableDisplay($0.paidMinor) } ?? ""
         paidBy = record?.who ?? store.user?.uuid ?? members.first?.uuid ?? ""
         splitMembers = Set(record?.forWhom ?? [])
-        categoryId = record?.type ?? "food"
+        categoryId = record.map { expenseCategory(for: $0).id } ?? "food"
         date = record?.createdAt.walkDate ?? Date()
         note = record?.text ?? ""
     }
@@ -1333,6 +1335,8 @@ struct BalancesWorkspace: View {
 
 private struct BalancesRootView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @State private var showsResolveConfirmation = false
+    @State private var pendingResolveDebts: [ResolvedDebt] = []
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
@@ -1354,10 +1358,22 @@ private struct BalancesRootView: View {
     }
 
     private var resolveAllTitle: String {
-        if debts.count == 1 {
+        resolveTitle(for: debts.count)
+    }
+
+    private var pendingResolveTitle: String {
+        resolveTitle(for: pendingResolveDebts.count)
+    }
+
+    private var resolveConfirmationTitle: String {
+        "\(pendingResolveTitle)?"
+    }
+
+    private func resolveTitle(for count: Int) -> String {
+        if count == 1 {
             return L("Resolve 1 transfer")
         }
-        return L("Resolve %@ transfers").replacingOccurrences(of: "%@", with: "\(debts.count)")
+        return L("Resolve %@ transfers").replacingOccurrences(of: "%@", with: "\(count)")
     }
 
     var body: some View {
@@ -1397,7 +1413,8 @@ private struct BalancesRootView: View {
 
             if !debts.isEmpty {
                 Button(resolveAllTitle) {
-                    Task { _ = await store.resolveAll(groupId: group.id, debts: debts) }
+                    pendingResolveDebts = debts
+                    showsResolveConfirmation = true
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -1407,6 +1424,17 @@ private struct BalancesRootView: View {
         .navigationTitle(L("Balances"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .tint(SoftLedgerTheme.accent)
+        .alert(resolveConfirmationTitle, isPresented: $showsResolveConfirmation) {
+            Button(L("Cancel"), role: .cancel) {}
+            Button(L("Resolve")) {
+                let debtsToResolve = pendingResolveDebts
+                pendingResolveDebts = []
+                Task { _ = await store.resolveAll(groupId: group.id, debts: debtsToResolve) }
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(pendingResolveDebts.isEmpty)
+        }
     }
 
     private func recordCount(for member: Member) -> Int {

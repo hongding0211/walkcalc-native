@@ -277,6 +277,7 @@ struct RootHomeView: View {
                 }
                 archiveCandidate = nil
             }
+            .keyboardShortcut(.defaultAction)
         }
         .alert(L("Delete group?"), isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } })) {
             Button(L("Cancel"), role: .cancel) {}
@@ -286,8 +287,6 @@ struct RootHomeView: View {
                 }
                 deleteCandidate = nil
             }
-        } message: {
-            Text(L("%@ will be permanently deleted.").replacingOccurrences(of: "%@", with: deleteCandidate?.name ?? ""))
         }
         .onOpenURL { url in
             guard url.scheme == "walkingcalc",
@@ -365,7 +364,6 @@ private struct GroupSummaryRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
     @ScaledMetric(relativeTo: .caption) private var titleSpacing = 6
     @ScaledMetric(relativeTo: .caption) private var metadataSpacing = 8
-    @ScaledMetric(relativeTo: .caption2) private var trailingSpacing = 4
     @ScaledMetric(relativeTo: .caption) private var statusInset = 12
     @ScaledMetric(relativeTo: .caption) private var statusWidth = 3
 
@@ -377,6 +375,14 @@ private struct GroupSummaryRow: View {
 
     private var memberCountText: String {
         L("%@ members").replacingOccurrences(of: "%@", with: "\(group.allMembers.count)")
+    }
+
+    private var balanceTextColor: Color {
+        Money.isZero(myBalance) ? SoftLedgerTheme.ink : moneyColor(myBalance)
+    }
+
+    private var balanceIndicatorColor: Color {
+        moneyColor(myBalance).opacity(Money.isZero(myBalance) ? 0.32 : 0.58)
     }
 
     var body: some View {
@@ -400,20 +406,12 @@ private struct GroupSummaryRow: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: trailingSpacing) {
-                Text(signedMoney(myBalance))
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(moneyColor(myBalance))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .allowsTightening(true)
-                Text(TemporalDisplay.string(fromMilliseconds: group.modifiedAt, context: .compact))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(SoftLedgerTheme.mutedInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .allowsTightening(true)
-            }
+            Text(signedMoney(myBalance))
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .foregroundStyle(balanceTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .allowsTightening(true)
 
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
@@ -426,7 +424,7 @@ private struct GroupSummaryRow: View {
         .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(moneyColor(myBalance).opacity(Money.isZero(myBalance) ? 0.32 : 0.58))
+                .fill(balanceIndicatorColor)
                 .frame(width: statusWidth)
                 .padding(.vertical, statusInset)
         }

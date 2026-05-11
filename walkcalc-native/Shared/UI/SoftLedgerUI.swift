@@ -12,12 +12,19 @@ enum SoftLedgerTheme {
     static let positive = adaptive(light: 0x167454, dark: 0x77C99E)
     static let negative = adaptive(light: 0xAC2F24, dark: 0xF07C6C)
     static let accent = adaptive(light: 0xB15525, dark: 0xE49B63)
+    static let accentUIColor = adaptiveUIColor(light: 0xB15525, dark: 0xE49B63)
     static let accentSoft = adaptive(light: 0xEDCBA4, dark: 0x38322F)
 
     private static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(UIColor { traitCollection in
             UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
         })
+    }
+
+    private static func adaptiveUIColor(light: UInt32, dark: UInt32) -> UIColor {
+        UIColor { traitCollection in
+            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
+        }
     }
 }
 
@@ -379,8 +386,17 @@ let expenseCategories: [ExpenseCategory] = [
     .init(id: "other", titleKey: "Other", symbol: "ellipsis", color: SoftLedgerTheme.mutedInk)
 ]
 
+let transferCategory = expenseCategories.first(where: { $0.id == "transfer" })!
+
 func expenseCategory(for id: String) -> ExpenseCategory {
-    expenseCategories.first(where: { $0.id == id }) ?? expenseCategories.last!
+    if id == "debtResolve" || id == "debt-resolve" {
+        return transferCategory
+    }
+    return expenseCategories.first(where: { $0.id == id }) ?? expenseCategories.last!
+}
+
+func expenseCategory(for record: WalkRecord) -> ExpenseCategory {
+    record.isDebtResolve ? transferCategory : expenseCategory(for: record.type)
 }
 
 func signedMoney(_ value: MoneyMinor?) -> String {
@@ -402,7 +418,7 @@ func recordTitle(_ record: WalkRecord) -> String {
     if !record.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         return record.text
     }
-    return L(expenseCategory(for: record.type).titleKey)
+    return L(expenseCategory(for: record).titleKey)
 }
 
 extension Array {

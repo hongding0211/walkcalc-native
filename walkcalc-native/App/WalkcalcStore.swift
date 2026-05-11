@@ -415,8 +415,8 @@ final class WalkcalcStore: ObservableObject {
                 who: debt.from.uuid,
                 paidMinor: debt.amountMinor,
                 forWhom: [debt.to.uuid],
-                type: "debtResolve",
-                text: L("Debt Resolve"),
+                type: transferCategory.id,
+                text: "resolve",
                 token: token,
                 isDebtResolve: true
             )
