@@ -79,6 +79,8 @@
 "Add people" = "添加成员";
 "Add members or temporary members when this becomes a shared expense group." = "当它成为共同支出群组时，可以添加成员或临时成员。";
 "Add temporary member" = "添加临时成员";
+"Across 1 group" = "来自 1 个账本";
+"Across %@ groups" = "来自 %@ 个账本";
 "All" = "全部";
 "All groups" = "全部群组";
 "Archive group" = "归档群组";
@@ -119,8 +121,10 @@
 "Optional note" = "可选备注";
 "Other" = "其他";
 "Paid by" = "付款人";
+"Paid by %@" = "%@ 付款";
 "People" = "成员";
 "Records" = "记录";
+"Resolve 1 transfer" = "结清 1 笔转账";
 "Resolve %@ transfers" = "结清 %@ 笔转账";
 "Restore" = "恢复";
 "Results" = "结果";

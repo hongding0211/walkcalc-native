@@ -466,33 +466,24 @@ private struct GroupHomeSettingsMemberStack: View {
 }
 
 private struct GroupHomeBalanceCard: View {
-    private let owedToMe: String? = "+¥274.60"
-    private let iOwe: String? = "-¥146.20"
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Total balance")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(GroupHomeTheme.secondaryInk)
                 Text("+¥128.40")
-                    .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    .font(.system(size: 42, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(GroupHomeTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
             }
 
-            if owedToMe != nil || iOwe != nil {
-                HStack(spacing: 18) {
-                    if let owedToMe {
-                        GroupHomeInlineStat(title: "Owed to me", value: owedToMe, color: GroupHomeTheme.positive)
-                    }
-                    if let iOwe {
-                        GroupHomeInlineStat(title: "I owe", value: iOwe, color: GroupHomeTheme.negative)
-                    }
-                }
-            }
+            Text("Across 4 groups")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(GroupHomeTheme.secondaryInk)
+                .lineLimit(1)
         }
         .padding(20)
         .groupHomeLiquidGlass(cornerRadius: 18)
@@ -502,7 +493,7 @@ private struct GroupHomeBalanceCard: View {
         }
         .shadow(color: GroupHomeTheme.ink.opacity(0.035), radius: 10, y: 5)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Total balance, plus 128 yuan 40. Owed to me 274 yuan 60. I owe 146 yuan 20.")
+        .accessibilityLabel("Total balance, plus 128 yuan 40. Across 4 groups.")
     }
 }
 
@@ -544,42 +535,55 @@ private struct GroupHomeRow: View {
     var body: some View {
         Button {
         } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(group.name)
-                        .font(.headline.weight(.semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(GroupHomeTheme.ink)
                         .lineLimit(1)
+                        .truncationMode(.tail)
 
                     HStack(spacing: 8) {
-                        Text(group.updated)
+                        GroupHomeMemberAvatarStack(members: group.members)
+                        Text("\(group.members.count) members")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(GroupHomeTheme.secondaryInk)
                             .lineLimit(1)
-                        GroupHomeMemberAvatarStack(members: group.members)
                     }
                 }
+                .layoutPriority(1)
 
-                Spacer(minLength: 10)
+                Spacer()
 
-                Text(group.amount)
-                    .font(.headline.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(amountColor)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(group.amount)
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(amountColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                        .allowsTightening(true)
+                    Text(group.updated)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(GroupHomeTheme.mutedInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                        .allowsTightening(true)
+                }
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(GroupHomeTheme.mutedInk.opacity(0.7))
-                    .padding(.top, 4)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(minHeight: 64)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(GroupHomeTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(alignment: .leading) {
                 Rectangle()
                     .fill(amountColor.opacity(group.amount == "¥0.00" ? 0.32 : 0.58))
                     .frame(width: 3)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 12)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)

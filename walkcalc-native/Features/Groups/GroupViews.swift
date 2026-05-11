@@ -128,28 +128,16 @@ private struct GroupSummaryCard: View {
 
     var body: some View {
         SoftLedgerCard(usesGlass: true) {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L("My balance"))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    Text(signedMoney(myBalance))
-                        .font(.system(size: 44, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(SoftLedgerTheme.ink)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                }
-
-                HStack(spacing: -8) {
-                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 4, size: 32, showsTotal: false)
-                        .accessibilityHidden(true)
-                    Text(L("%@ members").replacingOccurrences(of: "%@", with: "\(group.allMembers.count)"))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .padding(.leading, 14)
-                    Spacer()
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L("My balance"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                Text(signedMoney(myBalance))
+                    .font(.system(size: 42, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(SoftLedgerTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
             }
         }
         .accessibilityElement(children: .combine)
@@ -161,12 +149,8 @@ private struct GroupBalancesSection: View {
     let group: WalkGroup
     let onSelect: (Member?) -> Void
 
-    private var currentUserId: String {
-        store.user?.uuid ?? ""
-    }
-
     private var balances: [Member] {
-        group.allMembers.filter { $0.uuid != currentUserId }
+        group.allMembers
     }
 
     private var visibleBalances: [Member] {
@@ -251,10 +235,12 @@ struct BalancePreviewRow: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                     Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(recordCount)"))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 }
+                .layoutPriority(1)
 
                 Spacer()
 
@@ -263,6 +249,7 @@ struct BalancePreviewRow: View {
                     .foregroundStyle(moneyColor(member.debtMinor))
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
+                    .allowsTightening(true)
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -336,6 +323,10 @@ struct ExpenseRow: View {
         payer?.name ?? L("Unknown")
     }
 
+    private var payerHandleText: String {
+        "@\(payerName)"
+    }
+
     private var compactCreatedAt: String {
         TemporalDisplay.string(fromMilliseconds: record.createdAt, context: .dense)
     }
@@ -346,11 +337,11 @@ struct ExpenseRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
                 Image(systemName: category.symbol)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(category.color)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 30, height: 30)
                     .background(category.color.opacity(0.12), in: Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -359,17 +350,11 @@ struct ExpenseRow: View {
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    HStack(spacing: 0) {
-                        Text(payerName)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(1)
-                        Text(" \(L("paid for")) \(record.forWhom.count)")
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    Text(payerHandleText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 }
                 .layoutPriority(1)
 
@@ -402,7 +387,7 @@ struct ExpenseRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(recordTitle(record)), \(payerName) \(L("paid for")) \(record.forWhom.count), ¥\(Money.compactDisplay(record.paidMinor)), \(fullCreatedAt)")
+        .accessibilityLabel("\(recordTitle(record)), \(L("Paid by %@").replacingOccurrences(of: "%@", with: payerName)), ¥\(Money.compactDisplay(record.paidMinor)), \(fullCreatedAt)")
     }
 }
 

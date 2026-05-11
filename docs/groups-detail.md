@@ -249,13 +249,15 @@ The summary area explains the user's position in the group. It should be calm an
 - The card's primary value is the current user's net balance in this group.
 - Use the label `My balance`.
 - Use a prominent, monospaced money value, such as `+¥86.20`.
-- Show participant context with an avatar group and member count, such as `H L M Y` and `4 members`.
+- Keep the card focused on this personal net balance only.
 
 ### What Not To Show
 
 - Do not show `Settle up` inside the summary card.
+- Do not show settlement counts or settlement-plan entry points inside the summary card.
+- Do not resolve transfers directly from the summary card.
 - Do not show `To receive` and `To pay` as separate boxed subcards on the main detail page.
-- Do not show record count in the summary card if it duplicates information lower on the page.
+- Do not show member avatars, member count, or record count in the summary card if they duplicate information lower on the page.
 - Do not use extra helper text or a subtitle to fill space.
 
 ### Visual Rules
@@ -371,8 +373,8 @@ Record row rules:
   - amount
   - date or time
 - Example meta copy:
-  - `Lin paid · 4 people`
-  - `Hong paid · Lin included`
+  - `@Lin`
+  - `@Hong`
 - Keep category icons smaller and quieter than the main expense list.
 
 Editing flow:

@@ -138,7 +138,7 @@ struct RootHomeView: View {
                             )
                         } else {
                             HomeBalanceCard(groups: activeGroups)
-                            Text("\(L("All groups")) (\(activeGroups.count))")
+                            Text(L("All groups"))
                                 .font(.callout.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.ink)
                                 .padding(.top, 4)
@@ -323,39 +323,32 @@ private struct HomeBalanceCard: View {
         balances.reduce("0") { Money.add($0, $1) }
     }
 
-    private var owedToMe: MoneyMinor {
-        balances.filter { !Money.isNegative($0) }.reduce("0") { Money.add($0, $1) }
-    }
-
-    private var iOwe: MoneyMinor {
-        balances.filter { Money.isNegative($0) }.reduce("0") { Money.add($0, Money.negate($1)) }
+    private var scopeText: String {
+        if groups.count == 1 {
+            return L("Across 1 group")
+        }
+        return L("Across %@ groups").replacingOccurrences(of: "%@", with: "\(groups.count)")
     }
 
     var body: some View {
         SoftLedgerCard(usesGlass: true) {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L("Total balance"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                     Text(signedMoney(total))
-                        .font(.system(size: 44, weight: .semibold, design: .rounded))
+                        .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
 
-                if !Money.isZero(owedToMe) || !Money.isZero(iOwe) {
-                    HStack(spacing: 18) {
-                        if !Money.isZero(owedToMe) {
-                            SoftLedgerInlineStat(title: L("Owed to me"), value: "+¥\(Money.compactDisplay(owedToMe))", color: SoftLedgerTheme.positive)
-                        }
-                        if !Money.isZero(iOwe) {
-                            SoftLedgerInlineStat(title: L("I owe"), value: "-¥\(Money.compactDisplay(iOwe))", color: SoftLedgerTheme.negative)
-                        }
-                    }
-                }
+                Text(scopeText)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    .lineLimit(1)
             }
         }
         .accessibilityElement(children: .combine)
@@ -370,52 +363,67 @@ private struct GroupSummaryRow: View {
         group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? "0"
     }
 
+    private var memberCountText: String {
+        L("%@ members").replacingOccurrences(of: "%@", with: "\(group.allMembers.count)")
+    }
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(group.name)
-                    .font(.headline.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.ink)
                     .lineLimit(1)
+                    .truncationMode(.tail)
 
                 HStack(spacing: 8) {
-                    Text(TemporalDisplay.string(fromMilliseconds: group.modifiedAt, context: .compact))
+                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 3, size: 22, showsTotal: false)
+                    Text(memberCountText)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         .lineLimit(1)
-                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 3, size: 22, showsTotal: false)
                 }
             }
+            .layoutPriority(1)
 
-            Spacer(minLength: 10)
+            Spacer()
 
-            Text(signedMoney(myBalance))
-                .font(.headline.monospacedDigit().weight(.semibold))
-                .foregroundStyle(moneyColor(myBalance))
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(signedMoney(myBalance))
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(moneyColor(myBalance))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .allowsTightening(true)
+                Text(TemporalDisplay.string(fromMilliseconds: group.modifiedAt, context: .compact))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.mutedInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .allowsTightening(true)
+            }
 
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
-                .padding(.top, 4)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(minHeight: 64)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(moneyColor(myBalance).opacity(Money.isZero(myBalance) ? 0.32 : 0.58))
                 .frame(width: 3)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(group.name), \(signedMoney(myBalance)), \(group.allMembers.count) \(L("members"))")
+        .accessibilityLabel("\(group.name), \(signedMoney(myBalance)), \(memberCountText)")
         .accessibilityHint(L("Opens group details"))
     }
 }

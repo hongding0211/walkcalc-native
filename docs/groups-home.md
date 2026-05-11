@@ -123,19 +123,16 @@ The summary area is a lightweight account-status card. It should answer one ques
 - Show `Total balance` as the card label.
 - Show the net total balance as the dominant value.
 - Use monospaced digits for money values.
+- Show a quiet scope subtitle such as `Across 4 groups`.
 - Do not show `3 groups` in the card; group count belongs in the `All groups` section header.
 - Do not show action reminders such as `2 need action` in the card.
-- Do not show a subtitle or explanatory sentence inside the card.
+- Do not show a directional subtitle such as `I owe` or `Owed to me`.
 
 ### Breakdown
 
-- `Owed to me` and `I owe` are optional supporting values.
-- Show a supporting value only when it has a meaningful non-zero amount.
-- If both values exist, show them as lightweight inline text columns.
-- If only one value exists, show only that one value.
-- If neither value exists, hide the breakdown area entirely.
-- Do not render these supporting values as nested mini cards.
-- Do not reserve empty space for a missing value.
+- Do not show `Owed to me` or `I owe` in the card.
+- Do not reserve space for a breakdown area.
+- Keep the card aligned with the group detail balance card, but let Home carry one extra scope line so it reads as a global summary.
 
 ### Visual Weight
 
@@ -149,23 +146,11 @@ The summary area is a lightweight account-status card. It should answer one ques
 ### Current SwiftUI Pattern
 
 ```swift
-VStack(alignment: .leading, spacing: 18) {
-    VStack(alignment: .leading, spacing: 6) {
-        Text("Total balance")
-        Text("+¥128.40")
-            .monospacedDigit()
-    }
-
-    if owedToMe != nil || iOwe != nil {
-        HStack(spacing: 18) {
-            if let owedToMe {
-                InlineStat(title: "Owed to me", value: owedToMe)
-            }
-            if let iOwe {
-                InlineStat(title: "I owe", value: iOwe)
-            }
-        }
-    }
+VStack(alignment: .leading, spacing: 6) {
+    Text("Total balance")
+    Text("+¥128.40")
+        .monospacedDigit()
+    Text("Across 4 groups")
 }
 ```
 
@@ -174,6 +159,7 @@ VStack(alignment: .leading, spacing: 18) {
 - Showing `3 groups` in the summary card.
 - Showing `2 need action` or similar task pressure in the summary card.
 - Rendering `Owed to me` and `I owe` as mini cards.
+- Showing `Owed to me` and `I owe` as inline breakdown values.
 - Showing zero-value or empty breakdown cells.
 - Using the summary card as a dense dashboard.
 

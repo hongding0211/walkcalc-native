@@ -79,6 +79,8 @@
 "Add people" = "Add people";
 "Add members or temporary members when this becomes a shared expense group." = "Add members or temporary members when this becomes a shared expense group.";
 "Add temporary member" = "Add temporary member";
+"Across 1 group" = "Across 1 group";
+"Across %@ groups" = "Across %@ groups";
 "All" = "All";
 "All groups" = "All groups";
 "Archive group" = "Archive group";
@@ -119,8 +121,10 @@
 "Optional note" = "Optional note";
 "Other" = "Other";
 "Paid by" = "Paid by";
+"Paid by %@" = "Paid by %@";
 "People" = "People";
 "Records" = "Records";
+"Resolve 1 transfer" = "Resolve 1 transfer";
 "Resolve %@ transfers" = "Resolve %@ transfers";
 "Restore" = "Restore";
 "Results" = "Results";
