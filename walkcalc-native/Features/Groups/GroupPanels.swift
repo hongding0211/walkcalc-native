@@ -1619,7 +1619,7 @@ private struct MemberBalanceDetailView: View {
 
     let group: WalkGroup
     let member: Member
-    @State private var editingRecord: WalkRecord?
+    @State private var selectedRecord: WalkRecord?
 
     private var currentGroup: WalkGroup {
         store.group(id: group.id) ?? group
@@ -1692,7 +1692,7 @@ private struct MemberBalanceDetailView: View {
                             LazyVStack(spacing: 0) {
                                 ForEach(records) { record in
                                     ExpenseRow(record: record, group: currentGroup) {
-                                        editingRecord = record
+                                        selectedRecord = record
                                     }
                                     if record.id != records.last?.id {
                                         Divider()
@@ -1739,14 +1739,10 @@ private struct MemberBalanceDetailView: View {
         .task {
             await store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
         }
-        .sheet(item: $editingRecord) { record in
-            NavigationStack {
-                RecordEditorView(groupId: group.id, record: record) {
-                    editingRecord = nil
-                }
+        .navigationDestination(item: $selectedRecord) { record in
+            RecordEditorView(groupId: group.id, record: record) {
+                selectedRecord = nil
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
         }
     }
 
