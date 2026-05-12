@@ -237,16 +237,11 @@ private struct GroupDetailSettingsSheet: View {
     private let groupID = "GRP-MAY-8K2"
 
     @State private var groupName = "May Trip"
-    @State private var tempMemberName = ""
     @State private var isShowingAddTemporaryMember = false
     @State private var confirmation: GroupDetailSettingsConfirmation?
     @FocusState private var isGroupNameFocused: Bool
 
     @State private var members = ["Hong", "Lin", "Ming", "Yan", "Ava", "Kai"]
-
-    private var canAddTempMember: Bool {
-        !tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     var body: some View {
         Form {
@@ -351,23 +346,14 @@ private struct GroupDetailSettingsSheet: View {
                 .accessibilityLabel("Done")
             }
         }
-        .alert("Add temporary member", isPresented: $isShowingAddTemporaryMember) {
-            TextField("Name", text: $tempMemberName)
-
-            Button("Cancel", role: .cancel) {
-                tempMemberName = ""
-            }
-
-            Button("Add") {
-                let name = tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty {
+        .sheet(isPresented: $isShowingAddTemporaryMember) {
+            NavigationStack {
+                GroupDetailTemporaryMemberSheet { name in
                     members.append(name)
                 }
-                tempMemberName = ""
             }
-            .disabled(!canAddTempMember)
-        } message: {
-            Text("Temporary members can participate in expenses without an account.")
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
         .confirmationDialog(
             confirmationTitle,
@@ -428,6 +414,74 @@ private struct GroupDetailSettingsSheet: View {
                 }
             }
         )
+    }
+}
+
+private struct GroupDetailTemporaryMemberSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isNameFocused: Bool
+
+    let onAdd: (String) -> Void
+    @State private var name = ""
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canAdd: Bool {
+        !trimmedName.isEmpty
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Name", text: $name)
+                    .textInputAutocapitalization(.words)
+                    .focused($isNameFocused)
+                    .submitLabel(.done)
+                    .onSubmit(add)
+            } footer: {
+                Text("Temporary members can participate in expenses without an account.")
+                    .foregroundStyle(GroupDetailTheme.secondaryInk)
+            }
+            .listRowBackground(GroupDetailTheme.formPaper)
+        }
+        .scrollContentBackground(.hidden)
+        .background(GroupDetailTheme.canvas)
+        .tint(GroupDetailTheme.accent)
+        .navigationTitle("Add temporary member")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(role: .cancel) {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("Cancel")
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    add()
+                } label: {
+                    Image(systemName: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(GroupDetailTheme.accent)
+                .disabled(!canAdd)
+                .accessibilityLabel("Add")
+            }
+        }
+        .onAppear {
+            isNameFocused = true
+        }
+    }
+
+    private func add() {
+        guard canAdd else { return }
+        onAdd(trimmedName)
+        dismiss()
     }
 }
 
@@ -619,12 +673,7 @@ private struct GroupDetailPeopleSetupEmptyState: View {
 private struct GroupDetailPeopleSetupSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var tempMemberName = ""
     @State private var isShowingAddTemporaryMember = false
-
-    private var canAddTempMember: Bool {
-        !tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     var body: some View {
         Form {
@@ -663,19 +712,14 @@ private struct GroupDetailPeopleSetupSheet: View {
                 .accessibilityLabel("Cancel")
             }
         }
-        .alert("Add temporary member", isPresented: $isShowingAddTemporaryMember) {
-            TextField("Name", text: $tempMemberName)
-
-            Button("Cancel", role: .cancel) {
-                tempMemberName = ""
+        .sheet(isPresented: $isShowingAddTemporaryMember) {
+            NavigationStack {
+                GroupDetailTemporaryMemberSheet { _ in
+                    dismiss()
+                }
             }
-
-            Button("Add") {
-                tempMemberName = ""
-            }
-            .disabled(!canAddTempMember)
-        } message: {
-            Text("Temporary members can participate in expenses without an account.")
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 }
@@ -1667,25 +1711,62 @@ private struct GroupDetailSettlementPlanSection: View {
 }
 
 private struct GroupDetailSettlementPlanRow: View {
+    @ScaledMetric(relativeTo: .caption) private var avatarSize = 32
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 8
+    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 76
+
     let payer: String
     let action: String
     let receiver: String
     let amount: String
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text("\(payer) \(action) \(receiver)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(GroupDetailTheme.ink)
+        HStack(spacing: rowSpacing) {
+            GroupDetailSettlementParticipant(name: payer, avatarSize: avatarSize)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
+            Image(systemName: "arrow.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+                .layoutPriority(2)
+
+            GroupDetailSettlementParticipant(name: receiver, avatarSize: avatarSize)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(amount)
                 .font(.subheadline.monospacedDigit().weight(.semibold))
                 .foregroundStyle(GroupDetailTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .allowsTightening(true)
+                .frame(minWidth: amountMinWidth, alignment: .trailing)
+                .layoutPriority(3)
         }
-        .frame(minHeight: 54)
-        .accessibilityElement(children: .combine)
+        .frame(minHeight: 58)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(payer) \(action) \(receiver), \(amount)")
+    }
+}
+
+private struct GroupDetailSettlementParticipant: View {
+    @ScaledMetric(relativeTo: .caption) private var spacing = 8
+
+    let name: String
+    let avatarSize: CGFloat
+
+    var body: some View {
+        HStack(spacing: spacing) {
+            GroupDetailAvatar(initial: String(name.prefix(1)), size: avatarSize)
+                .accessibilityHidden(true)
+
+            Text(name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(GroupDetailTheme.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .layoutPriority(1)
     }
 }
 

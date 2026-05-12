@@ -580,9 +580,10 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
-    func addRecord(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", createdAt: TimeInterval? = nil) async -> Bool {
+    func addRecord(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", occurredAt: TimeInterval) async -> Bool {
         if isFixtureMode {
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
+            let now = Date().timeIntervalSince1970 * 1000
             let record = WalkRecord(
                 recordId: "fixture-record-\(Int(Date().timeIntervalSince1970 * 1000))",
                 who: who,
@@ -592,8 +593,9 @@ final class WalkcalcStore: ObservableObject {
                 text: text,
                 long: long,
                 lat: lat,
-                createdAt: createdAt ?? Date().timeIntervalSince1970 * 1000,
-                modifiedAt: Date().timeIntervalSince1970 * 1000,
+                createdAt: now,
+                occurredAt: occurredAt,
+                modifiedAt: now,
                 isDebtResolve: false
             )
             recordsByGroup[groupId, default: []].insert(record, at: 0)
@@ -603,7 +605,7 @@ final class WalkcalcStore: ObservableObject {
         return await withLoading {
             guard let token else { return false }
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
-            let response = try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, long: long, lat: lat, createdAt: createdAt)
+            let response = try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, long: long, lat: lat, occurredAt: occurredAt)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
@@ -611,7 +613,7 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
-    func editRecord(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, createdAt: TimeInterval? = nil, isSettlement: Bool = false) async -> Bool {
+    func editRecord(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false) async -> Bool {
         if isFixtureMode {
             guard let paidMinor = try? Money.parseDisplay(paid),
                   Money.isPositive(paidMinor),
@@ -621,16 +623,14 @@ final class WalkcalcStore: ObservableObject {
             recordsByGroup[groupId]?[index].forWhom = forWhom
             recordsByGroup[groupId]?[index].type = type
             recordsByGroup[groupId]?[index].text = text
-            if let createdAt {
-                recordsByGroup[groupId]?[index].createdAt = createdAt
-            }
+            recordsByGroup[groupId]?[index].occurredAt = occurredAt
             recordsByGroup[groupId]?[index].modifiedAt = Date().timeIntervalSince1970 * 1000
             return true
         }
         return await withLoading {
             guard let token else { return false }
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
-            let response = try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, createdAt: createdAt, isSettlement: isSettlement)
+            let response = try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, occurredAt: occurredAt, isSettlement: isSettlement)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)

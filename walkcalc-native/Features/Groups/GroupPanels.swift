@@ -78,7 +78,6 @@ struct CreateGroupSheet: View {
     @State private var groupName = ""
     @State private var selectedUsers: [UserProfile] = []
     @State private var tempUsers: [String] = []
-    @State private var tempMemberName = ""
     @State private var isShowingAddTemporaryMember = false
 
     private var members: [Member] {
@@ -93,10 +92,6 @@ struct CreateGroupSheet: View {
 
     private var canCreate: Bool {
         !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var canAddTempMember: Bool {
-        !tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -171,22 +166,85 @@ struct CreateGroupSheet: View {
                 .accessibilityLabel(L("Create"))
             }
         }
-        .alert(L("Add temporary member"), isPresented: $isShowingAddTemporaryMember) {
-            TextField(L("Name"), text: $tempMemberName)
-
-            Button(L("Cancel"), role: .cancel) {
-                tempMemberName = ""
-            }
-
-            Button(L("Add")) {
-                let name = tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty, !tempUsers.contains(name) {
-                    tempUsers.append(name)
+        .sheet(isPresented: $isShowingAddTemporaryMember) {
+            NavigationStack {
+                AddTemporaryMemberSheet { name in
+                    if !tempUsers.contains(name) {
+                        tempUsers.append(name)
+                    }
                 }
-                tempMemberName = ""
             }
-            .disabled(!canAddTempMember)
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
+    }
+}
+
+private struct AddTemporaryMemberSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isNameFocused: Bool
+
+    let onAdd: (String) -> Void
+    @State private var name = ""
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canAdd: Bool {
+        !trimmedName.isEmpty
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField(L("Name"), text: $name)
+                    .textInputAutocapitalization(.words)
+                    .focused($isNameFocused)
+                    .submitLabel(.done)
+                    .onSubmit(add)
+            } footer: {
+                Text(L("Temporary members can participate in expenses without an account."))
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+            }
+            .listRowBackground(SoftLedgerTheme.formPaper)
+        }
+        .scrollContentBackground(.hidden)
+        .background(SoftLedgerTheme.canvas)
+        .tint(SoftLedgerTheme.accent)
+        .navigationTitle(L("Add temporary member"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(role: .cancel) {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel(L("Cancel"))
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    add()
+                } label: {
+                    Image(systemName: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(SoftLedgerTheme.accent)
+                .disabled(!canAdd)
+                .accessibilityLabel(L("Add"))
+            }
+        }
+        .onAppear {
+            isNameFocused = true
+        }
+    }
+
+    private func add() {
+        guard canAdd else { return }
+        onAdd(trimmedName)
+        dismiss()
     }
 }
 
@@ -374,7 +432,6 @@ struct GroupSettingsSheet: View {
     let onDelete: () -> Void
 
     @State private var name: String
-    @State private var tempMemberName = ""
     @State private var isShowingAddTemporaryMember = false
     @State private var confirmation: GroupSettingsConfirmation?
 
@@ -384,10 +441,6 @@ struct GroupSettingsSheet: View {
         self.onArchive = onArchive
         self.onDelete = onDelete
         _name = State(initialValue: group.name)
-    }
-
-    private var canAddTempMember: Bool {
-        !tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var currentGroup: WalkGroup {
@@ -503,15 +556,14 @@ struct GroupSettingsSheet: View {
                 .accessibilityLabel(L("Done"))
             }
         }
-        .alert(L("Add temporary member"), isPresented: $isShowingAddTemporaryMember) {
-            TextField(L("Name"), text: $tempMemberName)
-            Button(L("Cancel"), role: .cancel) { tempMemberName = "" }
-            Button(L("Add")) {
-                let value = tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines)
-                tempMemberName = ""
-                Task { _ = await store.addMembers(groupId: group.id, users: [], tempUsers: [value]) }
+        .sheet(isPresented: $isShowingAddTemporaryMember) {
+            NavigationStack {
+                AddTemporaryMemberSheet { value in
+                    Task { _ = await store.addMembers(groupId: group.id, users: [], tempUsers: [value]) }
+                }
             }
-            .disabled(!canAddTempMember)
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
         .alert(confirmationTitle, isPresented: confirmationBinding) {
             switch confirmation {
@@ -647,12 +699,7 @@ struct PeopleSetupSheet: View {
 
     let group: WalkGroup
     let onDone: () -> Void
-    @State private var tempMemberName = ""
     @State private var isShowingAddTemporaryMember = false
-
-    private var canAddTempMember: Bool {
-        !tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
 
     var body: some View {
         Form {
@@ -698,20 +745,19 @@ struct PeopleSetupSheet: View {
                 }
             }
         }
-        .alert(L("Add temporary member"), isPresented: $isShowingAddTemporaryMember) {
-            TextField(L("Name"), text: $tempMemberName)
-            Button(L("Cancel"), role: .cancel) { tempMemberName = "" }
-            Button(L("Add")) {
-                let value = tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines)
-                tempMemberName = ""
-                Task {
-                    if await store.addMembers(groupId: group.id, users: [], tempUsers: [value]) {
-                        dismiss()
-                        onDone()
+        .sheet(isPresented: $isShowingAddTemporaryMember) {
+            NavigationStack {
+                AddTemporaryMemberSheet { value in
+                    Task {
+                        if await store.addMembers(groupId: group.id, users: [], tempUsers: [value]) {
+                            dismiss()
+                            onDone()
+                        }
                     }
                 }
             }
-            .disabled(!canAddTempMember)
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 }
@@ -848,7 +894,7 @@ struct RecordEditorView: View {
         _splitMembers = State(initialValue: Set(record?.forWhom ?? []))
         _categoryId = State(initialValue: record.map { expenseCategory(for: $0).id } ?? "food")
         _note = State(initialValue: record?.text ?? "")
-        _date = State(initialValue: record?.createdAt.walkDate ?? Date())
+        _date = State(initialValue: record?.occurredAt.walkDate ?? Date())
         _hasEditIntent = State(initialValue: record == nil)
     }
 
@@ -1015,7 +1061,7 @@ struct RecordEditorView: View {
         paidBy = record?.who ?? store.user?.uuid ?? members.first?.uuid ?? ""
         splitMembers = Set(record?.forWhom ?? [])
         categoryId = record.map { expenseCategory(for: $0).id } ?? "food"
-        date = record?.createdAt.walkDate ?? Date()
+        date = record?.occurredAt.walkDate ?? Date()
         note = record?.text ?? ""
     }
 
@@ -1041,7 +1087,7 @@ struct RecordEditorView: View {
                 forWhom: Array(splitMembers),
                 type: categoryId,
                 text: note,
-                createdAt: date.timeIntervalSince1970 * 1000,
+                occurredAt: date.timeIntervalSince1970 * 1000,
                 isSettlement: record.isDebtResolve
             )
         } else {
@@ -1052,7 +1098,7 @@ struct RecordEditorView: View {
                 forWhom: Array(splitMembers),
                 type: categoryId,
                 text: note,
-                createdAt: date.timeIntervalSince1970 * 1000
+                occurredAt: date.timeIntervalSince1970 * 1000
             )
         }
 
@@ -1546,13 +1592,10 @@ private struct BalancesRootView: View {
 
 private struct SettlementPlanSection: View {
     @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
-    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
-    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 6
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
-    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 82
 
     let debts: [ResolvedDebt]
 
@@ -1564,24 +1607,7 @@ private struct SettlementPlanSection: View {
 
             LazyVStack(spacing: 0) {
                 ForEach(debts) { debt in
-                    HStack(spacing: rowSpacing) {
-                        Text("\(debt.from.name) \(L("pays")) \(debt.to.name)")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(SoftLedgerTheme.ink)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .layoutPriority(1)
-                        Spacer()
-                        Text("¥\(Money.compactDisplay(debt.amountMinor))")
-                            .font(.subheadline.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(SoftLedgerTheme.ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .allowsTightening(true)
-                            .frame(minWidth: amountMinWidth, alignment: .trailing)
-                            .layoutPriority(2)
-                    }
-                    .frame(minHeight: rowMinHeight)
+                    SettlementPlanRow(debt: debt)
 
                     if debt.id != debts.last?.id {
                         Divider()
@@ -1598,6 +1624,63 @@ private struct SettlementPlanSection: View {
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
+    }
+}
+
+private struct SettlementPlanRow: View {
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 8
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 58
+    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 76
+
+    let debt: ResolvedDebt
+
+    var body: some View {
+        HStack(spacing: rowSpacing) {
+            SettlementPlanParticipant(member: debt.from)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "arrow.right")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+                .layoutPriority(2)
+
+            SettlementPlanParticipant(member: debt.to)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("¥\(Money.compactDisplay(debt.amountMinor))")
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .allowsTightening(true)
+                .frame(minWidth: amountMinWidth, alignment: .trailing)
+                .layoutPriority(3)
+        }
+        .frame(minHeight: rowMinHeight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(debt.from.name) \(L("pays")) \(debt.to.name), ¥\(Money.display(debt.amountMinor))")
+    }
+}
+
+private struct SettlementPlanParticipant: View {
+    @ScaledMetric(relativeTo: .caption) private var avatarSize = 32
+    @ScaledMetric(relativeTo: .caption) private var spacing = 8
+
+    let member: Member
+
+    var body: some View {
+        HStack(spacing: spacing) {
+            SoftLedgerAvatar(member: member, size: avatarSize)
+                .accessibilityHidden(true)
+
+            Text(member.name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .layoutPriority(1)
     }
 }
 

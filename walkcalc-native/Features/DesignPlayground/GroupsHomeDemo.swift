@@ -318,16 +318,11 @@ private struct GroupHomeCreateGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var groupName = ""
-    @State private var tempMemberName = ""
     @State private var members = ["Hong"]
     @State private var isShowingAddTemporaryMember = false
 
     private var canCreate: Bool {
         !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var canAddTempMember: Bool {
-        !tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -389,24 +384,83 @@ private struct GroupHomeCreateGroupSheet: View {
                 .accessibilityLabel("Create")
             }
         }
-        .alert("Add temporary member", isPresented: $isShowingAddTemporaryMember) {
-            TextField("Name", text: $tempMemberName)
-
-            Button("Cancel", role: .cancel) {
-                tempMemberName = ""
-            }
-
-            Button("Add") {
-                let name = tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty {
+        .sheet(isPresented: $isShowingAddTemporaryMember) {
+            NavigationStack {
+                GroupHomeTemporaryMemberSheet { name in
                     members.append(name)
                 }
-                tempMemberName = ""
             }
-            .disabled(!canAddTempMember)
-        } message: {
-            Text("Temporary members can participate in expenses without an account.")
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
+    }
+}
+
+private struct GroupHomeTemporaryMemberSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isNameFocused: Bool
+
+    let onAdd: (String) -> Void
+    @State private var name = ""
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canAdd: Bool {
+        !trimmedName.isEmpty
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Name", text: $name)
+                    .textInputAutocapitalization(.words)
+                    .focused($isNameFocused)
+                    .submitLabel(.done)
+                    .onSubmit(add)
+            } footer: {
+                Text("Temporary members can participate in expenses without an account.")
+                    .foregroundStyle(GroupHomeTheme.secondaryInk)
+            }
+            .listRowBackground(GroupHomeTheme.paper)
+        }
+        .scrollContentBackground(.hidden)
+        .background(GroupHomeTheme.canvas)
+        .tint(GroupHomeTheme.accent)
+        .navigationTitle("Add temporary member")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(role: .cancel) {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("Cancel")
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    add()
+                } label: {
+                    Image(systemName: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(GroupHomeTheme.accent)
+                .disabled(!canAdd)
+                .accessibilityLabel("Add")
+            }
+        }
+        .onAppear {
+            isNameFocused = true
+        }
+    }
+
+    private func add() {
+        guard canAdd else { return }
+        onAdd(trimmedName)
+        dismiss()
     }
 }
 

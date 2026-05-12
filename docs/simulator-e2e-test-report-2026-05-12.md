@@ -52,7 +52,7 @@ One behavioral issue was observed: submitting an invalid join code (`BAD1`) clos
 | --- | --- | --- |
 | Home | Launch app with stored token, verify total balance card, group count, active group row, member count, row navigation | Pass |
 | Group detail | Open `142412412`, verify balance card, balance preview rows, expenses list, empty/filled toolbar controls | Pass |
-| Add expense | Open new expense, verify default `0.00` cannot save, select payer/split/category, create `0.01`, edit to `1.23`, verify row update | Pass |
+| Add expense | Open new expense, verify default `0.00` cannot save, select payer/split/category, create `0.01`, edit to `1.23`, verify row update | Pass for amount; date/time edit was not covered |
 | Delete expense | Open created expense, verify delete confirmation cancel keeps record, confirm delete removes record and updates member detail count | Pass |
 | Search records | Search `Meal`, verify matching records; clear search; search `zzzz-no-result-20260512`, verify `No matching records` | Pass |
 | Balances | Open all balances sheet, verify rows for all participants and zero balances | Pass |
@@ -74,6 +74,7 @@ One behavioral issue was observed: submitting an invalid join code (`BAD1`) clos
 | More than two decimals | `1.234` | Save button disabled | Pass |
 | Minimum positive amount | `0.01` | Save enabled; record created | Pass |
 | Decimal amount edit | Update created expense to `1.23` | Record row updated to `¥1.23` | Pass |
+| Date/time edit | Not exercised in this simulator pass | No evidence gathered | Missed |
 | Empty temp member name | Add temporary member with blank name | Add button disabled | Pass |
 | Valid temp member name | `Temp E2E` | Member added to create-group preview | Pass |
 | Empty create group name | Create group sheet with blank name | Save button disabled | Pass |

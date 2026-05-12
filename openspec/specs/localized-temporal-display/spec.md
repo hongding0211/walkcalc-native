@@ -8,7 +8,7 @@ Define how Walkcalc formats user-visible date and time strings by locale, recenc
 
 ### Requirement: Shared Temporal Formatter
 
-The system SHALL provide a shared formatter for every user-visible date or time string derived from `Date`, `createdAt`, or `modifiedAt` values.
+The system SHALL provide a shared formatter for every user-visible date or time string derived from `Date`, group `createdAt`/`modifiedAt`, or record `occurredAt` values.
 
 #### Scenario: Production row uses shared formatter
 
@@ -117,7 +117,7 @@ The system SHALL use the compact context for dense visual rows, the dense contex
 #### Scenario: Narrow expense rows use dense context
 
 - **WHEN** expense list rows render timestamps in the trailing amount/time column
-- **THEN** they use dense temporal formatting
+- **THEN** they use dense temporal formatting for the record `occurredAt` value
 
 #### Scenario: Exact timestamp surfaces use full context
 

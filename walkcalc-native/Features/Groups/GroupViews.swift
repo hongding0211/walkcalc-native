@@ -574,11 +574,11 @@ struct ExpenseRow: View {
     }
 
     private var compactCreatedAt: String {
-        TemporalDisplay.string(fromMilliseconds: record.createdAt, context: .dense)
+        TemporalDisplay.string(fromMilliseconds: record.occurredAt, context: .dense)
     }
 
     private var fullCreatedAt: String {
-        TemporalDisplay.string(fromMilliseconds: record.createdAt, context: .full)
+        TemporalDisplay.string(fromMilliseconds: record.occurredAt, context: .full)
     }
 
     var body: some View {

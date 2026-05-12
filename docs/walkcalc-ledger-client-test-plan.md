@@ -80,7 +80,7 @@ Every row below must be checked in simulator screenshots and click logs. UI appe
 ### Record Editor
 
 - Create mode: empty amount, positive amount, zero/negative/malformed amount disabled, payer selector, split selector, category selector, date picker, note field, cancel, save success.
-- Edit expense mode: prefilled amount/payer/split/category/date/note, amount update, payer change, split change, category change, date change, note update, save, delete cancel/confirm.
+- Edit expense mode: prefilled amount/payer/split/category/date/note, amount update, payer change, split change, category change, occurred-at date change without record reordering, note update, save, delete cancel/confirm.
 - Edit settlement mode: prefilled from/to/amount/date/note, date change remains supported, save sends settlement update shape.
 - Location fields: when empty, `long` and `lat` are omitted; when populated by existing data, row display and edit persistence remain intact.
 
@@ -106,12 +106,15 @@ Use backend-created users A, B, C and temporary member T. All displayed values a
 
 - Add expense `100.00`, payer A, split A/B/T. Expected balances: A `+66.66`, B `-33.33`, T `-33.33`; sum `0.00`; record amount displays `¥100.00`.
 - Add expense `10.00`, payer B, split A/B/C. Expected exact split totals sum to `10.00`; total group balances remain zero-sum after rounding.
+- Update the second expense payer from B to C while keeping amount and split unchanged. Expected paid totals move from B to C, all participant balances recalculate, recordId stays stable, and home total balance matches each registered user's group balance.
+- Update the second expense split from A/B/C to A/C while keeping payer C and amount unchanged. Expected B is removed from that record's projection, shares recalculate to A/C only, all participant balances remain zero-sum, and home total balance follows the new projection.
+- Restore the second expense to payer B split A/B/C before continuing later mutation steps, proving update rollback behavior is exact.
 - Update first expense from `100.00` to `120.00`, payer B, split B/T. Expected old projection is reversed before new projection applies; no stale A balance remains from the edited record.
 - Delete the updated record. Expected balances equal the state before that record was created; record disappears from normal list and member detail lists.
 - Add settlement `C -> B 3.33` through a single-settlement path if exposed; expected C balance increases to `0.00`, B decreases to `3.34`, and expenseShare/paidTotal remain unchanged. If no single-settlement entry is currently reachable, verify the same settlement semantics on records created by resolve.
 - Resolve all through balances. Expected client calls backend resolve endpoint without sending trusted client balances; after refresh every participant balance is `0.00`.
 - Verify settlement records count toward `recordCount`, but do not change `expenseShare` or `paidTotal`.
-- Home total balance must equal the backend summary after every add, edit, delete, archive, unarchive, and resolve.
+- Home total balance must equal the backend summary after every add, payer edit, split edit, amount edit, delete, archive, unarchive, and resolve.
 
 ### Ledger Calculation Table
 
@@ -121,12 +124,15 @@ For each step, verify both visible UI amounts and backend projection values surf
 | --- | --- | --- | --- | --- | --- |
 | 1 | Expense `100.00`, payer A, split A/B/T | `66.66 / 33.34 / 100.00 / 1` | `-33.33 / 33.33 / 0.00 / 1` | `0.00 / 0.00 / 0.00 / 0` | `-33.33 / 33.33 / 0.00 / 1` |
 | 2 | Expense `10.00`, payer B, split A/B/C | `63.32 / 36.68 / 100.00 / 2` | `-26.66 / 36.66 / 10.00 / 2` | `-3.33 / 3.33 / 0.00 / 1` | `-33.33 / 33.33 / 0.00 / 1` |
-| 3 | Update step 1 to `120.00`, payer B, split B/T | `-3.34 / 3.34 / 0.00 / 1` | `66.67 / 63.33 / 130.00 / 2` | `-3.33 / 3.33 / 0.00 / 1` | `-60.00 / 60.00 / 0.00 / 1` |
-| 4 | Delete updated step 1 | `-3.34 / 3.34 / 0.00 / 1` | `6.67 / 3.33 / 10.00 / 1` | `-3.33 / 3.33 / 0.00 / 1` | `0.00 / 0.00 / 0.00 / 0` |
-| 5 | Settlement C -> B `3.33` | `-3.34 / 3.34 / 0.00 / 1` | `3.34 / 3.33 / 10.00 / 2` | `0.00 / 3.33 / 0.00 / 2` | `0.00 / 0.00 / 0.00 / 0` |
-| 6 | Resolve all | `0.00 / 3.34 / 0.00 / 2` | `0.00 / 3.33 / 10.00 / 3` | `0.00 / 3.33 / 0.00 / 2` | `0.00 / 0.00 / 0.00 / 0` |
+| 3 | Update step 2 payer B -> C, keep split A/B/C | `63.32 / 36.68 / 100.00 / 2` | `-36.66 / 36.66 / 0.00 / 2` | `6.67 / 3.33 / 10.00 / 1` | `-33.33 / 33.33 / 0.00 / 1` |
+| 4 | Update step 2 split A/B/C -> A/C, keep payer C | `61.66 / 38.34 / 100.00 / 2` | `-33.33 / 33.33 / 0.00 / 1` | `5.00 / 5.00 / 10.00 / 1` | `-33.33 / 33.33 / 0.00 / 1` |
+| 5 | Restore step 2 to payer B, split A/B/C | `63.32 / 36.68 / 100.00 / 2` | `-26.66 / 36.66 / 10.00 / 2` | `-3.33 / 3.33 / 0.00 / 1` | `-33.33 / 33.33 / 0.00 / 1` |
+| 6 | Update step 1 to `120.00`, payer B, split B/T | `-3.34 / 3.34 / 0.00 / 1` | `66.67 / 63.33 / 130.00 / 2` | `-3.33 / 3.33 / 0.00 / 1` | `-60.00 / 60.00 / 0.00 / 1` |
+| 7 | Delete updated step 1 | `-3.34 / 3.34 / 0.00 / 1` | `6.67 / 3.33 / 10.00 / 1` | `-3.33 / 3.33 / 0.00 / 1` | `0.00 / 0.00 / 0.00 / 0` |
+| 8 | Settlement C -> B `3.33` | `-3.34 / 3.34 / 0.00 / 1` | `3.34 / 3.33 / 10.00 / 2` | `0.00 / 3.33 / 0.00 / 2` | `0.00 / 0.00 / 0.00 / 0` |
+| 9 | Resolve all | `0.00 / 3.34 / 0.00 / 2` | `0.00 / 3.33 / 10.00 / 3` | `0.00 / 3.33 / 0.00 / 2` | `0.00 / 0.00 / 0.00 / 0` |
 
-In step 6, the table assumes the prior single settlement in step 5 has already cleared C, so resolve-all creates only A -> B `3.34`. Every created settlement must only affect `balance`, `settlementIn`, `settlementOut`, and `recordCount`; it must not change `expenseShare` or `paidTotal`.
+In step 9, the table assumes the prior single settlement in step 8 has already cleared C, so resolve-all creates only A -> B `3.34`. Every created settlement must only affect `balance`, `settlementIn`, `settlementOut`, and `recordCount`; it must not change `expenseShare` or `paidTotal`.
 
 ### Local Dev E2E Evidence
 

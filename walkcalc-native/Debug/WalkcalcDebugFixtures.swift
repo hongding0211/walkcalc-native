@@ -82,6 +82,7 @@ extension WalkcalcStore {
                 long: "",
                 lat: "",
                 createdAt: timestamp,
+                occurredAt: timestamp,
                 modifiedAt: timestamp,
                 isDebtResolve: false
             ))
@@ -121,6 +122,7 @@ extension WalkcalcStore {
                 long: "",
                 lat: "",
                 createdAt: Date().timeIntervalSince1970 * 1000,
+                occurredAt: Date().timeIntervalSince1970 * 1000,
                 modifiedAt: Date().timeIntervalSince1970 * 1000,
                 isDebtResolve: false
             ),
@@ -134,6 +136,7 @@ extension WalkcalcStore {
                 long: "",
                 lat: "",
                 createdAt: Date().addingTimeInterval(-3600).timeIntervalSince1970 * 1000,
+                occurredAt: Date().addingTimeInterval(-3600).timeIntervalSince1970 * 1000,
                 modifiedAt: Date().addingTimeInterval(-3600).timeIntervalSince1970 * 1000,
                 isDebtResolve: false
             ),
@@ -147,6 +150,7 @@ extension WalkcalcStore {
                 long: "",
                 lat: "",
                 createdAt: Date().addingTimeInterval(-7200).timeIntervalSince1970 * 1000,
+                occurredAt: Date().addingTimeInterval(-7200).timeIntervalSince1970 * 1000,
                 modifiedAt: Date().addingTimeInterval(-7200).timeIntervalSince1970 * 1000,
                 isDebtResolve: false
             )

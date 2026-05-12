@@ -154,7 +154,7 @@ struct APIClient {
         try await request(.get, path: "/walkcalc/records/\(id)", token: token, mapper: mapRecord)
     }
 
-    func addRecord(groupCode: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, token: String, long: String = "", lat: String = "", createdAt: TimeInterval? = nil) async throws -> APIEnvelope<WalkRecord> {
+    func addRecord(groupCode: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, token: String, long: String = "", lat: String = "", occurredAt: TimeInterval) async throws -> APIEnvelope<WalkRecord> {
         let body = expenseRecordBody(
             groupCode: groupCode,
             payerId: who,
@@ -164,7 +164,7 @@ struct APIClient {
             note: text,
             long: long,
             lat: lat,
-            createdAt: createdAt ?? Date().timeIntervalSince1970 * 1000
+            occurredAt: occurredAt
         )
         return try await request(.post, path: "/walkcalc/records", token: token, body: body) { raw in
             mapRecord(dictPayload(raw)["record"] ?? raw)
@@ -172,18 +172,18 @@ struct APIClient {
     }
 
     func addSettlementRecord(groupCode: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, token: String) async throws -> APIEnvelope<WalkRecord> {
-        let body = settlementRecordBody(groupCode: groupCode, fromId: fromId, toId: toId, amountMinor: amountMinor, note: note)
+        let body = settlementRecordBody(groupCode: groupCode, fromId: fromId, toId: toId, amountMinor: amountMinor, note: note, occurredAt: Date().timeIntervalSince1970 * 1000)
         return try await request(.post, path: "/walkcalc/records", token: token, body: body) { raw in
             mapRecord(dictPayload(raw)["record"] ?? raw)
         }
     }
 
-    func updateRecord(groupCode: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, token: String, createdAt: TimeInterval? = nil, isSettlement: Bool = false) async throws -> APIEnvelope<WalkRecord> {
+    func updateRecord(groupCode: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, token: String, occurredAt: TimeInterval, isSettlement: Bool = false) async throws -> APIEnvelope<WalkRecord> {
         let body: [String: Any]
         if isSettlement {
-            body = settlementRecordBody(groupCode: groupCode, recordId: recordId, fromId: who, toId: forWhom.first ?? "", amountMinor: paidMinor, note: text, createdAt: createdAt)
+            body = settlementRecordBody(groupCode: groupCode, recordId: recordId, fromId: who, toId: forWhom.first ?? "", amountMinor: paidMinor, note: text, occurredAt: occurredAt)
         } else {
-            body = expenseRecordBody(groupCode: groupCode, recordId: recordId, payerId: who, amountMinor: paidMinor, participantIds: forWhom, category: type, note: text, createdAt: createdAt)
+            body = expenseRecordBody(groupCode: groupCode, recordId: recordId, payerId: who, amountMinor: paidMinor, participantIds: forWhom, category: type, note: text, occurredAt: occurredAt)
         }
         return try await request(.post, path: "/walkcalc/records/update", token: token, body: body) { raw in
             mapRecord(dictPayload(raw)["record"] ?? raw)
@@ -311,7 +311,7 @@ private func expenseRecordBody(
     note: String,
     long: String = "",
     lat: String = "",
-    createdAt: TimeInterval? = nil
+    occurredAt: TimeInterval
 ) -> [String: Any] {
     var body: [String: Any] = [
         "groupCode": groupCode,
@@ -325,9 +325,7 @@ private func expenseRecordBody(
     if let recordId {
         body["recordId"] = recordId
     }
-    if let createdAt {
-        body["createdAt"] = Int(createdAt)
-    }
+    body["occurredAt"] = Int(occurredAt)
     if !long.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         body["long"] = long
     }
@@ -337,7 +335,7 @@ private func expenseRecordBody(
     return body
 }
 
-private func settlementRecordBody(groupCode: String, recordId: String? = nil, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, createdAt: TimeInterval? = nil) -> [String: Any] {
+private func settlementRecordBody(groupCode: String, recordId: String? = nil, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, occurredAt: TimeInterval) -> [String: Any] {
     var body: [String: Any] = [
         "groupCode": groupCode,
         "type": "settlement",
@@ -349,9 +347,7 @@ private func settlementRecordBody(groupCode: String, recordId: String? = nil, fr
     if let recordId {
         body["recordId"] = recordId
     }
-    if let createdAt {
-        body["createdAt"] = Int(createdAt)
-    }
+    body["occurredAt"] = Int(occurredAt)
     return body
 }
 
@@ -457,6 +453,7 @@ private func mapRecord(_ raw: Any?) -> WalkRecord {
         long: dict["long"] as? String ?? "",
         lat: dict["lat"] as? String ?? "",
         createdAt: timeInterval(dict["createdAt"]),
+        occurredAt: timeInterval(dict["occurredAt"]),
         modifiedAt: timeInterval(dict["updatedAt"]),
         isDebtResolve: isSettlement,
         createdBy: dict["createdBy"] as? String,
@@ -489,7 +486,7 @@ enum LedgerAPIContractVerification {
             note: "Dinner",
             long: "121.4737",
             lat: "31.2304",
-            createdAt: 1_710_000_000_000
+            occurredAt: 1_710_000_000_000
         )
         assertNoLegacyFields(expenseBody, prefix: "expense-request")
         expect(expenseBody["type"] as? String, equals: "expense", prefix: "expense-request-type")
@@ -497,7 +494,8 @@ enum LedgerAPIContractVerification {
         expect(expenseBody["payerId"] as? String, equals: "user_1", prefix: "expense-request-payer")
         expect(expenseBody["participantIds"] as? [String], equals: ["user_1", "user_2", "tmp_1"], prefix: "expense-request-participants")
         expect(expenseBody["category"] as? String, equals: "food", prefix: "expense-request-category")
-        expect(expenseBody["createdAt"] as? Int, equals: 1_710_000_000_000, prefix: "expense-request-created-at")
+        expect(expenseBody["createdAt"] as? Int, equals: nil, prefix: "expense-request-no-client-created-at")
+        expect(expenseBody["occurredAt"] as? Int, equals: 1_710_000_000_000, prefix: "expense-request-occurred-at")
         expect(expenseBody["long"] as? String, equals: "121.4737", prefix: "expense-request-long")
         expect(expenseBody["lat"] as? String, equals: "31.2304", prefix: "expense-request-lat")
 
@@ -509,22 +507,25 @@ enum LedgerAPIContractVerification {
             participantIds: ["user_2", "tmp_1"],
             category: "traffic",
             note: "Taxi",
-            createdAt: 1_710_000_030_000
+            occurredAt: 1_710_000_030_000
         )
         assertNoLegacyFields(updateExpenseBody, prefix: "update-expense-request")
         expect(updateExpenseBody["recordId"] as? String, equals: "record_1", prefix: "update-expense-request-id")
         expect(updateExpenseBody["amount"] as? String, equals: "120.00", prefix: "update-expense-request-amount")
+        expect(updateExpenseBody["createdAt"] as? Int, equals: nil, prefix: "update-expense-request-no-client-created-at")
+        expect(updateExpenseBody["occurredAt"] as? Int, equals: 1_710_000_030_000, prefix: "update-expense-request-occurred-at")
         expect(updateExpenseBody["long"] as? String, equals: nil, prefix: "update-expense-request-no-empty-long")
         expect(updateExpenseBody["lat"] as? String, equals: nil, prefix: "update-expense-request-no-empty-lat")
 
-        let settlementBody = settlementRecordBody(groupCode: "AB12", recordId: "record_2", fromId: "user_2", toId: "user_1", amountMinor: "3000", note: "Transfer", createdAt: 1_710_000_040_000)
+        let settlementBody = settlementRecordBody(groupCode: "AB12", recordId: "record_2", fromId: "user_2", toId: "user_1", amountMinor: "3000", note: "Transfer", occurredAt: 1_710_000_040_000)
         assertNoLegacyFields(settlementBody, prefix: "settlement-request")
         expect(settlementBody["type"] as? String, equals: "settlement", prefix: "settlement-request-type")
         expect(settlementBody["amount"] as? String, equals: "30.00", prefix: "settlement-request-amount")
         expect(settlementBody["fromId"] as? String, equals: "user_2", prefix: "settlement-request-from")
         expect(settlementBody["toId"] as? String, equals: "user_1", prefix: "settlement-request-to")
         expect(settlementBody["recordId"] as? String, equals: "record_2", prefix: "settlement-request-id")
-        expect(settlementBody["createdAt"] as? Int, equals: 1_710_000_040_000, prefix: "settlement-request-created-at")
+        expect(settlementBody["createdAt"] as? Int, equals: nil, prefix: "settlement-request-no-client-created-at")
+        expect(settlementBody["occurredAt"] as? Int, equals: 1_710_000_040_000, prefix: "settlement-request-occurred-at")
 
         let group = mapGroup([
             "code": "AB12",
@@ -662,6 +663,7 @@ enum LedgerAPIContractVerification {
             "category": "food",
             "note": "Dinner",
             "createdAt": 1_710_000_000_000,
+            "occurredAt": 1_710_000_005_000,
             "updatedAt": 1_710_000_010_000,
             "createdBy": "user_1",
             "updatedBy": "user_1"
@@ -672,6 +674,8 @@ enum LedgerAPIContractVerification {
         expect(expense.forWhom, equals: ["user_1", "user_2", "tmp_1"], prefix: "expense-participants")
         expect(expense.type, equals: "food", prefix: "expense-category")
         expect(expense.text, equals: "Dinner", prefix: "expense-note")
+        expect(expense.createdAt, equals: 1_710_000_000_000, prefix: "expense-created-at")
+        expect(expense.occurredAt, equals: 1_710_000_005_000, prefix: "expense-occurred-at")
         expect(expense.isDebtResolve, equals: false, prefix: "expense-not-settlement")
 
         let settlement = mapRecord([
@@ -682,13 +686,15 @@ enum LedgerAPIContractVerification {
             "fromId": "user_2",
             "toId": "user_1",
             "category": "settlement",
-            "createdAt": 1_710_000_020_000
+            "createdAt": 1_710_000_020_000,
+            "occurredAt": 1_710_000_025_000
         ])
         expect(settlement.recordId, equals: "record_2", prefix: "settlement-id")
         expect(settlement.who, equals: "user_2", prefix: "settlement-from")
         expect(settlement.forWhom, equals: ["user_1"], prefix: "settlement-to")
         expect(settlement.paidMinor, equals: "3000", prefix: "settlement-amount")
         expect(settlement.type, equals: transferCategory.id, prefix: "settlement-category")
+        expect(settlement.occurredAt, equals: 1_710_000_025_000, prefix: "settlement-occurred-at")
         expect(settlement.isDebtResolve, equals: true, prefix: "settlement-flag")
     }
 

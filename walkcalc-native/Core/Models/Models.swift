@@ -68,6 +68,7 @@ struct WalkRecord: Identifiable, Hashable {
     var long: String
     var lat: String
     var createdAt: TimeInterval
+    var occurredAt: TimeInterval
     var modifiedAt: TimeInterval
     var isDebtResolve: Bool
     var createdBy: String?
