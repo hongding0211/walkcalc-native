@@ -252,6 +252,7 @@ struct APIClient {
         var request = URLRequest(url: components.url!)
         request.httpMethod = method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(L10n.serverLanguageCode, forHTTPHeaderField: "x-locale")
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

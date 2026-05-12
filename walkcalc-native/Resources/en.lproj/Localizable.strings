@@ -29,6 +29,7 @@
 "Edit fail" = "Edit fail";
 "Edit record" = "Edit record";
 "Enter a valid amount with up to 2 decimal places" = "Enter a valid amount with up to 2 decimal places";
+"Enter the Group ID shared by another member." = "Enter the Group ID shared by another member.";
 "Enter name" = "Enter name";
 "Expense splitting for groups, trips, and daily costs." = "Expense splitting for groups, trips, and daily costs.";
 "For whom" = "For whom";
@@ -53,6 +54,7 @@
 "Network issues" = "Network issues";
 "New group" = "New group";
 "New member" = "New member";
+"No group matches this ID. Check it and try again." = "No group matches this ID. Check it and try again.";
 "No access to camera" = "No access to camera";
 "Notice" = "Notice";
 "Owed to me" = "Owed to me";

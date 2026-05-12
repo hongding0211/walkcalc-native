@@ -6,6 +6,7 @@ enum Route: Hashable {
 
 enum HomeSheet: Identifiable {
     case create
+    case join
     case settings
     case archivedGroups
     case about
@@ -13,6 +14,7 @@ enum HomeSheet: Identifiable {
     var id: String {
         switch self {
         case .create: "create"
+        case .join: "join"
         case .settings: "settings"
         case .archivedGroups: "archivedGroups"
         case .about: "about"
@@ -105,8 +107,6 @@ struct RootHomeView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @State private var path: [Route] = []
     @State private var activeSheet: HomeSheet?
-    @State private var isJoiningGroup = false
-    @State private var joinGroupID = ""
     @State private var archiveCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
 
@@ -118,10 +118,6 @@ struct RootHomeView: View {
     private var archivedGroups: [WalkGroup] {
         guard let user = store.user else { return [] }
         return store.groups.filter { $0.archivedUsers.contains(user.uuid) }
-    }
-
-    private var canJoinGroup: Bool {
-        !joinGroupID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -139,7 +135,7 @@ struct RootHomeView: View {
                         } else if activeGroups.isEmpty {
                             GroupsEmptyState(
                                 onCreateGroup: { activeSheet = .create },
-                                onJoinGroup: { isJoiningGroup = true }
+                                onJoinGroup: { activeSheet = .join }
                             )
                         } else {
                             HomeBalanceCard()
@@ -200,7 +196,7 @@ struct RootHomeView: View {
                         }
 
                         Button {
-                            isJoiningGroup = true
+                            activeSheet = .join
                         } label: {
                             Label(L("Join group"), systemImage: "person.2.badge.plus")
                         }
@@ -247,6 +243,12 @@ struct RootHomeView: View {
                 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+            case .join:
+                NavigationStack {
+                    JoinGroupSheet { activeSheet = nil }
+                }
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
             case .settings:
                 NavigationStack {
                     SettingsSheet(archivedGroups: archivedGroups) {
@@ -265,25 +267,6 @@ struct RootHomeView: View {
                 AboutSheet()
                     .presentationDetents([.medium])
             }
-        }
-        .alert(L("Join group"), isPresented: $isJoiningGroup) {
-            TextField(L("Group ID"), text: $joinGroupID)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .onChange(of: joinGroupID) { _, newValue in
-                    joinGroupID = newValue.uppercased()
-                }
-
-            Button(L("Cancel"), role: .cancel) {
-                joinGroupID = ""
-            }
-
-            Button(L("Join")) {
-                let code = joinGroupID.trimmingCharacters(in: .whitespacesAndNewlines)
-                joinGroupID = ""
-                Task { _ = await store.joinGroup(code: code) }
-            }
-            .disabled(!canJoinGroup)
         }
         .alert(L("Archive group?"), isPresented: Binding(get: { archiveCandidate != nil }, set: { if !$0 { archiveCandidate = nil } })) {
             Button(L("Cancel"), role: .cancel) {}
@@ -319,6 +302,99 @@ struct RootHomeView: View {
 
     private func archive(_ group: WalkGroup) {
         archiveCandidate = group
+    }
+}
+
+private struct JoinGroupSheet: View {
+    @EnvironmentObject private var store: WalkcalcStore
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isGroupIDFocused: Bool
+
+    let onDone: () -> Void
+    @State private var groupID = ""
+    @State private var joinErrorMessage: String?
+    @State private var isSubmitting = false
+
+    private var normalizedGroupID: String {
+        groupID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canJoinGroup: Bool {
+        !normalizedGroupID.isEmpty && !isSubmitting
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField(L("Group ID"), text: $groupID)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .focused($isGroupIDFocused)
+                    .submitLabel(.join)
+                    .onSubmit(submit)
+                    .onChange(of: groupID) { _, newValue in
+                        groupID = newValue.uppercased()
+                        joinErrorMessage = nil
+                    }
+            } footer: {
+                Text(joinErrorMessage ?? L("Enter the Group ID shared by another member."))
+                    .foregroundStyle(joinErrorMessage == nil ? SoftLedgerTheme.secondaryInk : SoftLedgerTheme.negative)
+            }
+            .listRowBackground(SoftLedgerTheme.formPaper)
+        }
+        .scrollContentBackground(.hidden)
+        .background(SoftLedgerTheme.canvas)
+        .tint(SoftLedgerTheme.accent)
+        .navigationTitle(L("Join group"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(role: .cancel) {
+                    dismiss()
+                    onDone()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel(L("Cancel"))
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    submit()
+                } label: {
+                    if isSubmitting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "checkmark")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(SoftLedgerTheme.accent)
+                .disabled(!canJoinGroup)
+                .accessibilityLabel(L("Join"))
+            }
+        }
+        .onAppear {
+            isGroupIDFocused = true
+        }
+    }
+
+    private func submit() {
+        guard canJoinGroup else { return }
+        let code = normalizedGroupID
+        joinErrorMessage = nil
+        isSubmitting = true
+
+        Task {
+            let result = await store.joinGroupWithFeedback(code: code)
+            isSubmitting = false
+            if result.success {
+                dismiss()
+                onDone()
+            } else {
+                joinErrorMessage = result.message ?? L("No group matches this ID. Check it and try again.")
+            }
+        }
     }
 }
 

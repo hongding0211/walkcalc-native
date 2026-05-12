@@ -5,6 +5,12 @@ import UserNotifications
 import UIKit
 
 @MainActor
+struct JoinGroupResult {
+    let success: Bool
+    let message: String?
+}
+
+@MainActor
 final class WalkcalcStore: ObservableObject {
     @Published var token: String?
     @Published var user: UserProfile?
@@ -448,12 +454,24 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func joinGroup(code: String) async -> Bool {
-        return await withLoading {
-            guard let token else { return false }
+        await joinGroupWithFeedback(code: code).success
+    }
+
+    func joinGroupWithFeedback(code: String) async -> JoinGroupResult {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            guard let token else {
+                return JoinGroupResult(success: false, message: L("Login to continue"))
+            }
             let response = try await api.joinGroup(code: code, token: token)
             applyRefreshedToken(response)
-            await refreshHome()
-            return response.success
+            if response.success {
+                await refreshHome()
+            }
+            return JoinGroupResult(success: response.success, message: response.message)
+        } catch {
+            return JoinGroupResult(success: false, message: L("Network issues"))
         }
     }
 

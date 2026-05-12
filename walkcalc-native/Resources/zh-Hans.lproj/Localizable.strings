@@ -29,6 +29,7 @@
 "Edit fail" = "编辑失败";
 "Edit record" = "编辑记录";
 "Enter a valid amount with up to 2 decimal places" = "请输入最多 2 位小数的有效金额";
+"Enter the Group ID shared by another member." = "输入其他成员分享给你的群组 ID。";
 "Enter name" = "输入名字";
 "Expense splitting for groups, trips, and daily costs." = "群组旅行和日常支出分账工具。";
 "For whom" = "为谁支付";
@@ -53,6 +54,7 @@
 "Network issues" = "网络开小差";
 "New group" = "创建一个群组";
 "New member" = "新增成员";
+"No group matches this ID. Check it and try again." = "没有找到这个群组 ID，请检查后重试。";
 "No access to camera" = "无相机权限";
 "Notice" = "提示";
 "Owed to me" = "别人欠我";
