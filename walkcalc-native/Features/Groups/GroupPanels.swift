@@ -781,7 +781,7 @@ struct RecordEditorView: View {
     }
 
     private var canSave: Bool {
-        (try? Money.parseDisplay(amount)).map { !Money.isZero($0) } == true
+        (try? Money.parseDisplay(amount)).map { Money.isPositive($0) } == true
             && !paidBy.isEmpty
             && !splitMembers.isEmpty
     }
@@ -955,7 +955,9 @@ struct RecordEditorView: View {
                 paid: amount,
                 forWhom: Array(splitMembers),
                 type: categoryId,
-                text: note
+                text: note,
+                createdAt: date.timeIntervalSince1970 * 1000,
+                isSettlement: record.isDebtResolve
             )
         } else {
             success = await store.addRecord(
@@ -964,7 +966,8 @@ struct RecordEditorView: View {
                 paid: amount,
                 forWhom: Array(splitMembers),
                 type: categoryId,
-                text: note
+                text: note,
+                createdAt: date.timeIntervalSince1970 * 1000
             )
         }
 
@@ -1317,13 +1320,17 @@ struct BalancesWorkspace: View {
     let initialMember: Member?
     @State private var path: [Member] = []
 
+    private var currentGroup: WalkGroup {
+        store.group(id: group.id) ?? group
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
-            BalancesRootView(group: group) { member in
+            BalancesRootView(group: currentGroup) { member in
                 path.append(member)
             }
             .navigationDestination(for: Member.self) { member in
-                MemberBalanceDetailView(group: group, member: member)
+                MemberBalanceDetailView(group: currentGroup, member: member)
             }
         }
         .onAppear {
@@ -1426,6 +1433,10 @@ private struct BalancesRootView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .tint(SoftLedgerTheme.accent)
+        .task(id: group.id) {
+            await store.refreshGroupBalances(group.id)
+            await store.refreshSettlementSuggestion(groupId: group.id)
+        }
         .alert(resolveConfirmationTitle, isPresented: $showsResolveConfirmation) {
             Button(L("Cancel"), role: .cancel) {}
             Button(L("Resolve")) {
@@ -1439,7 +1450,10 @@ private struct BalancesRootView: View {
     }
 
     private func recordCount(for member: Member) -> Int {
-        (store.recordsByGroup[group.id] ?? []).filter { record in
+        if member.recordCount > 0 {
+            return member.recordCount
+        }
+        return (store.recordsByGroup[group.id] ?? []).filter { record in
             record.who == member.uuid || record.forWhom.contains(member.uuid)
         }.count
     }
@@ -1522,6 +1536,14 @@ private struct MemberBalanceDetailView: View {
     let member: Member
     @State private var editingRecord: WalkRecord?
 
+    private var currentGroup: WalkGroup {
+        store.group(id: group.id) ?? group
+    }
+
+    private var currentMember: Member {
+        currentGroup.allMembers.first(where: { $0.uuid == member.uuid }) ?? member
+    }
+
     private var records: [WalkRecord] {
         store.memberRecords(groupId: group.id, memberId: member.uuid)
     }
@@ -1531,7 +1553,7 @@ private struct MemberBalanceDetailView: View {
     }
 
     private var balanceTextColor: Color {
-        Money.isZero(member.debtMinor) ? SoftLedgerTheme.ink : moneyColor(member.debtMinor)
+        Money.isZero(currentMember.debtMinor) ? SoftLedgerTheme.ink : moneyColor(currentMember.debtMinor)
     }
 
     var body: some View {
@@ -1542,10 +1564,10 @@ private struct MemberBalanceDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: summarySpacing) {
-                            Text(L("Balance with %@").replacingOccurrences(of: "%@", with: member.name))
+                            Text(L("Balance with %@").replacingOccurrences(of: "%@", with: currentMember.name))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                            Text(signedMoney(member.debtMinor, style: .exact))
+                            Text(signedMoney(currentMember.debtMinor, style: .exact))
                                 .font(.system(size: balanceFontSize, weight: .semibold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(balanceTextColor)
@@ -1584,7 +1606,7 @@ private struct MemberBalanceDetailView: View {
                         } else {
                             LazyVStack(spacing: 0) {
                                 ForEach(records) { record in
-                                    ExpenseRow(record: record, group: group) {
+                                    ExpenseRow(record: record, group: currentGroup) {
                                         editingRecord = record
                                     }
                                     if record.id != records.last?.id {
@@ -1626,7 +1648,7 @@ private struct MemberBalanceDetailView: View {
                 Task { await store.loadMoreMemberRecords(groupId: group.id, memberId: member.uuid) }
             }
         }
-        .navigationTitle(member.name)
+        .navigationTitle(currentMember.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {

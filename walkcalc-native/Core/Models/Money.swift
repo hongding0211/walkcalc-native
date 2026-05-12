@@ -41,6 +41,23 @@ enum Money {
         return "0"
     }
 
+    static func minorFromDecimalString(_ value: Any?) -> MoneyMinor {
+        guard let string = value as? String,
+              let minor = try? parseDisplay(string) else {
+            return "0"
+        }
+        return minor
+    }
+
+    static func decimalString(fromMinor value: MoneyMinor) -> String {
+        let minor = NSDecimalNumber(decimal: decimal(value)).int64Value
+        let negative = minor < 0
+        let absValue = Swift.abs(minor)
+        let integer = absValue / 100
+        let fraction = absValue % 100
+        return "\(negative ? "-" : "")\(integer).\(String(format: "%02d", fraction))"
+    }
+
     static func decimal(_ value: MoneyMinor?) -> Decimal {
         Decimal(string: value ?? "0") ?? 0
     }
@@ -66,6 +83,10 @@ enum Money {
 
     static func isZero(_ value: MoneyMinor?) -> Bool {
         decimal(value) == 0
+    }
+
+    static func isPositive(_ value: MoneyMinor?) -> Bool {
+        decimal(value) > 0
     }
 
     static func splitFirst(_ value: MoneyMinor?, count: Int) -> MoneyMinor {

@@ -21,6 +21,12 @@ struct walkcalc_nativeApp: App {
         if ProcessInfo.processInfo.arguments.contains("--verify-money-display") {
             MoneyDisplayVerification.assertAllCasesPass()
         }
+        if ProcessInfo.processInfo.arguments.contains("--verify-ledger-migration") {
+            LedgerMigrationVerification.assertAllCasesPass()
+        }
+        if ProcessInfo.processInfo.arguments.contains("--verify-api-contract") {
+            LedgerAPIContractVerification.assertAllCasesPass()
+        }
         #endif
     }
 

@@ -142,7 +142,7 @@ struct RootHomeView: View {
                                 onJoinGroup: { isJoiningGroup = true }
                             )
                         } else {
-                            HomeBalanceCard(groups: activeGroups)
+                            HomeBalanceCard()
                             Text(L("All groups"))
                                 .font(.callout.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.ink)
@@ -323,28 +323,14 @@ struct RootHomeView: View {
 }
 
 private struct HomeBalanceCard: View {
-    let groups: [WalkGroup]
     @EnvironmentObject private var store: WalkcalcStore
 
-    private var currentUserId: String {
-        store.user?.uuid ?? ""
-    }
-
-    private var balances: [MoneyMinor] {
-        groups.map { group in
-            group.membersInfo.first(where: { $0.uuid == currentUserId })?.debtMinor ?? "0"
-        }
-    }
-
-    private var total: MoneyMinor {
-        balances.reduce("0") { Money.add($0, $1) }
-    }
-
     private var scopeText: String {
-        if groups.count == 1 {
+        let count = max(store.groupTotal, store.groups.count)
+        if count == 1 {
             return L("Across 1 group")
         }
-        return L("Across %@ groups").replacingOccurrences(of: "%@", with: "\(groups.count)")
+        return L("Across %@ groups").replacingOccurrences(of: "%@", with: "\(count)")
     }
 
     var body: some View {
@@ -354,7 +340,7 @@ private struct HomeBalanceCard: View {
                     Text(L("Total balance"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    Text(signedMoney(total, style: .exact))
+                    Text(signedMoney(store.totalBalanceMinor, style: .exact))
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(SoftLedgerTheme.ink)
@@ -389,11 +375,25 @@ private struct GroupSummaryRow: View {
     let group: WalkGroup
 
     private var myBalance: MoneyMinor {
-        group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? "0"
+        if group.hasCurrentUserBalanceSummary {
+            return group.currentUserBalanceMinor
+        }
+        return group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? group.currentUserBalanceMinor
     }
 
     private var memberCountText: String {
-        L("%@ members").replacingOccurrences(of: "%@", with: "\(group.allMembers.count)")
+        L("%@ members").replacingOccurrences(of: "%@", with: "\(displayMemberCount)")
+    }
+
+    private var displayMembers: [Member] {
+        group.allMembers.isEmpty ? group.participantPreview : group.allMembers
+    }
+
+    private var displayMemberCount: Int {
+        if group.participantCount > 0 {
+            return group.participantCount
+        }
+        return displayMembers.count
     }
 
     private var balanceTextColor: Color {
@@ -414,7 +414,7 @@ private struct GroupSummaryRow: View {
                     .truncationMode(.tail)
 
                 HStack(spacing: metadataSpacing) {
-                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 3, size: memberAvatarSize, showsTotal: false)
+                    SoftLedgerAvatarStack(members: displayMembers, visibleCount: 3, size: memberAvatarSize, showsTotal: false)
                     Text(memberCountText)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)

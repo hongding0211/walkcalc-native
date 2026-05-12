@@ -11,6 +11,7 @@ final class WalkcalcStore: ObservableObject {
     @Published var groups: [WalkGroup] = []
     @Published var recordsByGroup: [String: [WalkRecord]] = [:]
     @Published var recordTotals: [String: Int] = [:]
+    @Published var totalBalanceMinor: MoneyMinor = "0"
     @Published private(set) var groupTotal = 0
     @Published private(set) var isLoadingMoreGroups = false
     @Published var isBootstrapping = true
@@ -22,6 +23,7 @@ final class WalkcalcStore: ObservableObject {
     @Published private var recordSearchTotalsByKey: [String: Int] = [:]
     @Published private var memberRecordsByKey: [String: [WalkRecord]] = [:]
     @Published private var memberRecordTotalsByKey: [String: Int] = [:]
+    @Published private var settlementSuggestionsByGroup: [String: [SettlementTransfer]] = [:]
     @Published private var loadingRecordKeys: Set<String> = []
 
     let api = APIClient()
@@ -87,12 +89,14 @@ final class WalkcalcStore: ObservableObject {
         recordsByGroup = [:]
         recordTotals = [:]
         groupTotal = 0
+        totalBalanceMinor = "0"
         groupsPage = 0
         groupSearchQuery = ""
         recordSearchResultsByKey = [:]
         recordSearchTotalsByKey = [:]
         memberRecordsByKey = [:]
         memberRecordTotalsByKey = [:]
+        settlementSuggestionsByGroup = [:]
         UserDefaults.standard.removeObject(forKey: "walkcalc.token")
     }
 
@@ -144,11 +148,17 @@ final class WalkcalcStore: ObservableObject {
         guard let token else { return }
         let query = normalizedQuery(search)
         do {
-            let response = try await api.groups(page: 1, pageSize: groupPageSize, search: optionalQuery(query), token: token)
+            async let groupsResponse = api.groups(page: 1, pageSize: groupPageSize, search: optionalQuery(query), token: token)
+            async let summaryResponse = api.homeSummary(token: token)
+            let (response, summary) = try await (groupsResponse, summaryResponse)
             applyRefreshedToken(response)
+            applyRefreshedToken(summary)
+            if summary.success, let total = summary.data {
+                totalBalanceMinor = total
+            }
             if response.success {
                 groupSearchQuery = query
-                groups = response.data ?? []
+                groups = mergedGroupSummaries(response.data ?? [])
                 groupsPage = response.pagination?.page ?? 1
                 groupTotal = response.pagination?.total ?? groups.count
             } else {
@@ -194,11 +204,28 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(recordResult)
             if groupResult.success, let group = groupResult.data {
                 replaceGroup(group)
+                settlementSuggestionsByGroup[id] = nil
             }
             if recordResult.success {
                 clearRecordCaches(for: id)
                 recordsByGroup[id] = recordResult.data ?? []
                 recordTotals[id] = recordResult.pagination?.total ?? recordResult.data?.count ?? 0
+            }
+        } catch {
+            errorMessage = L("Network issues")
+        }
+    }
+
+    func refreshGroupBalances(_ id: String) async {
+        if isFixtureMode { return }
+        guard let token else { return }
+        do {
+            let response = try await api.groupBalances(groupCode: id, token: token)
+            applyRefreshedToken(response)
+            if response.success, let members = response.data {
+                replaceGroupBalances(groupId: id, members: members)
+            } else {
+                errorMessage = response.message ?? L("Network issues")
             }
         } catch {
             errorMessage = L("Network issues")
@@ -332,11 +359,15 @@ final class WalkcalcStore: ObservableObject {
         loadingRecordKeys.insert(key)
         defer { loadingRecordKeys.remove(key) }
         do {
-            let response = try await api.records(groupCode: groupId, page: 1, pageSize: recordPageSize, participantId: memberId, token: token)
+            let response = try await api.participantRecords(groupCode: groupId, participantId: memberId, page: 1, pageSize: recordPageSize, token: token)
             applyRefreshedToken(response)
             if response.success {
-                memberRecordsByKey[key] = response.data ?? []
-                memberRecordTotalsByKey[key] = response.pagination?.total ?? response.data?.count ?? 0
+                if let member = response.data?.member {
+                    replaceMemberProjection(groupId: groupId, member: member)
+                }
+                let records = response.data?.records ?? []
+                memberRecordsByKey[key] = records
+                memberRecordTotalsByKey[key] = response.pagination?.total ?? records.count
             }
         } catch {
             errorMessage = L("Network issues")
@@ -355,10 +386,13 @@ final class WalkcalcStore: ObservableObject {
         defer { loadingRecordKeys.remove(key) }
         do {
             let page = current.count / recordPageSize + 1
-            let response = try await api.records(groupCode: groupId, page: page, pageSize: recordPageSize, participantId: memberId, token: token)
+            let response = try await api.participantRecords(groupCode: groupId, participantId: memberId, page: page, pageSize: recordPageSize, token: token)
             applyRefreshedToken(response)
             if response.success {
-                memberRecordsByKey[key] = current + (response.data ?? [])
+                if let member = response.data?.member {
+                    replaceMemberProjection(groupId: groupId, member: member)
+                }
+                memberRecordsByKey[key] = current + (response.data?.records ?? [])
                 memberRecordTotalsByKey[key] = response.pagination?.total ?? total
             }
         } catch {
@@ -528,9 +562,9 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
-    func addRecord(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "") async -> Bool {
+    func addRecord(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", createdAt: TimeInterval? = nil) async -> Bool {
         if isFixtureMode {
-            guard let paidMinor = try? Money.parseDisplay(paid), !Money.isZero(paidMinor) else { return false }
+            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
             let record = WalkRecord(
                 recordId: "fixture-record-\(Int(Date().timeIntervalSince1970 * 1000))",
                 who: who,
@@ -540,7 +574,7 @@ final class WalkcalcStore: ObservableObject {
                 text: text,
                 long: long,
                 lat: lat,
-                createdAt: Date().timeIntervalSince1970 * 1000,
+                createdAt: createdAt ?? Date().timeIntervalSince1970 * 1000,
                 modifiedAt: Date().timeIntervalSince1970 * 1000,
                 isDebtResolve: false
             )
@@ -550,34 +584,38 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoading {
             guard let token else { return false }
-            let paidMinor = try Money.parseDisplay(paid)
-            guard !Money.isZero(paidMinor) else { return false }
-            let response = try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, long: long, lat: lat)
+            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
+            let response = try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, long: long, lat: lat, createdAt: createdAt)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
+            await refreshHome(search: groupSearchQuery)
             return response.success
         }
     }
 
-    func editRecord(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String) async -> Bool {
+    func editRecord(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, createdAt: TimeInterval? = nil, isSettlement: Bool = false) async -> Bool {
         if isFixtureMode {
             guard let paidMinor = try? Money.parseDisplay(paid),
+                  Money.isPositive(paidMinor),
                   let index = recordsByGroup[groupId]?.firstIndex(where: { $0.recordId == recordId }) else { return false }
             recordsByGroup[groupId]?[index].who = who
             recordsByGroup[groupId]?[index].paidMinor = paidMinor
             recordsByGroup[groupId]?[index].forWhom = forWhom
             recordsByGroup[groupId]?[index].type = type
             recordsByGroup[groupId]?[index].text = text
+            if let createdAt {
+                recordsByGroup[groupId]?[index].createdAt = createdAt
+            }
             recordsByGroup[groupId]?[index].modifiedAt = Date().timeIntervalSince1970 * 1000
             return true
         }
         return await withLoading {
             guard let token else { return false }
-            let paidMinor = try Money.parseDisplay(paid)
-            guard !Money.isZero(paidMinor) else { return false }
-            let response = try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token)
+            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
+            let response = try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, createdAt: createdAt, isSettlement: isSettlement)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
+            await refreshHome(search: groupSearchQuery)
             return response.success
         }
     }
@@ -593,6 +631,7 @@ final class WalkcalcStore: ObservableObject {
             let response = try await api.dropRecord(groupCode: groupId, recordId: recordId, token: token)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
+            await refreshHome(search: groupSearchQuery)
             return response.success
         }
     }
@@ -600,18 +639,17 @@ final class WalkcalcStore: ObservableObject {
     func resolveSingle(groupId: String, debt: ResolvedDebt) async -> Bool {
         await withLoading {
             guard let token else { return false }
-            let response = try await api.addRecord(
+            let response = try await api.addSettlementRecord(
                 groupCode: groupId,
-                who: debt.from.uuid,
-                paidMinor: debt.amountMinor,
-                forWhom: [debt.to.uuid],
-                type: transferCategory.id,
-                text: "resolve",
+                fromId: debt.from.uuid,
+                toId: debt.to.uuid,
+                amountMinor: debt.amountMinor,
+                note: "resolve",
                 token: token,
-                isDebtResolve: true
             )
             applyRefreshedToken(response)
             await refreshGroup(groupId)
+            await refreshHome(search: groupSearchQuery)
             return response.success
         }
     }
@@ -619,10 +657,10 @@ final class WalkcalcStore: ObservableObject {
     func resolveAll(groupId: String, debts: [ResolvedDebt]) async -> Bool {
         await withLoading {
             guard let token else { return false }
-            let transfers = debts.map { ["from": $0.from.uuid, "to": $0.to.uuid, "amountMinor": $0.amountMinor] }
-            let response = try await api.resolveDebts(groupCode: groupId, transfers: transfers, token: token)
+            let response = try await api.resolveDebts(groupCode: groupId, token: token)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
+            await refreshHome(search: groupSearchQuery)
             return response.success
         }
     }
@@ -636,6 +674,15 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func resolvedDebts(for group: WalkGroup) -> [ResolvedDebt] {
+        if let cached = settlementSuggestionsByGroup[group.id] {
+            return cached.compactMap { transfer in
+                guard let from = group.allMembers.first(where: { $0.uuid == transfer.fromId }),
+                      let to = group.allMembers.first(where: { $0.uuid == transfer.toId }) else {
+                    return nil
+                }
+                return ResolvedDebt(from: from, to: to, amountMinor: transfer.amountMinor)
+            }
+        }
         var receivers = group.allMembers
             .filter { Money.compare($0.debtMinor, "0") != .orderedAscending }
             .sorted { Money.compare($0.debtMinor, $1.debtMinor) == .orderedDescending }
@@ -679,12 +726,72 @@ final class WalkcalcStore: ObservableObject {
         return result
     }
 
+    func refreshSettlementSuggestion(groupId: String) async {
+        if isFixtureMode { return }
+        guard let token else { return }
+        do {
+            let response = try await api.settlementSuggestion(groupCode: groupId, token: token)
+            applyRefreshedToken(response)
+            if response.success {
+                settlementSuggestionsByGroup[groupId] = (response.data ?? []).map {
+                    SettlementTransfer(fromId: $0.fromId, toId: $0.toId, amountMinor: $0.amountMinor)
+                }
+            } else {
+                errorMessage = response.messageWithLimitDetail ?? L("Network issues")
+            }
+        } catch {
+            errorMessage = L("Network issues")
+        }
+    }
+
     private func replaceGroup(_ group: WalkGroup) {
         if let index = groups.firstIndex(where: { $0.id == group.id }) {
-            groups[index] = group
+            groups[index] = mergedGroupSummary(group, existing: groups[index])
         } else {
             groups.append(group)
         }
+    }
+
+    private func replaceGroupBalances(groupId: String, members: [Member]) {
+        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        groups[index].membersInfo = members.filter { !$0.isTemporary }
+        groups[index].tempUsers = members.filter(\.isTemporary)
+        groups[index].participantCount = members.count
+    }
+
+    private func replaceMemberProjection(groupId: String, member: Member) {
+        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        if member.isTemporary {
+            if let memberIndex = groups[index].tempUsers.firstIndex(where: { $0.uuid == member.uuid }) {
+                groups[index].tempUsers[memberIndex] = member
+            }
+        } else if let memberIndex = groups[index].membersInfo.firstIndex(where: { $0.uuid == member.uuid }) {
+            groups[index].membersInfo[memberIndex] = member
+        }
+    }
+
+    private func mergedGroupSummaries(_ summaries: [WalkGroup]) -> [WalkGroup] {
+        summaries.map { summary in
+            if let existing = groups.first(where: { $0.id == summary.id }) {
+                return mergedGroupSummary(summary, existing: existing)
+            }
+            return summary
+        }
+    }
+
+    private func mergedGroupSummary(_ incoming: WalkGroup, existing: WalkGroup) -> WalkGroup {
+        var merged = incoming
+        if incoming.allMembers.isEmpty, !existing.allMembers.isEmpty {
+            merged.membersInfo = existing.membersInfo
+            merged.tempUsers = existing.tempUsers
+        }
+        if merged.participantPreview.isEmpty {
+            merged.participantPreview = existing.participantPreview
+        }
+        if merged.participantCount == 0 {
+            merged.participantCount = max(existing.participantCount, merged.allMembers.count, merged.participantPreview.count)
+        }
+        return merged
     }
 
     private func appendGroups(_ nextGroups: [WalkGroup]) {
@@ -775,5 +882,29 @@ final class WalkcalcStore: ObservableObject {
             errorMessage = L("Network issues")
             return false
         }
+    }
+}
+
+private extension APIEnvelope {
+    var messageWithLimitDetail: String? {
+        guard let message else { return nil }
+        guard let limit = intValue(errorData?["limit"]),
+              let count = intValue(errorData?["nonZeroParticipantCount"]) else {
+            return message
+        }
+        return "\(message) (\(count)/\(limit))"
+    }
+
+    func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.intValue
+        }
+        if let value = value as? String {
+            return Int(value)
+        }
+        return nil
     }
 }

@@ -7,6 +7,7 @@ struct APIEnvelope<T> {
     var data: T?
     var pagination: Pagination?
     var message: String?
+    var errorData: [String: Any]?
     var refreshedToken: String?
 }
 
@@ -30,6 +31,7 @@ struct Member: Identifiable, Hashable {
     var avatar: String
     var debtMinor: MoneyMinor
     var costMinor: MoneyMinor
+    var recordCount: Int = 0
     var isTemporary: Bool = false
 }
 
@@ -42,6 +44,13 @@ struct WalkGroup: Identifiable, Hashable {
     var tempUsers: [Member]
     var archivedUsers: [String]
     var isOwner: Bool
+    var hasCurrentUserBalanceSummary: Bool = false
+    var currentUserBalanceMinor: MoneyMinor = "0"
+    var currentUserExpenseShareMinor: MoneyMinor = "0"
+    var currentUserPaidTotalMinor: MoneyMinor = "0"
+    var currentUserRecordCount: Int = 0
+    var participantCount: Int = 0
+    var participantPreview: [Member] = []
 
     var allMembers: [Member] {
         membersInfo + tempUsers
@@ -90,6 +99,17 @@ struct ResolvedDebt: Identifiable, Hashable {
     var from: Member
     var to: Member
     var amountMinor: MoneyMinor
+}
+
+struct SettlementTransfer: Hashable {
+    var fromId: String
+    var toId: String
+    var amountMinor: MoneyMinor
+}
+
+struct MemberRecordPage {
+    var member: Member?
+    var records: [WalkRecord]
 }
 
 struct ThemeColorOption: Identifiable, Hashable {

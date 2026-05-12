@@ -315,7 +315,10 @@ private struct GroupSummaryCard: View {
     let group: WalkGroup
 
     private var myBalance: MoneyMinor {
-        group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? "0"
+        if group.hasCurrentUserBalanceSummary {
+            return group.currentUserBalanceMinor
+        }
+        return group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? group.currentUserBalanceMinor
     }
 
     var body: some View {
@@ -412,7 +415,10 @@ private struct GroupBalancesSection: View {
     }
 
     private func recordCount(for member: Member) -> Int {
-        (store.recordsByGroup[group.id] ?? []).filter { record in
+        if member.recordCount > 0 {
+            return member.recordCount
+        }
+        return (store.recordsByGroup[group.id] ?? []).filter { record in
             record.who == member.uuid || record.forWhom.contains(member.uuid)
         }.count
     }

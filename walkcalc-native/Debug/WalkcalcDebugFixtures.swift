@@ -43,6 +43,7 @@ extension WalkcalcStore {
         case .edge:
             applyEdgeFixture()
         }
+        totalBalanceMinor = totalDebtMinor()
     }
 
     private func applyStressFixture() {
