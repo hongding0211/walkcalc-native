@@ -141,6 +141,7 @@ struct CreateGroupSheet: View {
         .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Create group"))
         .navigationBarTitleDisplayMode(.inline)
+        .softLedgerDismissesKeyboardOnBackgroundTap()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button(role: .cancel) {
@@ -341,6 +342,7 @@ private struct AddTemporaryMemberView: View {
         .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Add temporary member"))
         .navigationBarTitleDisplayMode(.inline)
+        .softLedgerDismissesKeyboardOnBackgroundTap()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
@@ -664,6 +666,7 @@ struct GroupSettingsSheet: View {
         .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Group settings"))
         .navigationBarTitleDisplayMode(.inline)
+        .softLedgerDismissesKeyboardOnBackgroundTap()
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button(role: .cancel) {
@@ -1005,6 +1008,7 @@ struct AddMemberSearchView: View {
         .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Add member"))
         .navigationBarTitleDisplayMode(.inline)
+        .softLedgerDismissesKeyboardOnBackgroundTap()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
@@ -1230,11 +1234,8 @@ struct RecordEditorView: View {
                 beginEditing()
             }
         }
-        .overlay {
-            KeyboardDismissTapLayer(isActive: focusedField != nil) {
-                focusedField = nil
-            }
-            .frame(width: 0, height: 0)
+        .softLedgerDismissesKeyboardOnBackgroundTap(isActive: focusedField != nil) {
+            focusedField = nil
         }
         .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate) { _ in
             dismiss()
@@ -1364,75 +1365,6 @@ private struct PaidByInlineEditor: View {
 private enum ExpenseEditorField {
     case amount
     case note
-}
-
-private struct KeyboardDismissTapLayer: UIViewRepresentable {
-    let isActive: Bool
-    let dismiss: () -> Void
-
-    func makeUIView(context: Context) -> UIView {
-        KeyboardDismissTapView(isActive: isActive, dismiss: dismiss)
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        guard let uiView = uiView as? KeyboardDismissTapView else { return }
-        uiView.isActive = isActive
-        uiView.dismiss = dismiss
-    }
-
-    final class KeyboardDismissTapView: UIView, UIGestureRecognizerDelegate {
-        var isActive: Bool
-        var dismiss: () -> Void
-        private weak var installedWindow: UIWindow?
-        private lazy var recognizer: UITapGestureRecognizer = {
-            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
-            recognizer.cancelsTouchesInView = false
-            recognizer.delegate = self
-            return recognizer
-        }()
-
-        init(isActive: Bool, dismiss: @escaping () -> Void) {
-            self.isActive = isActive
-            self.dismiss = dismiss
-            super.init(frame: .zero)
-            isUserInteractionEnabled = false
-            backgroundColor = .clear
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            if installedWindow !== window {
-                installedWindow?.removeGestureRecognizer(recognizer)
-                installedWindow = window
-                window?.addGestureRecognizer(recognizer)
-            }
-        }
-
-        deinit {
-            installedWindow?.removeGestureRecognizer(recognizer)
-        }
-
-        @objc func handleTap() {
-            guard isActive else { return }
-            dismiss()
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard isActive else { return false }
-            var touchedView: UIView? = touch.view
-            while let view = touchedView {
-                if view is UITextField || view is UITextView {
-                    return false
-                }
-                touchedView = view.superview
-            }
-            return true
-        }
-    }
 }
 
 private struct SplitInlineEditor: View {

@@ -199,6 +199,9 @@ private struct RecordSearchCanvas: View {
         }
         .navigationTitle(L("Search records"))
         .navigationBarTitleDisplayMode(.inline)
+        .softLedgerDismissesKeyboardOnBackgroundTap(isActive: isSearchFocused) {
+            isSearchFocused = false
+        }
         .navigationDestination(item: $selectedRecord) { record in
             RecordEditorView(groupId: group.id, record: record) {}
         }

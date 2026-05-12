@@ -450,10 +450,103 @@ extension View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
     }
+
+    func softLedgerDismissesKeyboardOnBackgroundTap(isActive: Bool = true, onDismiss: @escaping () -> Void = {}) -> some View {
+        modifier(SoftLedgerKeyboardDismissModifier(isActive: isActive, onDismiss: onDismiss))
+    }
 }
 
 private extension View {
     func softLedgerGlass(cornerRadius: CGFloat) -> some View {
         modifier(SoftLedgerGlassModifier(cornerRadius: cornerRadius))
+    }
+}
+
+private struct SoftLedgerKeyboardDismissModifier: ViewModifier {
+    let isActive: Bool
+    let onDismiss: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                SoftLedgerKeyboardDismissLayer(isActive: isActive, onDismiss: onDismiss)
+                    .frame(width: 0, height: 0)
+            }
+    }
+}
+
+private struct SoftLedgerKeyboardDismissLayer: UIViewRepresentable {
+    let isActive: Bool
+    let onDismiss: () -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        SoftLedgerKeyboardDismissView(isActive: isActive, onDismiss: onDismiss)
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard let uiView = uiView as? SoftLedgerKeyboardDismissView else { return }
+        uiView.isActive = isActive
+        uiView.onDismiss = onDismiss
+    }
+
+    final class SoftLedgerKeyboardDismissView: UIView, UIGestureRecognizerDelegate {
+        var isActive: Bool
+        var onDismiss: () -> Void
+
+        private weak var installedWindow: UIWindow?
+        private lazy var recognizer: UITapGestureRecognizer = {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        init(isActive: Bool, onDismiss: @escaping () -> Void) {
+            self.isActive = isActive
+            self.onDismiss = onDismiss
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+
+            guard installedWindow !== window else { return }
+            installedWindow?.removeGestureRecognizer(recognizer)
+            installedWindow = window
+            window?.addGestureRecognizer(recognizer)
+        }
+
+        deinit {
+            installedWindow?.removeGestureRecognizer(recognizer)
+        }
+
+        @objc private func handleTap() {
+            guard isActive, let window = installedWindow else { return }
+            window.endEditing(true)
+            onDismiss()
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard isActive else { return false }
+
+            var touchedView: UIView? = touch.view
+            while let view = touchedView {
+                if view is UITextField || view is UITextView {
+                    return false
+                }
+                touchedView = view.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
+        }
     }
 }

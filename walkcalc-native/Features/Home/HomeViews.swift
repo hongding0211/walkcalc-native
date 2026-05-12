@@ -373,6 +373,9 @@ private struct JoinGroupSheet: View {
         .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Join group"))
         .navigationBarTitleDisplayMode(.inline)
+        .softLedgerDismissesKeyboardOnBackgroundTap(isActive: isGroupIDFocused) {
+            isGroupIDFocused = false
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button(role: .cancel) {
