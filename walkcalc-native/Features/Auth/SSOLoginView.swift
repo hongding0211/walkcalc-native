@@ -3,28 +3,18 @@ import WebKit
 
 struct SSOLoginView: View {
     @EnvironmentObject private var store: WalkcalcStore
-    @Environment(\.dismiss) private var dismiss
     var onToken: (String) -> Void
 
     var body: some View {
-        NavigationStack {
-            WebView(url: store.api.loginURL()) { url in
-                guard url.absoluteString.hasPrefix(store.api.redirectPrefix()),
-                      let token = token(from: url) else {
-                    return
-                }
-                WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
-                    cookies.forEach { HTTPCookieStorage.shared.setCookie($0) }
-                    DispatchQueue.main.async {
-                        onToken(token)
-                    }
-                }
+        WebView(url: store.api.loginURL()) { url in
+            guard url.absoluteString.hasPrefix(store.api.redirectPrefix()),
+                  let token = token(from: url) else {
+                return
             }
-            .navigationTitle(L("Login"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L("Cancel")) { dismiss() }
+            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+                cookies.forEach { HTTPCookieStorage.shared.setCookie($0) }
+                DispatchQueue.main.async {
+                    onToken(token)
                 }
             }
         }

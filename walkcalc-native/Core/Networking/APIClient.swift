@@ -19,7 +19,10 @@ struct APIClient {
     func loginURL() -> URL {
         let redirect = webBaseURL.appendingPathComponent("auth/callback").absoluteString
         var components = URLComponents(url: webBaseURL.appendingPathComponent("sso/login"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "redirect", value: redirect)]
+        components.queryItems = [
+            URLQueryItem(name: "redirect", value: redirect),
+            URLQueryItem(name: "hideNavbar", value: "1")
+        ]
         return components.url!
     }
 

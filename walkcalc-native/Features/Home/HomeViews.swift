@@ -99,6 +99,7 @@ struct LoginView: View {
                     await store.signIn(token: token)
                 }
             }
+            .immersiveWebSheet()
         }
     }
 }

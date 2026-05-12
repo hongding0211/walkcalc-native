@@ -444,6 +444,14 @@ extension Array {
     }
 }
 
+extension View {
+    func immersiveWebSheet() -> some View {
+        self
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+    }
+}
+
 private extension View {
     func softLedgerGlass(cornerRadius: CGFloat) -> some View {
         modifier(SoftLedgerGlassModifier(cornerRadius: cornerRadius))

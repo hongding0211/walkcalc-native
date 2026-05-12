@@ -337,6 +337,7 @@ struct SettingsSheet: View {
         }
         .sheet(isPresented: $showingProfile) {
             SSOProfileView(url: store.api.profileURL(), token: store.token)
+                .immersiveWebSheet()
         }
     }
 }
@@ -1843,20 +1844,10 @@ private struct MemberBalanceDetailView: View {
 }
 
 struct SSOProfileView: View {
-    @Environment(\.dismiss) private var dismiss
     let url: URL
     let token: String?
 
     var body: some View {
-        NavigationStack {
-            WebView(url: url, token: token, injectAuthCookie: true, onToken: nil)
-                .navigationTitle(L("My Profile"))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(L("Cancel")) { dismiss() }
-                    }
-                }
-        }
+        WebView(url: url, token: token, injectAuthCookie: true, onToken: nil)
     }
 }
