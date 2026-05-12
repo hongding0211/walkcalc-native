@@ -122,6 +122,7 @@
 "No groups yet" = "No groups yet";
 "No matching records" = "No matching records";
 "No records yet" = "No records yet";
+"No temporary members" = "No temporary members";
 "Opens group details" = "Opens group details";
 "Optional note" = "Optional note";
 "Other" = "Other";
@@ -145,6 +146,7 @@
 "Split" = "Split";
 "Stay" = "Stay";
 "Suggested settlement" = "Suggested settlement";
+"Temporary members" = "Temporary members";
 "Ticket" = "Ticket";
 "Total balance" = "Total balance";
 "Transfer" = "Transfer";

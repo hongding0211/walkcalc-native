@@ -122,6 +122,7 @@
 "No groups yet" = "暂无群组";
 "No matching records" = "没有匹配记录";
 "No records yet" = "暂无记录";
+"No temporary members" = "暂无临时成员";
 "Opens group details" = "打开群组详情";
 "Optional note" = "可选备注";
 "Other" = "其他";
@@ -145,6 +146,7 @@
 "Split" = "分摊";
 "Stay" = "住宿";
 "Suggested settlement" = "建议结清";
+"Temporary members" = "临时成员";
 "Ticket" = "票务";
 "Total balance" = "总余额";
 "Transfer" = "转账";

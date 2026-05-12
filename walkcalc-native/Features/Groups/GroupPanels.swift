@@ -377,7 +377,6 @@ struct GroupSettingsSheet: View {
     @State private var tempMemberName = ""
     @State private var isShowingAddTemporaryMember = false
     @State private var confirmation: GroupSettingsConfirmation?
-    @FocusState private var isNameFocused: Bool
 
     init(group: WalkGroup, onDone: @escaping () -> Void, onArchive: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.group = group
@@ -391,23 +390,21 @@ struct GroupSettingsSheet: View {
         !tempMemberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var currentGroup: WalkGroup {
+        store.group(id: group.id) ?? group
+    }
+
     var body: some View {
         Form {
             Section(L("Group")) {
-                HStack(spacing: 12) {
+                HStack {
+                    Text(L("Group name"))
+
+                    Spacer()
+
                     TextField(L("Group name"), text: $name)
                         .textInputAutocapitalization(.words)
-                        .focused($isNameFocused)
-
-                    Image(systemName: "pencil")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .opacity(isNameFocused ? 0 : 1)
-                        .accessibilityHidden(true)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    isNameFocused = true
+                        .multilineTextAlignment(.trailing)
                 }
 
                 HStack {
@@ -419,17 +416,21 @@ struct GroupSettingsSheet: View {
                         .textSelection(.enabled)
                 }
 
-                HStack {
-                    Text(L("Members"))
-                    Spacer()
-                    SoftLedgerAvatarStack(members: group.allMembers, visibleCount: 4, borderColor: SoftLedgerTheme.formPaper, showsTotal: true)
+                NavigationLink {
+                    GroupMembersView(group: currentGroup)
+                } label: {
+                    HStack {
+                        Text(L("Members"))
+                        Spacer()
+                        SoftLedgerAvatarStack(members: currentGroup.allMembers, visibleCount: 4, borderColor: SoftLedgerTheme.formPaper, showsTotal: false)
+                    }
                 }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section(L("Members")) {
                 NavigationLink {
-                    AddMemberSearchView(existingMemberIds: Set(group.allMembers.map(\.uuid))) { users in
+                    AddMemberSearchView(existingMemberIds: Set(currentGroup.allMembers.map(\.uuid))) { users in
                         Task {
                             _ = await store.addMembers(groupId: group.id, users: users, tempUsers: [])
                         }
@@ -567,6 +568,76 @@ enum GroupSettingsConfirmation: Identifiable {
         case .archive: "archive"
         case .delete: "delete"
         }
+    }
+}
+
+private struct GroupMembersView: View {
+    @EnvironmentObject private var store: WalkcalcStore
+    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalInset = 12
+    @ScaledMetric(relativeTo: .caption) private var rowVerticalInset = 6
+
+    let group: WalkGroup
+
+    private var currentGroup: WalkGroup {
+        store.group(id: group.id) ?? group
+    }
+
+    var body: some View {
+        Form {
+            Section(L("Members")) {
+                ForEach(currentGroup.membersInfo) { member in
+                    GroupMemberInfoRow(member: member)
+                }
+            }
+            .listRowInsets(rowInsets)
+            .listRowBackground(SoftLedgerTheme.formPaper)
+
+            Section(L("Temporary members")) {
+                if currentGroup.tempUsers.isEmpty {
+                    Text(L("No temporary members"))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                } else {
+                    ForEach(currentGroup.tempUsers) { member in
+                        GroupMemberInfoRow(member: member)
+                    }
+                }
+            }
+            .listRowInsets(rowInsets)
+            .listRowBackground(SoftLedgerTheme.formPaper)
+        }
+        .listSectionSpacing(.compact)
+        .scrollContentBackground(.hidden)
+        .background(SoftLedgerTheme.canvas)
+        .navigationTitle(L("Members"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    private var rowInsets: EdgeInsets {
+        EdgeInsets(top: rowVerticalInset, leading: rowHorizontalInset, bottom: rowVerticalInset, trailing: rowHorizontalInset)
+    }
+}
+
+private struct GroupMemberInfoRow: View {
+    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 28
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 36
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 10
+
+    let member: Member
+
+    var body: some View {
+        HStack(spacing: rowSpacing) {
+            SoftLedgerAvatar(member: member, size: avatarSize, borderColor: SoftLedgerTheme.formPaper)
+
+            Text(member.name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+        }
+        .frame(minHeight: rowMinHeight)
+        .accessibilityElement(children: .combine)
     }
 }
 

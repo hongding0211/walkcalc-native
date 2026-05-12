@@ -457,19 +457,8 @@ private struct GroupSummaryRow: View {
         return group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? group.currentUserBalanceMinor
     }
 
-    private var memberCountText: String {
-        L("%@ members").replacingOccurrences(of: "%@", with: "\(displayMemberCount)")
-    }
-
     private var displayMembers: [Member] {
         group.allMembers.isEmpty ? group.participantPreview : group.allMembers
-    }
-
-    private var displayMemberCount: Int {
-        if group.participantCount > 0 {
-            return group.participantCount
-        }
-        return displayMembers.count
     }
 
     private var balanceTextColor: Color {
@@ -491,10 +480,6 @@ private struct GroupSummaryRow: View {
 
                 HStack(spacing: metadataSpacing) {
                     SoftLedgerAvatarStack(members: displayMembers, visibleCount: 3, size: memberAvatarSize, showsTotal: false)
-                    Text(memberCountText)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .lineLimit(1)
                 }
             }
             .layoutPriority(1)
@@ -530,7 +515,7 @@ private struct GroupSummaryRow: View {
                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(group.name), \(signedMoney(myBalance)), \(memberCountText)")
+        .accessibilityLabel("\(group.name), \(signedMoney(myBalance))")
         .accessibilityHint(L("Opens group details"))
     }
 }
