@@ -5,6 +5,7 @@
 "Add record" = "Add record";
 "Add temporary user" = "Add temporary user";
 "All Groups" = "All Groups";
+"All balances" = "All balances";
 "Archive" = "Archive";
 "Archived Groups" = "Archived Groups";
 "Average cost" = "Average cost";
@@ -120,6 +121,7 @@
 "No balances" = "No balances";
 "No expenses yet" = "No expenses yet";
 "No groups yet" = "No groups yet";
+"No matching members" = "No matching members";
 "No matching records" = "No matching records";
 "No records yet" = "No records yet";
 "No temporary members" = "No temporary members";
@@ -140,8 +142,10 @@
 "Search by name" = "Search by name";
 "Search notes and categories" = "Search notes and categories";
 "Search records" = "Search records";
+"Searching members..." = "Searching members...";
 "Searching records..." = "Searching records...";
 "Selected" = "Selected";
+"Settle with %@" = "Settle with %@";
 "Shopping" = "Shopping";
 "Split" = "Split";
 "Stay" = "Stay";

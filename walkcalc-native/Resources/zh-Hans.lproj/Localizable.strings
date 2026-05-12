@@ -5,6 +5,7 @@
 "Add record" = "添加记录";
 "Add temporary user" = "添加临时成员";
 "All Groups" = "全部群组";
+"All balances" = "全部余额";
 "Archive" = "归档";
 "Archived Groups" = "已归档群组";
 "Average cost" = "人均";
@@ -120,6 +121,7 @@
 "No balances" = "暂无余额";
 "No expenses yet" = "暂无支出";
 "No groups yet" = "暂无群组";
+"No matching members" = "没有匹配成员";
 "No matching records" = "没有匹配记录";
 "No records yet" = "暂无记录";
 "No temporary members" = "暂无临时成员";
@@ -140,8 +142,10 @@
 "Search by name" = "按姓名搜索";
 "Search notes and categories" = "搜索备注和分类";
 "Search records" = "搜索记录";
+"Searching members..." = "正在搜索成员...";
 "Searching records..." = "正在搜索记录...";
 "Selected" = "已选择";
+"Settle with %@" = "结清给 %@";
 "Shopping" = "购物";
 "Split" = "分摊";
 "Stay" = "住宿";

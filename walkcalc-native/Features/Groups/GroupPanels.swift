@@ -776,9 +776,27 @@ struct AddMemberSearchView: View {
     @State private var results: [UserProfile] = []
     @State private var selectedUsers: [UserProfile] = []
     @State private var isSearching = false
+    @State private var completedSearchText = ""
 
     private var canAdd: Bool {
         !selectedUsers.isEmpty
+    }
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isLoadingSearch: Bool {
+        !trimmedSearchText.isEmpty && (isSearching || completedSearchText != trimmedSearchText)
+    }
+
+    private var visibleResults: [UserProfile] {
+        guard completedSearchText == trimmedSearchText else { return [] }
+        return results.filter { !existingMemberIds.contains($0.uuid) }
+    }
+
+    private var showsNoResults: Bool {
+        !trimmedSearchText.isEmpty && !isLoadingSearch && visibleResults.isEmpty
     }
 
     var body: some View {
@@ -791,10 +809,12 @@ struct AddMemberSearchView: View {
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section(L("Results")) {
-                if isSearching {
-                    ProgressView()
+                if isLoadingSearch {
+                    searchStatusRow(isLoading: true, text: L("Searching members..."))
+                } else if showsNoResults {
+                    searchStatusRow(isLoading: false, text: L("No matching members"))
                 }
-                ForEach(results.filter { !existingMemberIds.contains($0.uuid) }) { user in
+                ForEach(visibleResults) { user in
                     Button {
                         toggle(user)
                     } label: {
@@ -844,18 +864,40 @@ struct AddMemberSearchView: View {
             }
         }
         .task(id: searchText) {
-            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let query = trimmedSearchText
             guard !query.isEmpty else {
                 results = []
+                completedSearchText = ""
                 isSearching = false
                 return
             }
             isSearching = true
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            results = await store.searchUsers(name: query)
+            let searchResults = await store.searchUsers(name: query)
+            guard !Task.isCancelled else { return }
+            results = searchResults
+            completedSearchText = query
             isSearching = false
         }
+    }
+
+    private func searchStatusRow(isLoading: Bool, text: String) -> some View {
+        HStack(spacing: rowSpacing) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(SoftLedgerTheme.secondaryInk)
+            }
+
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: avatarSize, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     private func toggle(_ user: UserProfile) {
@@ -1477,6 +1519,7 @@ private struct BalancesRootView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @State private var showsResolveConfirmation = false
     @State private var pendingResolveDebts: [ResolvedDebt] = []
+    @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
@@ -1522,24 +1565,30 @@ private struct BalancesRootView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(members) { member in
-                            BalancePreviewRow(member: member, recordCount: recordCount(for: member)) {
-                                onSelect(member)
-                            }
-                            if member.id != members.last?.id {
-                                Divider()
-                                    .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                                    .padding(.leading, dividerLeadingPadding)
+                    VStack(alignment: .leading, spacing: sectionSpacing) {
+                        Text(L("All balances"))
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(SoftLedgerTheme.ink)
+
+                        LazyVStack(spacing: 0) {
+                            ForEach(members) { member in
+                                BalancePreviewRow(member: member, recordCount: recordCount(for: member)) {
+                                    onSelect(member)
+                                }
+                                if member.id != members.last?.id {
+                                    Divider()
+                                        .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                                        .padding(.leading, dividerLeadingPadding)
+                                }
                             }
                         }
-                    }
-                    .padding(.horizontal, rowHorizontalPadding)
-                    .padding(.vertical, rowVerticalPadding)
-                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+                        .padding(.horizontal, rowHorizontalPadding)
+                        .padding(.vertical, rowVerticalPadding)
+                        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+                        }
                     }
 
                     if !debts.isEmpty {
@@ -1593,10 +1642,7 @@ private struct BalancesRootView: View {
 
 private struct SettlementPlanSection: View {
     @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
-    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
-    @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 6
-    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    @ScaledMetric(relativeTo: .subheadline) private var cardSpacing = 10
 
     let debts: [ResolvedDebt]
 
@@ -1606,48 +1652,57 @@ private struct SettlementPlanSection: View {
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(SoftLedgerTheme.ink)
 
-            LazyVStack(spacing: 0) {
+            LazyVStack(spacing: cardSpacing) {
                 ForEach(debts) { debt in
                     SettlementPlanRow(debt: debt)
-
-                    if debt.id != debts.last?.id {
-                        Divider()
-                            .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                            .padding(.leading, dividerLeadingPadding)
-                    }
                 }
-            }
-            .padding(.horizontal, rowHorizontalPadding)
-            .padding(.vertical, rowVerticalPadding)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
     }
 }
 
 private struct SettlementPlanRow: View {
-    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 8
-    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 58
+    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
+    @ScaledMetric(relativeTo: .caption) private var receiverAvatarSize = 20
+    @ScaledMetric(relativeTo: .caption) private var arrowBadgeSize = 18
+    @ScaledMetric(relativeTo: .caption2) private var arrowBadgeFontSize = 9
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
+    @ScaledMetric(relativeTo: .caption) private var receiverSpacing = 6
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
+    @ScaledMetric(relativeTo: .subheadline) private var cardHorizontalPadding = 14
+    @ScaledMetric(relativeTo: .caption) private var cardVerticalPadding = 12
     @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 76
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
 
     let debt: ResolvedDebt
 
     var body: some View {
         HStack(spacing: rowSpacing) {
-            SettlementPlanParticipant(member: debt.from)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            payerAvatar
 
-            Image(systemName: "arrow.right")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-                .layoutPriority(2)
+            VStack(alignment: .leading, spacing: textSpacing) {
+                Text("\(debt.from.name) \(L("pays")) \(debt.to.name)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.86)
+                    .truncationMode(.tail)
 
-            SettlementPlanParticipant(member: debt.to)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: receiverSpacing) {
+                    SoftLedgerAvatar(member: debt.to, size: receiverAvatarSize)
+                        .accessibilityHidden(true)
+
+                    Text(L("Settle with %@").replacingOccurrences(of: "%@", with: debt.to.name))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: rowSpacing)
 
             Text("¥\(Money.compactDisplay(debt.amountMinor))")
                 .font(.subheadline.monospacedDigit().weight(.semibold))
@@ -1658,30 +1713,36 @@ private struct SettlementPlanRow: View {
                 .frame(minWidth: amountMinWidth, alignment: .trailing)
                 .layoutPriority(3)
         }
+        .padding(.horizontal, cardHorizontalPadding)
+        .padding(.vertical, cardVerticalPadding)
         .frame(minHeight: rowMinHeight)
+        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(debt.from.name) \(L("pays")) \(debt.to.name), ¥\(Money.display(debt.amountMinor))")
     }
-}
 
-private struct SettlementPlanParticipant: View {
-    @ScaledMetric(relativeTo: .caption) private var avatarSize = 32
-    @ScaledMetric(relativeTo: .caption) private var spacing = 8
-
-    let member: Member
-
-    var body: some View {
-        HStack(spacing: spacing) {
-            SoftLedgerAvatar(member: member, size: avatarSize)
+    private var payerAvatar: some View {
+        ZStack(alignment: .bottomTrailing) {
+            SoftLedgerAvatar(member: debt.from, size: avatarSize)
                 .accessibilityHidden(true)
 
-            Text(member.name)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.ink)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            Image(systemName: "arrow.right")
+                .font(.system(size: arrowBadgeFontSize, weight: .bold))
+                .foregroundStyle(SoftLedgerTheme.paper)
+                .frame(width: arrowBadgeSize, height: arrowBadgeSize)
+                .background(SoftLedgerTheme.accent, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(SoftLedgerTheme.paper, lineWidth: max(1, arrowBadgeSize / 9))
+                }
+                .offset(x: 2, y: 2)
+                .accessibilityHidden(true)
         }
-        .layoutPriority(1)
+        .frame(width: avatarSize + 3, height: avatarSize + 3)
     }
 }
 

@@ -37,6 +37,8 @@ struct walkcalc_nativeApp: App {
                 SoftLedgerGroupHomePlayground()
             } else if ProcessInfo.processInfo.arguments.contains("--design-playground-detail") {
                 GroupDetailPreviewHost()
+            } else if ProcessInfo.processInfo.arguments.contains("--design-playground-settlement") {
+                SettlementPlanPlayground()
             } else {
                 ContentView()
                     .environmentObject(store)
