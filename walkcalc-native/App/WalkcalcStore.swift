@@ -666,6 +666,7 @@ final class WalkcalcStore: ObservableObject {
         if isFixtureMode {
             recordsByGroup[groupId]?.removeAll { $0.recordId == recordId }
             recordTotals[groupId] = recordsByGroup[groupId]?.count ?? 0
+            clearRecordCaches(for: groupId)
             return true
         }
         return await withLoading {

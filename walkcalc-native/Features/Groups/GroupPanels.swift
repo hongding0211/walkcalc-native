@@ -1088,7 +1088,7 @@ struct RecordEditorView: View {
     @State private var date = Date()
     @State private var note: String
     @State private var message: String?
-    @State private var confirmDelete = false
+    @State private var deleteCandidate: WalkRecord?
     @State private var hasEditIntent: Bool
 
     init(groupId: String, record: WalkRecord? = nil, onDone: @escaping () -> Void) {
@@ -1172,7 +1172,7 @@ struct RecordEditorView: View {
             if record != nil {
                 Section {
                     Button(L("Delete expense"), role: .destructive) {
-                        confirmDelete = true
+                        deleteCandidate = record
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
@@ -1228,18 +1228,9 @@ struct RecordEditorView: View {
             }
             .frame(width: 0, height: 0)
         }
-        .alert(L("Confirm delete?"), isPresented: $confirmDelete) {
-            Button(L("Cancel"), role: .cancel) {}
-            Button(L("Delete"), role: .destructive) {
-                if let record {
-                    Task {
-                        if await store.deleteRecord(groupId: groupId, recordId: record.recordId) {
-                            dismiss()
-                            onDone()
-                        }
-                    }
-                }
-            }
+        .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate) { _ in
+            dismiss()
+            onDone()
         }
     }
 
@@ -1928,6 +1919,7 @@ private struct MemberBalanceDetailView: View {
     let group: WalkGroup
     let member: Member
     @State private var selectedRecord: WalkRecord?
+    @State private var deleteCandidate: WalkRecord?
 
     private var currentGroup: WalkGroup {
         store.group(id: group.id) ?? group
@@ -1999,7 +1991,9 @@ private struct MemberBalanceDetailView: View {
                         } else {
                             LazyVStack(spacing: 0) {
                                 ForEach(records) { record in
-                                    ExpenseRow(record: record, group: currentGroup) {
+                                    ExpenseRow(record: record, group: currentGroup, onDelete: {
+                                        deleteCandidate = record
+                                    }) {
                                         selectedRecord = record
                                     }
                                     if record.id != records.last?.id {
@@ -2049,6 +2043,11 @@ private struct MemberBalanceDetailView: View {
         }
         .navigationDestination(item: $selectedRecord) { record in
             RecordEditorView(groupId: group.id, record: record) {
+                selectedRecord = nil
+            }
+        }
+        .recordDeleteConfirmation(groupId: group.id, record: $deleteCandidate) { deletedRecord in
+            if selectedRecord?.recordId == deletedRecord.recordId {
                 selectedRecord = nil
             }
         }

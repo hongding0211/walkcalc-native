@@ -27,6 +27,7 @@ struct GroupView: View {
     @State private var isSearchPresented = false
     @State private var isSystemSearchPresented = false
     @State private var ignoredSearchText = ""
+    @State private var deleteCandidate: WalkRecord?
 
     private var group: WalkGroup? {
         store.group(id: groupId)
@@ -60,10 +61,14 @@ struct GroupView: View {
                             GroupExpensesSection(
                                 group: group,
                                 records: records,
-                                isLoadingMore: store.isLoadingRecords(groupId: group.id)
-                            ) { record in
-                                activeSheet = .editExpense(record)
-                            }
+                                isLoadingMore: store.isLoadingRecords(groupId: group.id),
+                                onDelete: { record in
+                                    deleteCandidate = record
+                                },
+                                onEdit: { record in
+                                    activeSheet = .editExpense(record)
+                                }
+                            )
                         }
                     } else {
                         VStack(spacing: 10) {
@@ -125,6 +130,7 @@ struct GroupView: View {
             isSearchPresented = true
         }
         .toolbarBackground(.hidden, for: .navigationBar)
+        .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate)
         .task { await store.refreshGroup(groupId) }
         .sheet(isPresented: $isSearchPresented) {
             if let group {
@@ -148,6 +154,7 @@ private struct RecordSearchCanvas: View {
     @FocusState private var isSearchFocused: Bool
     @State private var query = ""
     @State private var selectedRecord: WalkRecord?
+    @State private var deleteCandidate: WalkRecord?
     @State private var isPreparingSearch = false
 
     let group: WalkGroup
@@ -194,6 +201,11 @@ private struct RecordSearchCanvas: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedRecord) { record in
             RecordEditorView(groupId: group.id, record: record) {}
+        }
+        .recordDeleteConfirmation(groupId: group.id, record: $deleteCandidate) { deletedRecord in
+            if selectedRecord?.recordId == deletedRecord.recordId {
+                selectedRecord = nil
+            }
         }
         .task {
             await MainActor.run {
@@ -257,7 +269,9 @@ private struct RecordSearchCanvas: View {
                         .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
                 } else {
                     ForEach(records) { record in
-                        ExpenseRow(record: record, group: group) {
+                        ExpenseRow(record: record, group: group, onDelete: {
+                            deleteCandidate = record
+                        }) {
                             selectedRecord = record
                         }
 
@@ -485,6 +499,7 @@ private struct GroupExpensesSection: View {
     let group: WalkGroup
     let records: [WalkRecord]
     let isLoadingMore: Bool
+    let onDelete: (WalkRecord) -> Void
     let onEdit: (WalkRecord) -> Void
 
     var body: some View {
@@ -502,7 +517,9 @@ private struct GroupExpensesSection: View {
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(records) { record in
-                            ExpenseRow(record: record, group: group) {
+                            ExpenseRow(record: record, group: group, onDelete: {
+                                onDelete(record)
+                            }) {
                                 onEdit(record)
                             }
                             if record.id != records.last?.id {
@@ -555,7 +572,15 @@ struct ExpenseRow: View {
 
     let record: WalkRecord
     let group: WalkGroup
+    let onDelete: (() -> Void)?
     let action: () -> Void
+
+    init(record: WalkRecord, group: WalkGroup, onDelete: (() -> Void)? = nil, action: @escaping () -> Void) {
+        self.record = record
+        self.group = group
+        self.onDelete = onDelete
+        self.action = action
+    }
 
     private var payer: Member? {
         group.allMembers.first(where: { $0.uuid == record.who })
@@ -633,8 +658,62 @@ struct ExpenseRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if let onDelete {
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label(L("Delete"), systemImage: "trash")
+                }
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(recordTitle(record)), \(L("Paid by %@").replacingOccurrences(of: "%@", with: payerName)), ¥\(Money.compactDisplay(record.paidMinor)), \(fullCreatedAt)")
+    }
+}
+
+struct RecordDeleteConfirmationModifier: ViewModifier {
+    @EnvironmentObject private var store: WalkcalcStore
+
+    let groupId: String
+    @Binding var record: WalkRecord?
+    let onDeleted: (WalkRecord) -> Void
+
+    func body(content: Content) -> some View {
+        content.alert(
+            L("Confirm delete?"),
+            isPresented: Binding(
+                get: { record != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        record = nil
+                    }
+                }
+            )
+        ) {
+            Button(L("Cancel"), role: .cancel) {
+                record = nil
+            }
+            Button(L("Delete"), role: .destructive) {
+                guard let candidate = record else { return }
+                Task {
+                    if await store.deleteRecord(groupId: groupId, recordId: candidate.recordId) {
+                        onDeleted(candidate)
+                    }
+                    record = nil
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    func recordDeleteConfirmation(
+        groupId: String,
+        record: Binding<WalkRecord?>,
+        onDeleted: @escaping (WalkRecord) -> Void = { _ in }
+    ) -> some View {
+        modifier(RecordDeleteConfirmationModifier(groupId: groupId, record: record, onDeleted: onDeleted))
     }
 }
 
