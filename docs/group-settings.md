@@ -40,7 +40,9 @@ The Group section contains only information and edits that define the group itse
 ### Group name
 
 - Show one editable text field for the group name.
-- Label/placeholder: `Name`.
+- Label/placeholder: `Group name`.
+- Keep the field unfocused when the sheet opens; a user taps the row to edit.
+- Show a subtle trailing pencil affordance while the field is unfocused so the editable state is discoverable.
 - The insertion cursor should use the app theme tint.
 - Use native text field behavior; do not custom draw the cursor, underline, or focus state.
 - Do not show created date, metadata, audit information, or currency while those concepts are not supported by the product.

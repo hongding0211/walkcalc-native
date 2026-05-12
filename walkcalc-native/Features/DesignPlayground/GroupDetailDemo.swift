@@ -240,6 +240,7 @@ private struct GroupDetailSettingsSheet: View {
     @State private var tempMemberName = ""
     @State private var isShowingAddTemporaryMember = false
     @State private var confirmation: GroupDetailSettingsConfirmation?
+    @FocusState private var isGroupNameFocused: Bool
 
     @State private var members = ["Hong", "Lin", "Ming", "Yan", "Ava", "Kai"]
 
@@ -250,8 +251,21 @@ private struct GroupDetailSettingsSheet: View {
     var body: some View {
         Form {
             Section("Group") {
-                TextField("Name", text: $groupName)
-                    .textInputAutocapitalization(.words)
+                HStack(spacing: 12) {
+                    TextField("Group name", text: $groupName)
+                        .textInputAutocapitalization(.words)
+                        .focused($isGroupNameFocused)
+
+                    Image(systemName: "pencil")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(GroupDetailTheme.secondaryInk)
+                        .opacity(isGroupNameFocused ? 0 : 1)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isGroupNameFocused = true
+                }
 
                 HStack {
                     Text("Group ID")

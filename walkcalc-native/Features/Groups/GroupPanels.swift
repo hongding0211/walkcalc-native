@@ -377,6 +377,7 @@ struct GroupSettingsSheet: View {
     @State private var tempMemberName = ""
     @State private var isShowingAddTemporaryMember = false
     @State private var confirmation: GroupSettingsConfirmation?
+    @FocusState private var isNameFocused: Bool
 
     init(group: WalkGroup, onDone: @escaping () -> Void, onArchive: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.group = group
@@ -393,8 +394,21 @@ struct GroupSettingsSheet: View {
     var body: some View {
         Form {
             Section(L("Group")) {
-                TextField(L("Name"), text: $name)
-                    .textInputAutocapitalization(.words)
+                HStack(spacing: 12) {
+                    TextField(L("Group name"), text: $name)
+                        .textInputAutocapitalization(.words)
+                        .focused($isNameFocused)
+
+                    Image(systemName: "pencil")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .opacity(isNameFocused ? 0 : 1)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isNameFocused = true
+                }
 
                 HStack {
                     Text(L("Group ID"))
