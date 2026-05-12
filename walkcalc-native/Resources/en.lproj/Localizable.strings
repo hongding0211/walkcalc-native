@@ -4,12 +4,15 @@
 "Add member" = "Add member";
 "Add record" = "Add record";
 "Add temporary user" = "Add temporary user";
+"All matching members selected" = "All matching members selected";
+"Any unresolved balances will be automatically resolved to zero before this group is deleted." = "Any unresolved balances will be automatically resolved to zero before this group is deleted.";
 "All Groups" = "All Groups";
 "All balances" = "All balances";
 "Archive" = "Archive";
 "Archived Groups" = "Archived Groups";
 "Average cost" = "Average cost";
 "Cancel" = "Cancel";
+"Cannot archive group" = "Cannot archive group";
 "Category" = "Category";
 "Clear search" = "Clear search";
 "Confirm" = "Confirm";
@@ -128,6 +131,7 @@
 "Opens group details" = "Opens group details";
 "Optional note" = "Optional note";
 "Other" = "Other";
+"OK" = "OK";
 "Paid by" = "Paid by";
 "Paid by %@" = "Paid by %@";
 "People" = "People";
@@ -136,6 +140,7 @@
 "Resolve 1 transfer" = "Resolve 1 transfer";
 "Resolve %@ transfers" = "Resolve %@ transfers";
 "Restore" = "Restore";
+"Remove %@" = "Remove %@";
 "Results" = "Results";
 "Save" = "Save";
 "Search" = "Search";
@@ -146,6 +151,9 @@
 "Searching records..." = "Searching records...";
 "Selected" = "Selected";
 "Settle with %@" = "Settle with %@";
+"Only groups with zero balances can be archived." = "Only groups with zero balances can be archived.";
+"Settle all balances before archiving this group." = "Settle all balances before archiving this group.";
+"Unresolved balances will be automatically resolved to zero before this group is deleted." = "Unresolved balances will be automatically resolved to zero before this group is deleted.";
 "Shopping" = "Shopping";
 "Split" = "Split";
 "Stay" = "Stay";

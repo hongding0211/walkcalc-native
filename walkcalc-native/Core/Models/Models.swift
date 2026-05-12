@@ -51,9 +51,37 @@ struct WalkGroup: Identifiable, Hashable {
     var currentUserRecordCount: Int = 0
     var participantCount: Int = 0
     var participantPreview: [Member] = []
+    var serverHasUnresolvedBalance: Bool?
 
     var allMembers: [Member] {
         membersInfo + tempUsers
+    }
+
+    var hasUnresolvedBalance: Bool {
+        if let serverHasUnresolvedBalance {
+            return serverHasUnresolvedBalance
+        }
+        return allMembers.contains { !Money.isZero($0.debtMinor) }
+    }
+
+    var shouldShowDeleteResolutionNotice: Bool {
+        if let serverHasUnresolvedBalance {
+            return serverHasUnresolvedBalance
+        }
+        if allMembers.isEmpty {
+            return participantCount > 1 || !Money.isZero(currentUserBalanceMinor)
+        }
+        return hasUnresolvedBalance
+    }
+
+    var shouldBlockArchive: Bool {
+        if let serverHasUnresolvedBalance {
+            return serverHasUnresolvedBalance
+        }
+        if allMembers.isEmpty {
+            return !Money.isZero(currentUserBalanceMinor)
+        }
+        return hasUnresolvedBalance
     }
 }
 

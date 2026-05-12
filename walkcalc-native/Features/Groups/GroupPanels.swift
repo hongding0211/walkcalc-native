@@ -103,10 +103,14 @@ struct CreateGroupSheet: View {
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section(L("Initial members")) {
-                HStack {
-                    Text(L("Members"))
-                    Spacer()
-                    SoftLedgerAvatarStack(members: members, visibleCount: 4, borderColor: SoftLedgerTheme.formPaper, showsTotal: true)
+                NavigationLink {
+                    InitialMembersView(currentUser: store.user, selectedUsers: $selectedUsers, tempUsers: $tempUsers)
+                } label: {
+                    HStack {
+                        Text(L("Members"))
+                        Spacer()
+                        SoftLedgerAvatarStack(members: members, visibleCount: 4, borderColor: SoftLedgerTheme.formPaper, showsTotal: true)
+                    }
                 }
 
                 NavigationLink {
@@ -177,6 +181,101 @@ struct CreateGroupSheet: View {
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
+    }
+}
+
+private struct InitialMembersView: View {
+    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
+
+    let currentUser: UserProfile?
+    @Binding var selectedUsers: [UserProfile]
+    @Binding var tempUsers: [String]
+
+    private var currentMember: Member? {
+        currentUser.map { Member(uuid: $0.uuid, name: $0.name, avatar: $0.avatar, debtMinor: "0", costMinor: "0") }
+    }
+
+    var body: some View {
+        Form {
+            Section(L("Members")) {
+                if let currentMember {
+                    InitialMemberRow(member: currentMember)
+                }
+
+                ForEach(selectedUsers) { user in
+                    InitialMemberRow(
+                        member: Member(uuid: user.uuid, name: user.name, avatar: user.avatar, debtMinor: "0", costMinor: "0"),
+                        onDelete: { remove(user) }
+                    )
+                }
+            }
+            .listRowBackground(SoftLedgerTheme.formPaper)
+
+            Section(L("Temporary members")) {
+                if tempUsers.isEmpty {
+                    Text(L("No temporary members"))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .frame(minHeight: avatarSize, alignment: .leading)
+                } else {
+                    ForEach(tempUsers, id: \.self) { name in
+                        InitialMemberRow(
+                            member: Member(uuid: name, name: name, avatar: "", debtMinor: "0", costMinor: "0", isTemporary: true),
+                            onDelete: { removeTemporaryMember(named: name) }
+                        )
+                    }
+                }
+            }
+            .listRowBackground(SoftLedgerTheme.formPaper)
+        }
+        .scrollContentBackground(.hidden)
+        .background(SoftLedgerTheme.canvas)
+        .navigationTitle(L("Members"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    private func remove(_ user: UserProfile) {
+        selectedUsers.removeAll { $0.uuid == user.uuid }
+    }
+
+    private func removeTemporaryMember(named name: String) {
+        tempUsers.removeAll { $0 == name }
+    }
+}
+
+private struct InitialMemberRow: View {
+    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+
+    let member: Member
+    var onDelete: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: rowSpacing) {
+            SoftLedgerAvatar(member: member, size: avatarSize)
+
+            Text(member.name)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+
+            Spacer(minLength: 0)
+
+            if let onDelete {
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.7))
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(L("Remove %@").replacingOccurrences(of: "%@", with: member.name))
+            }
+        }
+        .frame(minHeight: avatarSize, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -419,6 +518,10 @@ struct ArchivedGroupsView: View {
                 }
                 deleteCandidate = nil
             }
+        } message: {
+            if deleteCandidate?.shouldShowDeleteResolutionNotice == true {
+                Text(L("Any unresolved balances will be automatically resolved to zero before this group is deleted."))
+            }
         }
     }
 }
@@ -435,6 +538,7 @@ struct GroupSettingsSheet: View {
     @State private var name: String
     @State private var isShowingAddTemporaryMember = false
     @State private var confirmation: GroupSettingsConfirmation?
+    @State private var isShowingArchiveBlockedAlert = false
 
     init(group: WalkGroup, onDone: @escaping () -> Void, onArchive: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.group = group
@@ -508,7 +612,11 @@ struct GroupSettingsSheet: View {
 
             Section(L("Management")) {
                 Button {
-                    confirmation = .archive
+                    if currentGroup.shouldBlockArchive {
+                        isShowingArchiveBlockedAlert = true
+                    } else {
+                        confirmation = .archive
+                    }
                 } label: {
                     Text(L("Archive group"))
                         .foregroundStyle(.primary)
@@ -593,6 +701,20 @@ struct GroupSettingsSheet: View {
                 EmptyView()
             }
             Button(L("Cancel"), role: .cancel) { confirmation = nil }
+        } message: {
+            switch confirmation {
+            case .archive:
+                Text(L("Only groups with zero balances can be archived."))
+            case .delete where currentGroup.shouldShowDeleteResolutionNotice:
+                Text(L("Any unresolved balances will be automatically resolved to zero before this group is deleted."))
+            default:
+                EmptyView()
+            }
+        }
+        .alert(L("Cannot archive group"), isPresented: $isShowingArchiveBlockedAlert) {
+            Button(L("OK"), role: .cancel) {}
+        } message: {
+            Text(L("Settle all balances before archiving this group."))
         }
     }
 
@@ -790,13 +912,29 @@ struct AddMemberSearchView: View {
         !trimmedSearchText.isEmpty && (isSearching || completedSearchText != trimmedSearchText)
     }
 
-    private var visibleResults: [UserProfile] {
+    private var matchingResults: [UserProfile] {
         guard completedSearchText == trimmedSearchText else { return [] }
         return results.filter { !existingMemberIds.contains($0.uuid) }
     }
 
+    private var visibleResults: [UserProfile] {
+        matchingResults.filter { !selectedUserIds.contains($0.uuid) }
+    }
+
     private var showsNoResults: Bool {
-        !trimmedSearchText.isEmpty && !isLoadingSearch && visibleResults.isEmpty
+        !trimmedSearchText.isEmpty && !isLoadingSearch && matchingResults.isEmpty
+    }
+
+    private var showsAllMatchesSelected: Bool {
+        !trimmedSearchText.isEmpty && !isLoadingSearch && !matchingResults.isEmpty && visibleResults.isEmpty
+    }
+
+    private var showsResultsSection: Bool {
+        !trimmedSearchText.isEmpty
+    }
+
+    private var selectedUserIds: Set<String> {
+        Set(selectedUsers.map(\.uuid))
     }
 
     var body: some View {
@@ -808,38 +946,48 @@ struct AddMemberSearchView: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            Section(L("Results")) {
-                if isLoadingSearch {
-                    searchStatusRow(isLoading: true, text: L("Searching members..."))
-                } else if showsNoResults {
-                    searchStatusRow(isLoading: false, text: L("No matching members"))
+            if showsResultsSection {
+                Section(L("Results")) {
+                    if isLoadingSearch {
+                        searchStatusRow(isLoading: true, text: L("Searching members..."))
+                    } else if showsNoResults {
+                        searchStatusRow(isLoading: false, text: L("No matching members"))
+                    } else if showsAllMatchesSelected {
+                        searchStatusRow(isLoading: false, text: L("All matching members selected"))
+                    }
+                    ForEach(visibleResults) { user in
+                        Button {
+                            add(user)
+                        } label: {
+                            memberRow(user: user, trailingSystemImage: "plus.circle.fill")
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                ForEach(visibleResults) { user in
-                    Button {
-                        toggle(user)
-                    } label: {
+                .listRowBackground(SoftLedgerTheme.formPaper)
+            }
+
+            if !selectedUsers.isEmpty {
+                Section(L("Selected")) {
+                    ForEach(selectedUsers) { user in
                         HStack(spacing: rowSpacing) {
                             SoftLedgerAvatar(user: user, size: avatarSize)
                             Text(user.name)
                                 .foregroundStyle(.primary)
                             Spacer()
-                            if selectedUsers.contains(user) {
-                                Image(systemName: "checkmark")
+                            Button {
+                                remove(user)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
                                     .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(SoftLedgerTheme.accent)
+                                    .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.7))
                             }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(L("Remove %@").replacingOccurrences(of: "%@", with: user.name))
                         }
-                        .contentShape(Rectangle())
+                        .frame(minHeight: avatarSize, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
-                }
-            }
-            .listRowBackground(SoftLedgerTheme.formPaper)
-
-            if !selectedUsers.isEmpty {
-                Section(L("Selected")) {
-                    Text(selectedUsers.map(\.name).joined(separator: ", "))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 }
                 .listRowBackground(SoftLedgerTheme.formPaper)
             }
@@ -900,12 +1048,27 @@ struct AddMemberSearchView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func toggle(_ user: UserProfile) {
-        if let index = selectedUsers.firstIndex(of: user) {
-            selectedUsers.remove(at: index)
-        } else {
+    private func memberRow(user: UserProfile, trailingSystemImage: String) -> some View {
+        HStack(spacing: rowSpacing) {
+            SoftLedgerAvatar(user: user, size: avatarSize)
+            Text(user.name)
+                .foregroundStyle(.primary)
+            Spacer()
+            Image(systemName: trailingSystemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.accent)
+        }
+        .frame(minHeight: avatarSize, alignment: .leading)
+    }
+
+    private func add(_ user: UserProfile) {
+        if !selectedUsers.contains(user) {
             selectedUsers.append(user)
         }
+    }
+
+    private func remove(_ user: UserProfile) {
+        selectedUsers.removeAll { $0.uuid == user.uuid }
     }
 }
 

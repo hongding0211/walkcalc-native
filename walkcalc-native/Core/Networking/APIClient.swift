@@ -7,7 +7,7 @@ enum HTTPMethod: String {
     case patch = "PATCH"
 }
 
-struct APIClient {
+struct APIClient: Sendable {
     #if DEBUG
     var baseURL = URL(string: ProcessInfo.processInfo.environment["WALKCALC_API_BASE_URL"] ?? "http://127.0.0.1:3500")!
     var webBaseURL = URL(string: ProcessInfo.processInfo.environment["HONG97_WEB_BASE_URL"] ?? "http://127.0.0.1:3000")!
@@ -228,7 +228,7 @@ struct APIClient {
         var response = try await execute(method, path: path, query: query, token: token, body: body)
         var refreshedToken: String?
         if response.status == 401 || response.status == 403 {
-            if let nextToken = try? await refreshAccessToken() {
+            if let nextToken = try? await AuthRefreshCoordinator.shared.refresh({ try await refreshAccessToken() }) {
                 refreshedToken = nextToken
                 response = try await execute(method, path: path, query: query, token: nextToken, body: body)
             }
@@ -276,6 +276,32 @@ struct APIClient {
         let envelope = response.raw as? [String: Any] ?? [:]
         let data = payload(from: envelope) as? [String: Any] ?? [:]
         return data["accessToken"] as? String ?? data["token"] as? String
+    }
+}
+
+private actor AuthRefreshCoordinator {
+    static let shared = AuthRefreshCoordinator()
+
+    private var refreshTask: Task<String?, Error>?
+
+    func refresh(_ operation: @escaping @Sendable () async throws -> String?) async throws -> String? {
+        if let refreshTask {
+            return try await refreshTask.value
+        }
+
+        let refreshTask = Task {
+            try await operation()
+        }
+        self.refreshTask = refreshTask
+
+        do {
+            let token = try await refreshTask.value
+            self.refreshTask = nil
+            return token
+        } catch {
+            self.refreshTask = nil
+            throw error
+        }
     }
 }
 
@@ -432,7 +458,8 @@ private func mapGroup(_ raw: Any?) -> WalkGroup {
         currentUserPaidTotalMinor: Money.minorFromDecimalString(dict["currentUserPaidTotal"]),
         currentUserRecordCount: dict["currentUserRecordCount"] as? Int ?? 0,
         participantCount: dict["participantCount"] as? Int ?? participants.count,
-        participantPreview: participantPreview
+        participantPreview: participantPreview,
+        serverHasUnresolvedBalance: dict["hasUnresolvedBalance"] as? Bool
     )
 }
 

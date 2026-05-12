@@ -22,6 +22,7 @@ final class WalkcalcStore: ObservableObject {
     @Published private(set) var isLoadingMoreGroups = false
     @Published var isBootstrapping = true
     @Published var isLoading = false
+    @Published private(set) var isSigningIn = false
     @Published var errorMessage: String?
     @Published var themeColorId: String = UserDefaults.standard.string(forKey: "themeColor") ?? "blue"
     @Published var isFixtureMode = false
@@ -81,11 +82,23 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func signIn(token: String) async {
+        guard !isSigningIn else { return }
+        isSigningIn = true
+        defer { isSigningIn = false }
+
         self.token = token
         UserDefaults.standard.set(token, forKey: "walkcalc.token")
-        await loadUser(token: token)
+
+        guard let signedInUser = await fetchUser(token: token) else {
+            return
+        }
+
         await postUserMeta()
-        await refreshHome()
+        guard await refreshHome() else {
+            return
+        }
+
+        user = signedInUser
     }
 
     func logout() {
@@ -103,20 +116,27 @@ final class WalkcalcStore: ObservableObject {
         memberRecordsByKey = [:]
         memberRecordTotalsByKey = [:]
         settlementSuggestionsByGroup = [:]
+        isSigningIn = false
         UserDefaults.standard.removeObject(forKey: "walkcalc.token")
     }
 
     func loadUser(token: String) async {
+        user = await fetchUser(token: token)
+    }
+
+    private func fetchUser(token: String) async -> UserProfile? {
         do {
             let response = try await api.userInfo(token: token)
             applyRefreshedToken(response)
             if response.success, let data = response.data {
-                user = data
+                return data
             } else {
                 logout()
+                return nil
             }
         } catch {
             errorMessage = L("Network issues")
+            return nil
         }
     }
 
@@ -149,9 +169,10 @@ final class WalkcalcStore: ObservableObject {
         groups.count < groupTotal
     }
 
-    func refreshHome(search: String? = nil) async {
-        if isFixtureMode { return }
-        guard let token else { return }
+    @discardableResult
+    func refreshHome(search: String? = nil) async -> Bool {
+        if isFixtureMode { return true }
+        guard let token else { return false }
         let query = normalizedQuery(search)
         do {
             async let groupsResponse = api.groups(page: 1, pageSize: groupPageSize, search: optionalQuery(query), token: token)
@@ -167,11 +188,14 @@ final class WalkcalcStore: ObservableObject {
                 groups = mergedGroupSummaries(response.data ?? [])
                 groupsPage = response.pagination?.page ?? 1
                 groupTotal = response.pagination?.total ?? groups.count
+                return true
             } else {
                 errorMessage = response.message ?? L("Network issues")
+                return false
             }
         } catch {
             errorMessage = L("Network issues")
+            return false
         }
     }
 

@@ -82,12 +82,19 @@ struct LoginView: View {
             Button {
                 showingSSO = true
             } label: {
-                Text(L("Login"))
-                    .frame(maxWidth: .infinity)
+                HStack(spacing: 8) {
+                    if store.isSigningIn {
+                        ProgressView()
+                    }
+                    Text(L("Login"))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 22)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .tint(SoftLedgerTheme.accent)
+            .disabled(store.isSigningIn)
             .padding(.bottom, 24)
         }
         .padding(24)
@@ -109,6 +116,7 @@ struct RootHomeView: View {
     @State private var path: [Route] = []
     @State private var activeSheet: HomeSheet?
     @State private var archiveCandidate: WalkGroup?
+    @State private var archiveBlockedCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
 
     private var activeGroups: [WalkGroup] {
@@ -278,6 +286,15 @@ struct RootHomeView: View {
                 archiveCandidate = nil
             }
             .keyboardShortcut(.defaultAction)
+        } message: {
+            Text(L("Only groups with zero balances can be archived."))
+        }
+        .alert(L("Cannot archive group"), isPresented: Binding(get: { archiveBlockedCandidate != nil }, set: { if !$0 { archiveBlockedCandidate = nil } })) {
+            Button(L("OK"), role: .cancel) {
+                archiveBlockedCandidate = nil
+            }
+        } message: {
+            Text(L("Settle all balances before archiving this group."))
         }
         .alert(L("Delete group?"), isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } })) {
             Button(L("Cancel"), role: .cancel) {}
@@ -286,6 +303,10 @@ struct RootHomeView: View {
                     Task { _ = await store.deleteGroup(group.id) }
                 }
                 deleteCandidate = nil
+            }
+        } message: {
+            if deleteCandidate?.shouldShowDeleteResolutionNotice == true {
+                Text(L("Any unresolved balances will be automatically resolved to zero before this group is deleted."))
             }
         }
         .onOpenURL { url in
@@ -302,7 +323,11 @@ struct RootHomeView: View {
     }
 
     private func archive(_ group: WalkGroup) {
-        archiveCandidate = group
+        if group.shouldBlockArchive {
+            archiveBlockedCandidate = group
+        } else {
+            archiveCandidate = group
+        }
     }
 }
 
