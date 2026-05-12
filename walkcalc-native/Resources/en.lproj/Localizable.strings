@@ -1,4 +1,5 @@
 "About" = "About";
+"%@ should pay %@ %@" = "%@ should pay %@ %@";
 "Add" = "Add";
 "Add fail" = "Add fail";
 "Add member" = "Add member";
@@ -137,8 +138,9 @@
 "People" = "People";
 "Records" = "Records";
 "Resolve" = "Resolve";
-"Resolve 1 transfer" = "Resolve 1 transfer";
-"Resolve %@ transfers" = "Resolve %@ transfers";
+"Resolve all transfer" = "Resolve all transfer";
+"Resolve this transfer" = "Resolve this transfer";
+"Resolve transfer?" = "Resolve transfer?";
 "Restore" = "Restore";
 "Remove %@" = "Remove %@";
 "Results" = "Results";

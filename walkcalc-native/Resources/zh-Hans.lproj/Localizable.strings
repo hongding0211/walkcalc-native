@@ -1,4 +1,5 @@
 "About" = "关于";
+"%@ should pay %@ %@" = "%@ 应该付给 %@ %@";
 "Add" = "添加";
 "Add fail" = "添加失败";
 "Add member" = "添加成员";
@@ -137,8 +138,9 @@
 "People" = "成员";
 "Records" = "记录";
 "Resolve" = "结清";
-"Resolve 1 transfer" = "结清 1 笔转账";
-"Resolve %@ transfers" = "结清 %@ 笔转账";
+"Resolve all transfer" = "结清所有转账";
+"Resolve this transfer" = "结清这笔转账";
+"Resolve transfer?" = "结清转账？";
 "Restore" = "恢复";
 "Remove %@" = "移除 %@";
 "Results" = "结果";

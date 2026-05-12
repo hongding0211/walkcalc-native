@@ -63,7 +63,7 @@ struct GroupSheetView: View {
                         activeSheet = nil
                     }
                 }
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
         }
@@ -78,7 +78,6 @@ struct CreateGroupSheet: View {
     @State private var groupName = ""
     @State private var selectedUsers: [UserProfile] = []
     @State private var tempUsers: [String] = []
-    @State private var isShowingAddTemporaryMember = false
 
     private var members: [Member] {
         var result: [Member] = []
@@ -124,15 +123,16 @@ struct CreateGroupSheet: View {
                         .foregroundStyle(.primary)
                 }
 
-                Button {
-                    isShowingAddTemporaryMember = true
+                NavigationLink {
+                    AddTemporaryMemberView(existingNames: Set(tempUsers)) { names in
+                        for name in names where !tempUsers.contains(name) {
+                            tempUsers.append(name)
+                        }
+                    }
                 } label: {
                     Text(L("Add temporary member"))
                         .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
         }
@@ -169,17 +169,6 @@ struct CreateGroupSheet: View {
                 .disabled(!canCreate)
                 .accessibilityLabel(L("Create"))
             }
-        }
-        .sheet(isPresented: $isShowingAddTemporaryMember) {
-            NavigationStack {
-                AddTemporaryMemberSheet { name in
-                    if !tempUsers.contains(name) {
-                        tempUsers.append(name)
-                    }
-                }
-            }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
         }
     }
 }
@@ -279,34 +268,73 @@ private struct InitialMemberRow: View {
     }
 }
 
-private struct AddTemporaryMemberSheet: View {
+private struct AddTemporaryMemberView: View {
     @Environment(\.dismiss) private var dismiss
-    @FocusState private var isNameFocused: Bool
 
-    let onAdd: (String) -> Void
+    let existingNames: Set<String>
+    let onAdd: ([String]) -> Void
     @State private var name = ""
+    @State private var selectedNames: [String] = []
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var canAddCandidate: Bool {
+        let key = nameKey(trimmedName)
+        return !key.isEmpty && !existingNameKeys.contains(key) && !selectedNameKeys.contains(key)
+    }
+
     private var canAdd: Bool {
-        !trimmedName.isEmpty
+        !selectedNames.isEmpty
+    }
+
+    private var existingNameKeys: Set<String> {
+        Set(existingNames.map { nameKey($0) })
+    }
+
+    private var selectedNameKeys: Set<String> {
+        Set(selectedNames.map { nameKey($0) })
     }
 
     var body: some View {
         Form {
             Section {
-                TextField(L("Name"), text: $name)
-                    .textInputAutocapitalization(.words)
-                    .focused($isNameFocused)
-                    .submitLabel(.done)
-                    .onSubmit(add)
+                HStack(spacing: 12) {
+                    TextField(L("Name"), text: $name)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                        .onSubmit(addCandidate)
+
+                    if canAddCandidate {
+                        Button {
+                            addCandidate()
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(SoftLedgerTheme.accent)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(L("Add"))
+                    }
+                }
             } footer: {
                 Text(L("Temporary members can participate in expenses without an account."))
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
+
+            if !selectedNames.isEmpty {
+                Section(L("Selected")) {
+                    ForEach(selectedNames, id: \.self) { name in
+                        InitialMemberRow(
+                            member: Member(uuid: name, name: name, avatar: "", debtMinor: "0", costMinor: "0", isTemporary: true),
+                            onDelete: { remove(name) }
+                        )
+                    }
+                }
+                .listRowBackground(SoftLedgerTheme.formPaper)
+            }
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
@@ -314,18 +342,9 @@ private struct AddTemporaryMemberSheet: View {
         .navigationTitle(L("Add temporary member"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(role: .cancel) {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .accessibilityLabel(L("Cancel"))
-            }
-
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    add()
+                    submit()
                 } label: {
                     Image(systemName: "checkmark")
                 }
@@ -335,15 +354,26 @@ private struct AddTemporaryMemberSheet: View {
                 .accessibilityLabel(L("Add"))
             }
         }
-        .onAppear {
-            isNameFocused = true
-        }
     }
 
-    private func add() {
+    private func addCandidate() {
+        guard canAddCandidate else { return }
+        selectedNames.append(trimmedName)
+        name = ""
+    }
+
+    private func remove(_ value: String) {
+        selectedNames.removeAll { nameKey($0) == nameKey(value) }
+    }
+
+    private func submit() {
         guard canAdd else { return }
-        onAdd(trimmedName)
+        onAdd(selectedNames)
         dismiss()
+    }
+
+    private func nameKey(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
@@ -536,7 +566,6 @@ struct GroupSettingsSheet: View {
     let onDelete: () -> Void
 
     @State private var name: String
-    @State private var isShowingAddTemporaryMember = false
     @State private var confirmation: GroupSettingsConfirmation?
     @State private var isShowingArchiveBlockedAlert = false
 
@@ -598,15 +627,14 @@ struct GroupSettingsSheet: View {
                         .foregroundStyle(.primary)
                 }
 
-                Button {
-                    isShowingAddTemporaryMember = true
+                NavigationLink {
+                    AddTemporaryMemberView(existingNames: Set(currentGroup.tempUsers.map(\.name))) { values in
+                        Task { _ = await store.addMembers(groupId: group.id, users: [], tempUsers: values) }
+                    }
                 } label: {
                     Text(L("Add temporary member"))
                         .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
@@ -664,15 +692,6 @@ struct GroupSettingsSheet: View {
                 .tint(SoftLedgerTheme.accent)
                 .accessibilityLabel(L("Done"))
             }
-        }
-        .sheet(isPresented: $isShowingAddTemporaryMember) {
-            NavigationStack {
-                AddTemporaryMemberSheet { value in
-                    Task { _ = await store.addMembers(groupId: group.id, users: [], tempUsers: [value]) }
-                }
-            }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
         }
         .alert(confirmationTitle, isPresented: confirmationBinding) {
             switch confirmation {
@@ -822,7 +841,6 @@ struct PeopleSetupSheet: View {
 
     let group: WalkGroup
     let onDone: () -> Void
-    @State private var isShowingAddTemporaryMember = false
 
     var body: some View {
         Form {
@@ -841,15 +859,19 @@ struct PeopleSetupSheet: View {
                         .foregroundStyle(.primary)
                 }
 
-                Button {
-                    isShowingAddTemporaryMember = true
+                NavigationLink {
+                    AddTemporaryMemberView(existingNames: Set(group.tempUsers.map(\.name))) { values in
+                        Task {
+                            if await store.addMembers(groupId: group.id, users: [], tempUsers: values) {
+                                dismiss()
+                                onDone()
+                            }
+                        }
+                    }
                 } label: {
                     Text(L("Add temporary member"))
                         .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
         }
@@ -867,20 +889,6 @@ struct PeopleSetupSheet: View {
                     Image(systemName: "xmark")
                 }
             }
-        }
-        .sheet(isPresented: $isShowingAddTemporaryMember) {
-            NavigationStack {
-                AddTemporaryMemberSheet { value in
-                    Task {
-                        if await store.addMembers(groupId: group.id, users: [], tempUsers: [value]) {
-                            dismiss()
-                            onDone()
-                        }
-                    }
-                }
-            }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
         }
     }
 }
@@ -1672,6 +1680,7 @@ struct BalancesWorkspace: View {
 private struct BalancesRootView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @State private var showsResolveConfirmation = false
+    @State private var pendingResolveMode = ResolveMode.all
     @State private var pendingResolveDebts: [ResolvedDebt] = []
     @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
@@ -1695,22 +1704,36 @@ private struct BalancesRootView: View {
     }
 
     private var resolveAllTitle: String {
-        resolveTitle(for: debts.count)
+        L("Resolve all transfer")
     }
 
     private var pendingResolveTitle: String {
-        resolveTitle(for: pendingResolveDebts.count)
+        switch pendingResolveMode {
+        case .all:
+            return L("Resolve all transfer")
+        case .single:
+            return L("Resolve transfer?")
+        }
     }
 
     private var resolveConfirmationTitle: String {
-        "\(pendingResolveTitle)?"
+        if pendingResolveMode == .single {
+            return pendingResolveTitle
+        }
+        return "\(pendingResolveTitle)?"
     }
 
-    private func resolveTitle(for count: Int) -> String {
-        if count == 1 {
-            return L("Resolve 1 transfer")
+    private var resolveConfirmationMessage: String {
+        guard pendingResolveMode == .single,
+              let debt = pendingResolveDebts.first else {
+            return ""
         }
-        return L("Resolve %@ transfers").replacingOccurrences(of: "%@", with: "\(count)")
+        return String(
+            format: L("%@ should pay %@ %@"),
+            debt.from.name,
+            debt.to.name,
+            "¥\(Money.display(debt.amountMinor))"
+        )
     }
 
     var body: some View {
@@ -1746,7 +1769,11 @@ private struct BalancesRootView: View {
                     }
 
                     if !debts.isEmpty {
-                        SettlementPlanSection(debts: debts)
+                        SettlementPlanSection(debts: debts) { debt in
+                            pendingResolveMode = .single
+                            pendingResolveDebts = [debt]
+                            showsResolveConfirmation = true
+                        }
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
@@ -1756,6 +1783,7 @@ private struct BalancesRootView: View {
 
             if !debts.isEmpty {
                 Button(resolveAllTitle) {
+                    pendingResolveMode = .all
                     pendingResolveDebts = debts
                     showsResolveConfirmation = true
                 }
@@ -1776,11 +1804,26 @@ private struct BalancesRootView: View {
             Button(L("Cancel"), role: .cancel) {}
             Button(L("Resolve")) {
                 let debtsToResolve = pendingResolveDebts
+                let resolveMode = pendingResolveMode
                 pendingResolveDebts = []
-                Task { _ = await store.resolveAll(groupId: group.id, debts: debtsToResolve) }
+                pendingResolveMode = .all
+
+                Task {
+                    switch resolveMode {
+                    case .all:
+                        _ = await store.resolveAll(groupId: group.id, debts: debtsToResolve)
+                    case .single:
+                        guard let debt = debtsToResolve.first else { return }
+                        _ = await store.resolveSingle(groupId: group.id, debt: debt)
+                    }
+                }
             }
             .keyboardShortcut(.defaultAction)
             .disabled(pendingResolveDebts.isEmpty)
+        } message: {
+            if !resolveConfirmationMessage.isEmpty {
+                Text(resolveConfirmationMessage)
+            }
         }
     }
 
@@ -1792,6 +1835,11 @@ private struct BalancesRootView: View {
             record.who == member.uuid || record.forWhom.contains(member.uuid)
         }.count
     }
+
+    private enum ResolveMode {
+        case all
+        case single
+    }
 }
 
 private struct SettlementPlanSection: View {
@@ -1799,6 +1847,7 @@ private struct SettlementPlanSection: View {
     @ScaledMetric(relativeTo: .subheadline) private var cardSpacing = 10
 
     let debts: [ResolvedDebt]
+    let onResolve: (ResolvedDebt) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: sectionSpacing) {
@@ -1808,7 +1857,9 @@ private struct SettlementPlanSection: View {
 
             LazyVStack(spacing: cardSpacing) {
                 ForEach(debts) { debt in
-                    SettlementPlanRow(debt: debt)
+                    SettlementPlanRow(debt: debt) {
+                        onResolve(debt)
+                    }
                 }
             }
         }
@@ -1827,11 +1878,23 @@ private struct SettlementPlanRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var cardHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var cardVerticalPadding = 12
     @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 76
+    @ScaledMetric(relativeTo: .subheadline) private var chevronSize = 14
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
 
     let debt: ResolvedDebt
+    let onResolve: () -> Void
 
     var body: some View {
+        Button(action: onResolve) {
+            rowContent
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(debt.from.name) \(L("pays")) \(debt.to.name), ¥\(Money.display(debt.amountMinor))")
+        .accessibilityHint(L("Resolve this transfer"))
+    }
+
+    private var rowContent: some View {
         HStack(spacing: rowSpacing) {
             payerAvatar
 
@@ -1866,6 +1929,11 @@ private struct SettlementPlanRow: View {
                 .allowsTightening(true)
                 .frame(minWidth: amountMinWidth, alignment: .trailing)
                 .layoutPriority(3)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: chevronSize, weight: .semibold))
+                .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.64))
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, cardHorizontalPadding)
         .padding(.vertical, cardVerticalPadding)
@@ -1875,8 +1943,6 @@ private struct SettlementPlanRow: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(debt.from.name) \(L("pays")) \(debt.to.name), ¥\(Money.display(debt.amountMinor))")
     }
 
     private var payerAvatar: some View {
