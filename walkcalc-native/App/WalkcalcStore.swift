@@ -10,6 +10,79 @@ struct JoinGroupResult {
     let message: String?
 }
 
+enum ClientMetadataReportReason: String {
+    case appOpen
+    case login
+}
+
+struct ClientMetadataPayload {
+    let reason: ClientMetadataReportReason
+    let reportedAt: Int
+
+    init(reason: ClientMetadataReportReason, date: Date = Date()) {
+        self.reason = reason
+        reportedAt = Int(date.timeIntervalSince1970 * 1000)
+    }
+
+    var dictionary: [String: Any] {
+        var metadata: [String: Any] = [
+            "language": L10n.serverLanguageCode,
+            "applicationInfo": applicationInfo,
+            "deviceInfo": deviceInfo,
+            "lastOpened": reportedAt,
+            "lastReportedReason": reason.rawValue,
+            "lastReportedAt": reportedAt
+        ]
+        if reason == .login {
+            metadata["lastLoginReportedAt"] = reportedAt
+        }
+        return metadata
+    }
+
+    private var applicationInfo: [String: Any] {
+        let bundle = Bundle.main
+        let info = bundle.infoDictionary ?? [:]
+        return [
+            "platform": "ios-native",
+            "bundleIdentifier": bundle.bundleIdentifier ?? "",
+            "version": info["CFBundleShortVersionString"] as? String ?? "",
+            "build": info["CFBundleVersion"] as? String ?? ""
+        ]
+    }
+
+    private var deviceInfo: [String: Any] {
+        let device = UIDevice.current
+        return [
+            "os": "ios",
+            "systemName": device.systemName,
+            "version": device.systemVersion,
+            "model": device.model,
+            "interfaceIdiom": interfaceIdiomName(device.userInterfaceIdiom)
+        ]
+    }
+
+    private func interfaceIdiomName(_ idiom: UIUserInterfaceIdiom) -> String {
+        switch idiom {
+        case .phone:
+            return "phone"
+        case .pad:
+            return "pad"
+        case .tv:
+            return "tv"
+        case .carPlay:
+            return "carPlay"
+        case .mac:
+            return "mac"
+        case .vision:
+            return "vision"
+        case .unspecified:
+            return "unspecified"
+        @unknown default:
+            return "unknown"
+        }
+    }
+}
+
 @MainActor
 final class WalkcalcStore: ObservableObject {
     @Published var token: String?
@@ -71,7 +144,7 @@ final class WalkcalcStore: ObservableObject {
         }
         await loadUser(token: token)
         if user != nil {
-            await postUserMeta()
+            await reportClientMetadata(reason: .appOpen)
             await refreshHome()
         }
     }
@@ -93,12 +166,11 @@ final class WalkcalcStore: ObservableObject {
             return
         }
 
-        await postUserMeta()
+        user = signedInUser
+        await reportClientMetadata(reason: .login)
         guard await refreshHome() else {
             return
         }
-
-        user = signedInUser
     }
 
     func logout() {
@@ -141,16 +213,12 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func postUserMeta() async {
+        await reportClientMetadata(reason: .appOpen)
+    }
+
+    func reportClientMetadata(reason: ClientMetadataReportReason) async {
         guard let token else { return }
-        let metadata: [String: Any] = [
-            "language": L10n.serverLanguageCode,
-            "deviceInfo": [
-                "os": "ios",
-                "version": UIDevice.current.systemVersion
-            ],
-            "lastOpened": Int(Date().timeIntervalSince1970 * 1000)
-        ]
-        if let response = try? await api.postUserMeta(token: token, metadata: metadata) {
+        if let response = try? await api.postUserMeta(token: token, metadata: ClientMetadataPayload(reason: reason).dictionary) {
             applyRefreshedToken(response)
         }
     }
