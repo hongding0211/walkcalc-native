@@ -258,7 +258,7 @@ final class WalkcalcStore: ObservableObject {
         let info = bundle.infoDictionary ?? [:]
         let device = UIDevice.current
         return [
-            "appId": ProcessInfo.processInfo.environment["WALKCALC_PUSH_APP_ID"] ?? "hong97-ios",
+            "appId": ProcessInfo.processInfo.environment["WALKCALC_PUSH_APP_ID"] ?? "walkcalc-ios",
             "platform": "ios",
             "providerToken": providerToken,
             "environment": pushEnvironment,
