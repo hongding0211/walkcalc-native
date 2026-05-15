@@ -10,88 +10,6 @@ struct JoinGroupResult {
     let message: String?
 }
 
-enum ClientMetadataReportReason: String {
-    case appOpen = "app_open"
-    case signIn = "sign_in"
-}
-
-struct ClientMetadataPayload {
-    let reason: ClientMetadataReportReason
-    let reportedAt: Int
-
-    init(reason: ClientMetadataReportReason, date: Date = Date()) {
-        self.reason = reason
-        reportedAt = Int(date.timeIntervalSince1970 * 1000)
-    }
-
-    var dictionary: [String: Any] {
-        var activity: [String: Any] = [
-            "lastEvent": reason.rawValue,
-            "lastReportedAt": reportedAt
-        ]
-        switch reason {
-        case .appOpen:
-            activity["lastOpenedAt"] = reportedAt
-        case .signIn:
-            activity["lastSignInAt"] = reportedAt
-        }
-
-        return [
-            "app": appInfo,
-            "device": deviceInfo,
-            "activity": activity
-        ]
-    }
-
-    private var appInfo: [String: Any] {
-        let bundle = Bundle.main
-        let info = bundle.infoDictionary ?? [:]
-        var app: [String: Any] = [
-            "platform": "ios",
-            "client": "walkcalc-native",
-            "bundleIdentifier": bundle.bundleIdentifier ?? "",
-            "version": info["CFBundleShortVersionString"] as? String ?? "",
-            "build": info["CFBundleVersion"] as? String ?? ""
-        ]
-        if let appName = info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String {
-            app["name"] = appName
-        }
-        return app
-    }
-
-    private var deviceInfo: [String: Any] {
-        let device = UIDevice.current
-        return [
-            "os": "ios",
-            "systemName": device.systemName,
-            "version": device.systemVersion,
-            "model": device.model,
-            "interfaceIdiom": interfaceIdiomName(device.userInterfaceIdiom)
-        ]
-    }
-
-    private func interfaceIdiomName(_ idiom: UIUserInterfaceIdiom) -> String {
-        switch idiom {
-        case .phone:
-            return "phone"
-        case .pad:
-            return "pad"
-        case .tv:
-            return "tv"
-        case .carPlay:
-            return "carPlay"
-        case .mac:
-            return "mac"
-        case .vision:
-            return "vision"
-        case .unspecified:
-            return "unspecified"
-        @unknown default:
-            return "unknown"
-        }
-    }
-}
-
 @MainActor
 final class WalkcalcStore: ObservableObject {
     @Published var token: String?
@@ -120,6 +38,9 @@ final class WalkcalcStore: ObservableObject {
     private let recordPageSize = 10
     private var groupsPage = 0
     private var groupSearchQuery = ""
+    private var apnsProviderToken = UserDefaults.standard.string(forKey: "walkcalc.apnsProviderToken")
+    private var pushDeviceRegistrationTask: Task<Void, Never>?
+    private var cancellables: Set<AnyCancellable> = []
 
     var primaryColor: Color {
         themeColorOptions.first(where: { $0.id == themeColorId })?.color ?? themeColorOptions[0].color
@@ -135,6 +56,15 @@ final class WalkcalcStore: ObservableObject {
 
     init() {
         token = UserDefaults.standard.string(forKey: "walkcalc.token")
+        NotificationCenter.default.publisher(for: .walkcalcAPNsTokenDidChange)
+            .compactMap { $0.object as? String }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] providerToken in
+                Task { @MainActor in
+                    await self?.handleAPNsProviderToken(providerToken)
+                }
+            }
+            .store(in: &cancellables)
         #if DEBUG
         if let fixture = WalkcalcDebugFixture.current {
             applyDebugFixture(fixture)
@@ -153,8 +83,12 @@ final class WalkcalcStore: ObservableObject {
         }
         await loadUser(token: token)
         if user != nil {
-            await reportClientMetadata(reason: .appOpen)
-            await refreshHome()
+            await registerPushDeviceIfPossible(reason: "app_open")
+            if api.ledgerAPIEnabled {
+                await refreshHome()
+            } else {
+                resetLedgerState()
+            }
         }
     }
 
@@ -176,15 +110,25 @@ final class WalkcalcStore: ObservableObject {
         }
 
         user = signedInUser
-        await reportClientMetadata(reason: .signIn)
-        guard await refreshHome() else {
-            return
+        await registerPushDeviceIfPossible(reason: "sign_in")
+        if api.ledgerAPIEnabled {
+            guard await refreshHome() else {
+                return
+            }
+        } else {
+            resetLedgerState()
         }
     }
 
     func logout() {
         token = nil
         user = nil
+        resetLedgerState()
+        isSigningIn = false
+        UserDefaults.standard.removeObject(forKey: "walkcalc.token")
+    }
+
+    private func resetLedgerState() {
         groups = []
         recordsByGroup = [:]
         recordTotals = [:]
@@ -197,8 +141,6 @@ final class WalkcalcStore: ObservableObject {
         memberRecordsByKey = [:]
         memberRecordTotalsByKey = [:]
         settlementSuggestionsByGroup = [:]
-        isSigningIn = false
-        UserDefaults.standard.removeObject(forKey: "walkcalc.token")
     }
 
     func loadUser(token: String) async {
@@ -221,21 +163,122 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
-    func reportClientMetadata(reason: ClientMetadataReportReason) async {
-        guard let token else { return }
-        if let response = try? await api.updateProfileMetadata(token: token, metadata: ClientMetadataPayload(reason: reason).dictionary) {
-            applyRefreshedToken(response)
-        }
-    }
-
     func requestNotificationPermissionIfNeeded() async {
         if isFixtureMode { return }
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .notDetermined else {
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+            UIApplication.shared.registerForRemoteNotifications()
+        case .authorized, .provisional, .ephemeral:
+            UIApplication.shared.registerForRemoteNotifications()
+        case .denied:
+            UIApplication.shared.registerForRemoteNotifications()
+        @unknown default:
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+    }
+
+    private func handleAPNsProviderToken(_ providerToken: String) async {
+        apnsProviderToken = providerToken
+        UserDefaults.standard.set(providerToken, forKey: "walkcalc.apnsProviderToken")
+        await registerPushDeviceIfPossible(reason: "apns_token")
+    }
+
+    private func registerPushDeviceIfPossible(reason: String) async {
+        guard !isFixtureMode else { return }
+        guard let token else { return }
+        guard let providerToken = apnsProviderToken, !providerToken.isEmpty else { return }
+
+        if pushDeviceRegistrationTask != nil {
             return
         }
-        _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+
+        let api = api
+        pushDeviceRegistrationTask = Task {
+            defer {
+                Task { @MainActor in
+                    self.pushDeviceRegistrationTask = nil
+                }
+            }
+            if let response = try? await api.registerPushDevice(
+                token: token,
+                payload: pushDeviceRegistrationPayload(providerToken: providerToken, reason: reason)
+            ) {
+                await MainActor.run {
+                    self.applyRefreshedToken(response)
+                }
+            }
+        }
+
+        await pushDeviceRegistrationTask?.value
+    }
+
+    private func pushDeviceRegistrationPayload(providerToken: String, reason: String) -> [String: Any] {
+        let bundle = Bundle.main
+        let info = bundle.infoDictionary ?? [:]
+        let device = UIDevice.current
+        return [
+            "appId": ProcessInfo.processInfo.environment["WALKCALC_PUSH_APP_ID"] ?? "hong97-ios",
+            "platform": "ios",
+            "providerToken": providerToken,
+            "environment": pushEnvironment,
+            "locale": L10n.serverLanguageCode,
+            "deviceId": stablePushDeviceId,
+            "appVersion": info["CFBundleShortVersionString"] as? String ?? "",
+            "bundleId": bundle.bundleIdentifier ?? "",
+            "deviceModel": device.model,
+            "metadata": [
+                "client": "walkcalc-native",
+                "reason": reason,
+                "systemName": device.systemName,
+                "systemVersion": device.systemVersion,
+                "interfaceIdiom": interfaceIdiomName(device.userInterfaceIdiom)
+            ]
+        ]
+    }
+
+    private var pushEnvironment: String {
+        if let environment = ProcessInfo.processInfo.environment["WALKCALC_PUSH_ENVIRONMENT"], !environment.isEmpty {
+            return environment
+        }
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "production"
+        #endif
+    }
+
+    private var stablePushDeviceId: String {
+        let key = "walkcalc.pushDeviceId"
+        if let value = UserDefaults.standard.string(forKey: key), !value.isEmpty {
+            return value
+        }
+        let value = UUID().uuidString
+        UserDefaults.standard.set(value, forKey: key)
+        return value
+    }
+
+    private func interfaceIdiomName(_ idiom: UIUserInterfaceIdiom) -> String {
+        switch idiom {
+        case .phone:
+            return "phone"
+        case .pad:
+            return "pad"
+        case .tv:
+            return "tv"
+        case .carPlay:
+            return "carPlay"
+        case .mac:
+            return "mac"
+        case .vision:
+            return "vision"
+        case .unspecified:
+            return "unspecified"
+        @unknown default:
+            return "unknown"
+        }
     }
 
     var canLoadMoreGroups: Bool {
@@ -245,6 +288,10 @@ final class WalkcalcStore: ObservableObject {
     @discardableResult
     func refreshHome(search: String? = nil) async -> Bool {
         if isFixtureMode { return true }
+        guard api.ledgerAPIEnabled else {
+            resetLedgerState()
+            return true
+        }
         guard let token else { return false }
         let query = normalizedQuery(search)
         do {
@@ -274,6 +321,7 @@ final class WalkcalcStore: ObservableObject {
 
     func loadMoreGroups() async {
         if isFixtureMode { return }
+        guard api.ledgerAPIEnabled else { return }
         guard let token, canLoadMoreGroups, !isLoadingMoreGroups else { return }
         isLoadingMoreGroups = true
         defer { isLoadingMoreGroups = false }
@@ -298,6 +346,7 @@ final class WalkcalcStore: ObservableObject {
 
     func refreshGroup(_ id: String) async {
         if isFixtureMode { return }
+        guard api.ledgerAPIEnabled else { return }
         guard let token else { return }
         do {
             async let groupResponse = api.group(code: id, token: token)
@@ -321,6 +370,7 @@ final class WalkcalcStore: ObservableObject {
 
     func refreshGroupBalances(_ id: String) async {
         if isFixtureMode { return }
+        guard api.ledgerAPIEnabled else { return }
         guard let token else { return }
         do {
             let response = try await api.groupBalances(groupCode: id, token: token)
@@ -337,6 +387,7 @@ final class WalkcalcStore: ObservableObject {
 
     func loadMoreRecords(groupId: String, search: String = "") async {
         if isFixtureMode { return }
+        guard api.ledgerAPIEnabled else { return }
         guard let token else { return }
         let query = normalizedQuery(search)
         let key = recordListKey(groupId: groupId, search: query)
@@ -411,6 +462,7 @@ final class WalkcalcStore: ObservableObject {
             recordSearchTotalsByKey[key] = matches.count
             return
         }
+        guard api.ledgerAPIEnabled else { return }
         guard let token else { return }
         guard !loadingRecordKeys.contains(key) else { return }
         loadingRecordKeys.insert(key)
@@ -457,6 +509,7 @@ final class WalkcalcStore: ObservableObject {
             memberRecordTotalsByKey[key] = matches.count
             return
         }
+        guard api.ledgerAPIEnabled else { return }
         guard let token else { return }
         guard !loadingRecordKeys.contains(key) else { return }
         loadingRecordKeys.insert(key)
@@ -479,6 +532,7 @@ final class WalkcalcStore: ObservableObject {
 
     func loadMoreMemberRecords(groupId: String, memberId: String) async {
         if isFixtureMode { return }
+        guard api.ledgerAPIEnabled else { return }
         guard let token else { return }
         let key = memberRecordKey(groupId: groupId, memberId: memberId)
         guard !loadingRecordKeys.contains(key) else { return }
@@ -534,6 +588,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             let response = try await api.createGroup(name: name, token: token)
             applyRefreshedToken(response)
@@ -558,6 +613,9 @@ final class WalkcalcStore: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
+            guard api.ledgerAPIEnabled else {
+                return JoinGroupResult(success: false, message: nil)
+            }
             guard let token else {
                 return JoinGroupResult(success: false, message: L("Login to continue"))
             }
@@ -581,6 +639,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             let response = try await api.archiveGroup(code: code, token: token)
             applyRefreshedToken(response)
@@ -596,6 +655,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             let response = try await api.unarchiveGroup(code: code, token: token)
             applyRefreshedToken(response)
@@ -612,6 +672,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             let response = try await api.deleteGroup(code: code, token: token)
             applyRefreshedToken(response)
@@ -628,6 +689,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             let response = try await api.changeGroupName(code: code, name: name, token: token)
             applyRefreshedToken(response)
@@ -648,6 +710,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             if !users.isEmpty {
                 applyRefreshedToken(try await api.invite(code: groupId, userIds: users.map(\.uuid), token: token))
@@ -667,6 +730,7 @@ final class WalkcalcStore: ObservableObject {
                 .filter { $0.localizedCaseInsensitiveContains(name) }
                 .map { UserProfile(uuid: "fixture-\($0)", name: $0, avatar: "") }
         }
+        guard api.ledgerAPIEnabled else { return [] }
         guard let token, !name.isEmpty else { return [] }
         do {
             let response = try await api.searchUsers(name: name, token: token)
@@ -700,6 +764,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
             let response = try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, long: long, lat: lat, occurredAt: occurredAt)
@@ -725,6 +790,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
             let response = try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, occurredAt: occurredAt, isSettlement: isSettlement)
@@ -743,6 +809,7 @@ final class WalkcalcStore: ObservableObject {
             return true
         }
         return await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             let response = try await api.dropRecord(groupCode: groupId, recordId: recordId, token: token)
             applyRefreshedToken(response)
@@ -754,6 +821,7 @@ final class WalkcalcStore: ObservableObject {
 
     func resolveSingle(groupId: String, debt: ResolvedDebt) async -> Bool {
         await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             let response = try await api.addSettlementRecord(
                 groupCode: groupId,
@@ -772,6 +840,7 @@ final class WalkcalcStore: ObservableObject {
 
     func resolveAll(groupId: String, debts: [ResolvedDebt]) async -> Bool {
         await withLoading {
+            guard api.ledgerAPIEnabled else { return false }
             guard let token else { return false }
             let response = try await api.resolveDebts(groupCode: groupId, token: token)
             applyRefreshedToken(response)

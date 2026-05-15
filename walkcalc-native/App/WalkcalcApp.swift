@@ -9,6 +9,7 @@ import SwiftUI
 
 @main
 struct walkcalc_nativeApp: App {
+    @UIApplicationDelegateAdaptor(WalkcalcAppDelegate.self) private var appDelegate
     @StateObject private var store = WalkcalcStore()
 
     init() {

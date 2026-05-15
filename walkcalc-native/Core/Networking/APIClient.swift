@@ -16,6 +16,10 @@ struct APIClient: Sendable {
     var webBaseURL = URL(string: ProcessInfo.processInfo.environment["HONG97_WEB_BASE_URL"] ?? "https://hong97.ltd")!
     #endif
 
+    var ledgerAPIEnabled: Bool {
+        Self.environmentFlag("WALKCALC_LEDGER_API_ENABLED")
+    }
+
     func loginURL() -> URL {
         let redirect = webBaseURL.appendingPathComponent("auth/callback").absoluteString
         var components = URLComponents(url: webBaseURL.appendingPathComponent("sso/login"), resolvingAgainstBaseURL: false)!
@@ -37,7 +41,7 @@ struct APIClient: Sendable {
     }
 
     func userInfo(token: String) async throws -> APIEnvelope<UserProfile> {
-        try await request(.get, path: "/walkcalc/users/me", token: token, mapper: mapUser)
+        try await request(.get, path: "/auth/info", token: token, mapper: mapUser)
     }
 
     func homeSummary(token: String) async throws -> APIEnvelope<MoneyMinor> {
@@ -46,8 +50,8 @@ struct APIClient: Sendable {
         }
     }
 
-    func updateProfileMetadata(token: String, metadata: [String: Any]) async throws -> APIEnvelope<[String: Any]> {
-        try await request(.patch, path: "/auth/profile", token: token, body: ["metadata": metadata]) { raw in
+    func registerPushDevice(token: String, payload: [String: Any]) async throws -> APIEnvelope<[String: Any]> {
+        try await request(.post, path: "/push/devices", token: token, body: payload) { raw in
             dictPayload(raw)
         }
     }
@@ -222,6 +226,13 @@ struct APIClient: Sendable {
             return nil
         }
         return String(data: data, encoding: .utf8)
+    }
+
+    private static func environmentFlag(_ key: String) -> Bool {
+        guard let rawValue = ProcessInfo.processInfo.environment[key]?.lowercased() else {
+            return false
+        }
+        return ["1", "true", "yes", "on"].contains(rawValue)
     }
 
     private func request<T>(_ method: HTTPMethod, path: String, query: [String: String] = [:], token: String, body: [String: Any]? = nil, mapper: (Any?) -> T) async throws -> APIEnvelope<T> {
