@@ -11,8 +11,8 @@ struct JoinGroupResult {
 }
 
 enum ClientMetadataReportReason: String {
-    case appOpen
-    case login
+    case appOpen = "app_open"
+    case signIn = "sign_in"
 }
 
 struct ClientMetadataPayload {
@@ -25,29 +25,38 @@ struct ClientMetadataPayload {
     }
 
     var dictionary: [String: Any] {
-        var metadata: [String: Any] = [
-            "language": L10n.serverLanguageCode,
-            "applicationInfo": applicationInfo,
-            "deviceInfo": deviceInfo,
-            "lastOpened": reportedAt,
-            "lastReportedReason": reason.rawValue,
+        var activity: [String: Any] = [
+            "lastEvent": reason.rawValue,
             "lastReportedAt": reportedAt
         ]
-        if reason == .login {
-            metadata["lastLoginReportedAt"] = reportedAt
+        switch reason {
+        case .appOpen:
+            activity["lastOpenedAt"] = reportedAt
+        case .signIn:
+            activity["lastSignInAt"] = reportedAt
         }
-        return metadata
+
+        return [
+            "app": appInfo,
+            "device": deviceInfo,
+            "activity": activity
+        ]
     }
 
-    private var applicationInfo: [String: Any] {
+    private var appInfo: [String: Any] {
         let bundle = Bundle.main
         let info = bundle.infoDictionary ?? [:]
-        return [
-            "platform": "ios-native",
+        var app: [String: Any] = [
+            "platform": "ios",
+            "client": "walkcalc-native",
             "bundleIdentifier": bundle.bundleIdentifier ?? "",
             "version": info["CFBundleShortVersionString"] as? String ?? "",
             "build": info["CFBundleVersion"] as? String ?? ""
         ]
+        if let appName = info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String {
+            app["name"] = appName
+        }
+        return app
     }
 
     private var deviceInfo: [String: Any] {
@@ -167,7 +176,7 @@ final class WalkcalcStore: ObservableObject {
         }
 
         user = signedInUser
-        await reportClientMetadata(reason: .login)
+        await reportClientMetadata(reason: .signIn)
         guard await refreshHome() else {
             return
         }
@@ -212,13 +221,9 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
-    func postUserMeta() async {
-        await reportClientMetadata(reason: .appOpen)
-    }
-
     func reportClientMetadata(reason: ClientMetadataReportReason) async {
         guard let token else { return }
-        if let response = try? await api.postUserMeta(token: token, metadata: ClientMetadataPayload(reason: reason).dictionary) {
+        if let response = try? await api.updateProfileMetadata(token: token, metadata: ClientMetadataPayload(reason: reason).dictionary) {
             applyRefreshedToken(response)
         }
     }

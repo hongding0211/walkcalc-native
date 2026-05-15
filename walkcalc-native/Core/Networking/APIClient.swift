@@ -46,7 +46,7 @@ struct APIClient: Sendable {
         }
     }
 
-    func postUserMeta(token: String, metadata: [String: Any]) async throws -> APIEnvelope<[String: Any]> {
+    func updateProfileMetadata(token: String, metadata: [String: Any]) async throws -> APIEnvelope<[String: Any]> {
         try await request(.patch, path: "/auth/profile", token: token, body: ["metadata": metadata]) { raw in
             dictPayload(raw)
         }
