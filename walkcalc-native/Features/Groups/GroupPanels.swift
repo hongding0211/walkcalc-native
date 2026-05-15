@@ -78,6 +78,7 @@ struct CreateGroupSheet: View {
     @State private var groupName = ""
     @State private var selectedUsers: [UserProfile] = []
     @State private var tempUsers: [String] = []
+    @State private var actionMessage: String?
 
     private var members: [Member] {
         var result: [Member] = []
@@ -98,6 +99,12 @@ struct CreateGroupSheet: View {
             Section(L("Group")) {
                 TextField(L("Name"), text: $groupName)
                     .textInputAutocapitalization(.words)
+
+                if let actionMessage {
+                    Text(actionMessage)
+                        .font(.footnote)
+                        .foregroundStyle(SoftLedgerTheme.negative)
+                }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
@@ -157,9 +164,13 @@ struct CreateGroupSheet: View {
                 Button {
                     Task {
                         let name = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if await store.createGroup(name: name, users: selectedUsers, tempUsers: tempUsers) {
+                        actionMessage = nil
+                        let result = await store.createGroupWithFeedback(name: name, users: selectedUsers, tempUsers: tempUsers)
+                        if result.success {
                             dismiss()
                             onDone()
+                        } else if let message = result.message {
+                            actionMessage = message
                         }
                     }
                 } label: {
@@ -570,6 +581,7 @@ struct GroupSettingsSheet: View {
     @State private var name: String
     @State private var confirmation: GroupSettingsConfirmation?
     @State private var isShowingArchiveBlockedAlert = false
+    @State private var actionMessage: String?
 
     init(group: WalkGroup, onDone: @escaping () -> Void, onArchive: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.group = group
@@ -614,6 +626,12 @@ struct GroupSettingsSheet: View {
                         SoftLedgerAvatarStack(members: currentGroup.allMembers, visibleCount: 4, borderColor: SoftLedgerTheme.formPaper, showsTotal: false)
                     }
                 }
+
+                if let actionMessage {
+                    Text(actionMessage)
+                        .font(.footnote)
+                        .foregroundStyle(SoftLedgerTheme.negative)
+                }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
@@ -621,7 +639,11 @@ struct GroupSettingsSheet: View {
                 NavigationLink {
                     AddMemberSearchView(existingMemberIds: Set(currentGroup.allMembers.map(\.uuid))) { users in
                         Task {
-                            _ = await store.addMembers(groupId: group.id, users: users, tempUsers: [])
+                            actionMessage = nil
+                            let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
+                            if !result.success {
+                                actionMessage = result.message
+                            }
                         }
                     }
                 } label: {
@@ -631,7 +653,13 @@ struct GroupSettingsSheet: View {
 
                 NavigationLink {
                     AddTemporaryMemberView(existingNames: Set(currentGroup.tempUsers.map(\.name))) { values in
-                        Task { _ = await store.addMembers(groupId: group.id, users: [], tempUsers: values) }
+                        Task {
+                            actionMessage = nil
+                            let result = await store.addMembersWithFeedback(groupId: group.id, users: [], tempUsers: values)
+                            if !result.success {
+                                actionMessage = result.message
+                            }
+                        }
                     }
                 } label: {
                     Text(L("Add temporary member"))
@@ -683,7 +711,12 @@ struct GroupSettingsSheet: View {
                     Task {
                         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty, trimmed != group.name {
-                            _ = await store.changeGroupName(group.id, name: trimmed)
+                            actionMessage = nil
+                            let result = await store.changeGroupNameWithFeedback(group.id, name: trimmed)
+                            if !result.success {
+                                actionMessage = result.message
+                                return
+                            }
                         }
                         dismiss()
                         onDone()
@@ -702,9 +735,13 @@ struct GroupSettingsSheet: View {
                 Button(L("Archive group")) {
                     confirmation = nil
                     Task {
-                        if await store.archiveGroup(group.id) {
+                        actionMessage = nil
+                        let result = await store.archiveGroupWithFeedback(group.id)
+                        if result.success {
                             dismiss()
                             onArchive()
+                        } else if let message = result.message {
+                            actionMessage = message
                         }
                     }
                 }
@@ -713,9 +750,13 @@ struct GroupSettingsSheet: View {
                 Button(L("Delete group"), role: .destructive) {
                     confirmation = nil
                     Task {
-                        if await store.deleteGroup(group.id) {
+                        actionMessage = nil
+                        let result = await store.deleteGroupWithFeedback(group.id)
+                        if result.success {
                             dismiss()
                             onDelete()
+                        } else if let message = result.message {
+                            actionMessage = message
                         }
                     }
                 }
@@ -844,6 +885,7 @@ struct PeopleSetupSheet: View {
 
     let group: WalkGroup
     let onDone: () -> Void
+    @State private var actionMessage: String?
 
     var body: some View {
         Form {
@@ -851,9 +893,13 @@ struct PeopleSetupSheet: View {
                 NavigationLink {
                     AddMemberSearchView(existingMemberIds: Set(group.allMembers.map(\.uuid))) { users in
                         Task {
-                            if await store.addMembers(groupId: group.id, users: users, tempUsers: []) {
+                            actionMessage = nil
+                            let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
+                            if result.success {
                                 dismiss()
                                 onDone()
+                            } else if let message = result.message {
+                                actionMessage = message
                             }
                         }
                     }
@@ -865,15 +911,25 @@ struct PeopleSetupSheet: View {
                 NavigationLink {
                     AddTemporaryMemberView(existingNames: Set(group.tempUsers.map(\.name))) { values in
                         Task {
-                            if await store.addMembers(groupId: group.id, users: [], tempUsers: values) {
+                            actionMessage = nil
+                            let result = await store.addMembersWithFeedback(groupId: group.id, users: [], tempUsers: values)
+                            if result.success {
                                 dismiss()
                                 onDone()
+                            } else if let message = result.message {
+                                actionMessage = message
                             }
                         }
                     }
                 } label: {
                     Text(L("Add temporary member"))
                         .foregroundStyle(.primary)
+                }
+
+                if let actionMessage {
+                    Text(actionMessage)
+                        .font(.footnote)
+                        .foregroundStyle(SoftLedgerTheme.negative)
                 }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
@@ -1283,9 +1339,9 @@ struct RecordEditorView: View {
             return
         }
 
-        let success: Bool
+        let result: StoreActionResult
         if let record {
-            success = await store.editRecord(
+            result = await store.editRecordWithFeedback(
                 groupId: groupId,
                 recordId: record.recordId,
                 who: paidBy,
@@ -1297,7 +1353,7 @@ struct RecordEditorView: View {
                 isSettlement: record.isDebtResolve
             )
         } else {
-            success = await store.addRecord(
+            result = await store.addRecordWithFeedback(
                 groupId: groupId,
                 who: paidBy,
                 paid: amount,
@@ -1308,11 +1364,11 @@ struct RecordEditorView: View {
             )
         }
 
-        if success {
+        if result.success {
             dismiss()
             onDone()
-        } else {
-            message = record == nil ? L("Add fail") : L("Edit fail")
+        } else if let resultMessage = result.message {
+            message = resultMessage
         }
     }
 }

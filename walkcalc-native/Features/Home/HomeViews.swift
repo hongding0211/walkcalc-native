@@ -52,10 +52,14 @@ struct ContentView: View {
                 }
             }
         }
-        .alert(L("Notice"), isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
-            Button(L("Confirm"), role: .cancel) { store.errorMessage = nil }
-        } message: {
-            Text(store.errorMessage ?? "")
+        .alert(item: Binding(get: { store.urgentAlert }, set: { store.urgentAlert = $0 })) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text(L("Confirm"))) {
+                    store.urgentAlert = nil
+                }
+            )
         }
     }
 }

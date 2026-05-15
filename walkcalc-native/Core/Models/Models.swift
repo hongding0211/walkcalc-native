@@ -9,6 +9,23 @@ struct APIEnvelope<T> {
     var message: String?
     var errorData: [String: Any]?
     var refreshedToken: String?
+    var statusCode: Int?
+    var failureKind: APIFailureKind?
+}
+
+enum APIFailureKind: String {
+    case transport
+    case cancellation
+    case requestEncoding
+    case httpStatus
+    case serverEnvelope
+    case authRefresh
+}
+
+struct APIClientError: Error {
+    var kind: APIFailureKind
+    var statusCode: Int?
+    var message: String?
 }
 
 struct Pagination: Equatable {

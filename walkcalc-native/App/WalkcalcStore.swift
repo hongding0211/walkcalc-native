@@ -3,11 +3,48 @@ import SwiftUI
 import Combine
 import UserNotifications
 import UIKit
+import OSLog
 
 @MainActor
 struct JoinGroupResult {
     let success: Bool
     let message: String?
+}
+
+@MainActor
+struct StoreActionResult {
+    let success: Bool
+    let message: String?
+
+    static var success: StoreActionResult {
+        StoreActionResult(success: true, message: nil)
+    }
+
+    static func failure(_ message: String?) -> StoreActionResult {
+        StoreActionResult(success: false, message: message)
+    }
+}
+
+struct StoreAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
+private enum NetworkOperationIntent: String {
+    case bootstrapAuth
+    case backgroundRefresh
+    case pagination
+    case secondaryLoad
+    case userAction
+    case dataLossSensitiveMutation
+}
+
+private enum FeedbackDisposition: String {
+    case silent
+    case local
+    case nonBlockingNotice
+    case urgentAlert
 }
 
 @MainActor
@@ -23,7 +60,7 @@ final class WalkcalcStore: ObservableObject {
     @Published var isBootstrapping = true
     @Published var isLoading = false
     @Published private(set) var isSigningIn = false
-    @Published var errorMessage: String?
+    @Published var urgentAlert: StoreAlert?
     @Published var themeColorId: String = UserDefaults.standard.string(forKey: "themeColor") ?? "blue"
     @Published var isFixtureMode = false
     @Published private var recordSearchResultsByKey: [String: [WalkRecord]] = [:]
@@ -41,6 +78,7 @@ final class WalkcalcStore: ObservableObject {
     private var apnsProviderToken = UserDefaults.standard.string(forKey: "walkcalc.apnsProviderToken")
     private var pushDeviceRegistrationTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
+    private let networkFeedbackLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "walkcalc-native", category: "NetworkFeedback")
 
     var primaryColor: Color {
         themeColorOptions.first(where: { $0.id == themeColorId })?.color ?? themeColorOptions[0].color
@@ -158,7 +196,7 @@ final class WalkcalcStore: ObservableObject {
                 return nil
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "fetchUser", intent: .bootstrapAuth, disposition: .silent, error: error)
             return nil
         }
     }
@@ -310,11 +348,11 @@ final class WalkcalcStore: ObservableObject {
                 groupTotal = response.pagination?.total ?? groups.count
                 return true
             } else {
-                errorMessage = response.message ?? L("Network issues")
+                recordFailure(operation: "refreshHome.groups", intent: .backgroundRefresh, disposition: .silent, response: response)
                 return false
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "refreshHome", intent: .backgroundRefresh, disposition: .silent, error: error)
             return false
         }
     }
@@ -333,10 +371,10 @@ final class WalkcalcStore: ObservableObject {
                 groupsPage = response.pagination?.page ?? groupsPage + 1
                 groupTotal = response.pagination?.total ?? groupTotal
             } else {
-                errorMessage = response.message ?? L("Network issues")
+                recordFailure(operation: "loadMoreGroups", intent: .pagination, disposition: .silent, response: response)
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "loadMoreGroups", intent: .pagination, disposition: .silent, error: error)
         }
     }
 
@@ -363,8 +401,14 @@ final class WalkcalcStore: ObservableObject {
                 recordsByGroup[id] = recordResult.data ?? []
                 recordTotals[id] = recordResult.pagination?.total ?? recordResult.data?.count ?? 0
             }
+            if !groupResult.success {
+                recordFailure(operation: "refreshGroup.group", intent: .backgroundRefresh, disposition: .silent, response: groupResult)
+            }
+            if !recordResult.success {
+                recordFailure(operation: "refreshGroup.records", intent: .backgroundRefresh, disposition: .silent, response: recordResult)
+            }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "refreshGroup", intent: .backgroundRefresh, disposition: .silent, error: error)
         }
     }
 
@@ -378,10 +422,10 @@ final class WalkcalcStore: ObservableObject {
             if response.success, let members = response.data {
                 replaceGroupBalances(groupId: id, members: members)
             } else {
-                errorMessage = response.message ?? L("Network issues")
+                recordFailure(operation: "refreshGroupBalances", intent: .secondaryLoad, disposition: .silent, response: response)
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "refreshGroupBalances", intent: .secondaryLoad, disposition: .silent, error: error)
         }
     }
 
@@ -417,9 +461,11 @@ final class WalkcalcStore: ObservableObject {
                     recordSearchResultsByKey[key] = merged
                     recordSearchTotalsByKey[key] = max(response.pagination?.total ?? total, merged.count)
                 }
+            } else {
+                recordFailure(operation: "loadMoreRecords", intent: .pagination, disposition: .silent, response: response)
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "loadMoreRecords", intent: .pagination, disposition: .silent, error: error)
         }
     }
 
@@ -474,9 +520,11 @@ final class WalkcalcStore: ObservableObject {
                 let merged = mergedRecords(response.data ?? [], with: localSearchMatches(groupId: groupId, query: query))
                 recordSearchResultsByKey[key] = merged
                 recordSearchTotalsByKey[key] = max(response.pagination?.total ?? response.data?.count ?? 0, merged.count)
+            } else {
+                recordFailure(operation: "searchRecords", intent: .secondaryLoad, disposition: .silent, response: response)
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "searchRecords", intent: .secondaryLoad, disposition: .silent, error: error)
         }
     }
 
@@ -524,9 +572,11 @@ final class WalkcalcStore: ObservableObject {
                 let records = response.data?.records ?? []
                 memberRecordsByKey[key] = records
                 memberRecordTotalsByKey[key] = response.pagination?.total ?? records.count
+            } else {
+                recordFailure(operation: "refreshMemberRecords", intent: .secondaryLoad, disposition: .silent, response: response)
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "refreshMemberRecords", intent: .secondaryLoad, disposition: .silent, error: error)
         }
     }
 
@@ -551,17 +601,23 @@ final class WalkcalcStore: ObservableObject {
                 }
                 memberRecordsByKey[key] = current + (response.data?.records ?? [])
                 memberRecordTotalsByKey[key] = response.pagination?.total ?? total
+            } else {
+                recordFailure(operation: "loadMoreMemberRecords", intent: .pagination, disposition: .silent, response: response)
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "loadMoreMemberRecords", intent: .pagination, disposition: .silent, error: error)
         }
     }
 
     func createGroup(name: String) async -> Bool {
-        await createGroup(name: name, users: [], tempUsers: [])
+        await createGroupWithFeedback(name: name, users: [], tempUsers: []).success
     }
 
     func createGroup(name: String, users: [UserProfile], tempUsers: [String]) async -> Bool {
+        await createGroupWithFeedback(name: name, users: users, tempUsers: tempUsers).success
+    }
+
+    func createGroupWithFeedback(name: String, users: [UserProfile], tempUsers: [String]) async -> StoreActionResult {
         if isFixtureMode {
             let groupId = "FIX-\(Int(Date().timeIntervalSince1970 * 1000))"
             let currentUser = user.map {
@@ -585,23 +641,31 @@ final class WalkcalcStore: ObservableObject {
             ), at: 0)
             recordsByGroup[groupId] = []
             recordTotals[groupId] = 0
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        return await withLoadingResult(operation: "createGroup") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             let response = try await api.createGroup(name: name, token: token)
             applyRefreshedToken(response)
             if response.success, let groupId = response.data, !groupId.isEmpty {
                 if !users.isEmpty {
-                    applyRefreshedToken(try await api.invite(code: groupId, userIds: users.map(\.uuid), token: token))
+                    let inviteResponse = try await api.invite(code: groupId, userIds: users.map(\.uuid), token: token)
+                    applyRefreshedToken(inviteResponse)
+                    guard inviteResponse.success else {
+                        return actionFailure(operation: "createGroup.invite", response: inviteResponse)
+                    }
                 }
                 for tempUser in tempUsers where !tempUser.isEmpty {
-                    applyRefreshedToken(try await api.addTempUser(code: groupId, name: tempUser, token: token))
+                    let tempUserResponse = try await api.addTempUser(code: groupId, name: tempUser, token: token)
+                    applyRefreshedToken(tempUserResponse)
+                    guard tempUserResponse.success else {
+                        return actionFailure(operation: "createGroup.tempUser", response: tempUserResponse)
+                    }
                 }
             }
             await refreshHome()
-            return response.success
+            return response.success ? .success : actionFailure(operation: "createGroup", response: response)
         }
     }
 
@@ -626,100 +690,129 @@ final class WalkcalcStore: ObservableObject {
             }
             return JoinGroupResult(success: response.success, message: response.message)
         } catch {
+            recordFailure(operation: "joinGroup", intent: .userAction, disposition: .local, error: error)
             return JoinGroupResult(success: false, message: L("Network issues"))
         }
     }
 
     func archiveGroup(_ code: String) async -> Bool {
+        await archiveGroupWithFeedback(code).success
+    }
+
+    func archiveGroupWithFeedback(_ code: String) async -> StoreActionResult {
         if isFixtureMode, let user {
-            guard let index = groups.firstIndex(where: { $0.id == code }) else { return false }
+            guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(nil) }
             if !groups[index].archivedUsers.contains(user.uuid) {
                 groups[index].archivedUsers.append(user.uuid)
             }
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        return await withLoadingResult(operation: "archiveGroup") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             let response = try await api.archiveGroup(code: code, token: token)
             applyRefreshedToken(response)
             await refreshHome()
-            return response.success
+            return response.success ? .success : actionFailure(operation: "archiveGroup", response: response)
         }
     }
 
     func unarchiveGroup(_ code: String) async -> Bool {
+        await unarchiveGroupWithFeedback(code).success
+    }
+
+    func unarchiveGroupWithFeedback(_ code: String) async -> StoreActionResult {
         if isFixtureMode, let user {
-            guard let index = groups.firstIndex(where: { $0.id == code }) else { return false }
+            guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(nil) }
             groups[index].archivedUsers.removeAll { $0 == user.uuid }
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        return await withLoadingResult(operation: "unarchiveGroup") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             let response = try await api.unarchiveGroup(code: code, token: token)
             applyRefreshedToken(response)
             await refreshHome()
-            return response.success
+            return response.success ? .success : actionFailure(operation: "unarchiveGroup", response: response)
         }
     }
 
     func deleteGroup(_ code: String) async -> Bool {
+        await deleteGroupWithFeedback(code).success
+    }
+
+    func deleteGroupWithFeedback(_ code: String) async -> StoreActionResult {
         if isFixtureMode {
             groups.removeAll { $0.id == code }
             recordsByGroup[code] = nil
             recordTotals[code] = nil
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        return await withLoadingResult(operation: "deleteGroup") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             let response = try await api.deleteGroup(code: code, token: token)
             applyRefreshedToken(response)
             await refreshHome()
-            return response.success
+            return response.success ? .success : actionFailure(operation: "deleteGroup", response: response)
         }
     }
 
     func changeGroupName(_ code: String, name: String) async -> Bool {
+        await changeGroupNameWithFeedback(code, name: name).success
+    }
+
+    func changeGroupNameWithFeedback(_ code: String, name: String) async -> StoreActionResult {
         if isFixtureMode {
-            guard let index = groups.firstIndex(where: { $0.id == code }) else { return false }
+            guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(nil) }
             groups[index].name = name
             groups[index].modifiedAt = Date().timeIntervalSince1970 * 1000
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        return await withLoadingResult(operation: "changeGroupName") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             let response = try await api.changeGroupName(code: code, name: name, token: token)
             applyRefreshedToken(response)
             await refreshGroup(code)
-            return response.success
+            return response.success ? .success : actionFailure(operation: "changeGroupName", response: response)
         }
     }
 
     func addMembers(groupId: String, users: [UserProfile], tempUsers: [String]) async -> Bool {
+        await addMembersWithFeedback(groupId: groupId, users: users, tempUsers: tempUsers).success
+    }
+
+    func addMembersWithFeedback(groupId: String, users: [UserProfile], tempUsers: [String]) async -> StoreActionResult {
         if isFixtureMode {
-            guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return false }
+            guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return .failure(nil) }
             for user in users where !groups[index].membersInfo.contains(where: { $0.uuid == user.uuid }) {
                 groups[index].membersInfo.append(Member(uuid: user.uuid, name: user.name, avatar: user.avatar, debtMinor: "0", costMinor: "0"))
             }
             for tempUser in tempUsers where !tempUser.isEmpty {
                 groups[index].tempUsers.append(Member(uuid: "temp-\(tempUser)-\(groups[index].tempUsers.count)", name: tempUser, avatar: "", debtMinor: "0", costMinor: "0", isTemporary: true))
             }
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        return await withLoadingResult(operation: "addMembers") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             if !users.isEmpty {
-                applyRefreshedToken(try await api.invite(code: groupId, userIds: users.map(\.uuid), token: token))
+                let response = try await api.invite(code: groupId, userIds: users.map(\.uuid), token: token)
+                applyRefreshedToken(response)
+                guard response.success else {
+                    return actionFailure(operation: "addMembers.invite", response: response)
+                }
             }
             for tempUser in tempUsers where !tempUser.isEmpty {
-                applyRefreshedToken(try await api.addTempUser(code: groupId, name: tempUser, token: token))
+                let response = try await api.addTempUser(code: groupId, name: tempUser, token: token)
+                applyRefreshedToken(response)
+                guard response.success else {
+                    return actionFailure(operation: "addMembers.tempUser", response: response)
+                }
             }
             await refreshGroup(groupId)
-            return true
+            return .success
         }
     }
 
@@ -737,13 +830,18 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response)
             return response.data ?? []
         } catch {
+            recordFailure(operation: "searchUsers", intent: .secondaryLoad, disposition: .silent, error: error)
             return []
         }
     }
 
     func addRecord(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", occurredAt: TimeInterval) async -> Bool {
+        await addRecordWithFeedback(groupId: groupId, who: who, paid: paid, forWhom: forWhom, type: type, text: text, long: long, lat: lat, occurredAt: occurredAt).success
+    }
+
+    func addRecordWithFeedback(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", occurredAt: TimeInterval) async -> StoreActionResult {
         if isFixtureMode {
-            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
+            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return .failure(L("Enter a valid amount with up to 2 decimal places")) }
             let now = Date().timeIntervalSince1970 * 1000
             let record = WalkRecord(
                 recordId: "fixture-record-\(Int(Date().timeIntervalSince1970 * 1000))",
@@ -761,25 +859,29 @@ final class WalkcalcStore: ObservableObject {
             )
             recordsByGroup[groupId, default: []].insert(record, at: 0)
             recordTotals[groupId] = recordsByGroup[groupId]?.count ?? 0
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
-            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
+        return await withLoadingResult(operation: "addRecord") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
+            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return .failure(L("Enter a valid amount with up to 2 decimal places")) }
             let response = try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, long: long, lat: lat, occurredAt: occurredAt)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success
+            return response.success ? .success : actionFailure(operation: "addRecord", response: response)
         }
     }
 
     func editRecord(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false) async -> Bool {
+        await editRecordWithFeedback(groupId: groupId, recordId: recordId, who: who, paid: paid, forWhom: forWhom, type: type, text: text, occurredAt: occurredAt, isSettlement: isSettlement).success
+    }
+
+    func editRecordWithFeedback(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false) async -> StoreActionResult {
         if isFixtureMode {
             guard let paidMinor = try? Money.parseDisplay(paid),
                   Money.isPositive(paidMinor),
-                  let index = recordsByGroup[groupId]?.firstIndex(where: { $0.recordId == recordId }) else { return false }
+                  let index = recordsByGroup[groupId]?.firstIndex(where: { $0.recordId == recordId }) else { return .failure(nil) }
             recordsByGroup[groupId]?[index].who = who
             recordsByGroup[groupId]?[index].paidMinor = paidMinor
             recordsByGroup[groupId]?[index].forWhom = forWhom
@@ -787,42 +889,50 @@ final class WalkcalcStore: ObservableObject {
             recordsByGroup[groupId]?[index].text = text
             recordsByGroup[groupId]?[index].occurredAt = occurredAt
             recordsByGroup[groupId]?[index].modifiedAt = Date().timeIntervalSince1970 * 1000
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
-            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return false }
+        return await withLoadingResult(operation: "editRecord") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
+            guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return .failure(L("Enter a valid amount with up to 2 decimal places")) }
             let response = try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, occurredAt: occurredAt, isSettlement: isSettlement)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success
+            return response.success ? .success : actionFailure(operation: "editRecord", response: response)
         }
     }
 
     func deleteRecord(groupId: String, recordId: String) async -> Bool {
+        await deleteRecordWithFeedback(groupId: groupId, recordId: recordId).success
+    }
+
+    func deleteRecordWithFeedback(groupId: String, recordId: String) async -> StoreActionResult {
         if isFixtureMode {
             recordsByGroup[groupId]?.removeAll { $0.recordId == recordId }
             recordTotals[groupId] = recordsByGroup[groupId]?.count ?? 0
             clearRecordCaches(for: groupId)
-            return true
+            return .success
         }
-        return await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        return await withLoadingResult(operation: "deleteRecord") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             let response = try await api.dropRecord(groupCode: groupId, recordId: recordId, token: token)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success
+            return response.success ? .success : actionFailure(operation: "deleteRecord", response: response)
         }
     }
 
     func resolveSingle(groupId: String, debt: ResolvedDebt) async -> Bool {
-        await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        await resolveSingleWithFeedback(groupId: groupId, debt: debt).success
+    }
+
+    func resolveSingleWithFeedback(groupId: String, debt: ResolvedDebt) async -> StoreActionResult {
+        await withLoadingResult(operation: "resolveSingle") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             let response = try await api.addSettlementRecord(
                 groupCode: groupId,
                 fromId: debt.from.uuid,
@@ -834,19 +944,23 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success
+            return response.success ? .success : actionFailure(operation: "resolveSingle", response: response)
         }
     }
 
     func resolveAll(groupId: String, debts: [ResolvedDebt]) async -> Bool {
-        await withLoading {
-            guard api.ledgerAPIEnabled else { return false }
-            guard let token else { return false }
+        await resolveAllWithFeedback(groupId: groupId, debts: debts).success
+    }
+
+    func resolveAllWithFeedback(groupId: String, debts: [ResolvedDebt]) async -> StoreActionResult {
+        await withLoadingResult(operation: "resolveAll") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            guard let token else { return .failure(L("Login to continue")) }
             let response = try await api.resolveDebts(groupCode: groupId, token: token)
             applyRefreshedToken(response)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success
+            return response.success ? .success : actionFailure(operation: "resolveAll", response: response)
         }
     }
 
@@ -922,10 +1036,10 @@ final class WalkcalcStore: ObservableObject {
                     SettlementTransfer(fromId: $0.fromId, toId: $0.toId, amountMinor: $0.amountMinor)
                 }
             } else {
-                errorMessage = response.messageWithLimitDetail ?? L("Network issues")
+                recordFailure(operation: "refreshSettlementSuggestion", intent: .secondaryLoad, disposition: .silent, response: response)
             }
         } catch {
-            errorMessage = L("Network issues")
+            recordFailure(operation: "refreshSettlementSuggestion", intent: .secondaryLoad, disposition: .silent, error: error)
         }
     }
 
@@ -1058,15 +1172,37 @@ final class WalkcalcStore: ObservableObject {
         UserDefaults.standard.set(refreshedToken, forKey: "walkcalc.token")
     }
 
-    private func withLoading(_ action: () async throws -> Bool) async -> Bool {
+    private func withLoadingResult(operation: String, _ action: () async throws -> StoreActionResult) async -> StoreActionResult {
         isLoading = true
         defer { isLoading = false }
         do {
-            return try await action()
+            let result = try await action()
+            if !result.success {
+                networkFeedbackLogger.info("Action failure operation=\(operation, privacy: .public) disposition=\(FeedbackDisposition.local.rawValue, privacy: .public)")
+            }
+            return result
         } catch {
-            errorMessage = L("Network issues")
-            return false
+            recordFailure(operation: operation, intent: .userAction, disposition: .local, error: error)
+            return .failure(nil)
         }
+    }
+
+    private func actionFailure<T>(operation: String, response: APIEnvelope<T>) -> StoreActionResult {
+        recordFailure(operation: operation, intent: .userAction, disposition: .local, response: response)
+        return .failure(response.messageWithLimitDetail)
+    }
+
+    private func recordFailure<T>(operation: String, intent: NetworkOperationIntent, disposition: FeedbackDisposition, response: APIEnvelope<T>) {
+        let kind = response.failureKind?.rawValue ?? APIFailureKind.serverEnvelope.rawValue
+        let status = response.statusCode ?? 0
+        networkFeedbackLogger.info("Network failure operation=\(operation, privacy: .public) intent=\(intent.rawValue, privacy: .public) disposition=\(disposition.rawValue, privacy: .public) kind=\(kind, privacy: .public) status=\(status, privacy: .public)")
+    }
+
+    private func recordFailure(operation: String, intent: NetworkOperationIntent, disposition: FeedbackDisposition, error: Error) {
+        let clientError = error as? APIClientError
+        let kind = clientError?.kind.rawValue ?? APIFailureKind.transport.rawValue
+        let status = clientError?.statusCode ?? 0
+        networkFeedbackLogger.info("Network failure operation=\(operation, privacy: .public) intent=\(intent.rawValue, privacy: .public) disposition=\(disposition.rawValue, privacy: .public) kind=\(kind, privacy: .public) status=\(status, privacy: .public)")
     }
 }
 

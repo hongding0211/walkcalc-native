@@ -20,7 +20,7 @@ extension WalkcalcStore {
         isBootstrapping = false
         token = "debug-fixture-token"
         user = UserProfile(uuid: "fixture-current-user", name: "Hong", avatar: "")
-        errorMessage = nil
+        urgentAlert = nil
         recordsByGroup = [:]
         recordTotals = [:]
 

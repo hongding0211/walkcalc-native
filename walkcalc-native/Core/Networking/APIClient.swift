@@ -239,22 +239,42 @@ struct APIClient: Sendable {
         var response = try await execute(method, path: path, query: query, token: token, body: body)
         var refreshedToken: String?
         if response.status == 401 || response.status == 403 {
-            if let nextToken = try? await AuthRefreshCoordinator.shared.refresh({ try await refreshAccessToken() }) {
+            do {
+                guard let nextToken = try await AuthRefreshCoordinator.shared.refresh({ try await refreshAccessToken() }) else {
+                    throw APIClientError(kind: .authRefresh, statusCode: response.status, message: nil)
+                }
                 refreshedToken = nextToken
                 response = try await execute(method, path: path, query: query, token: nextToken, body: body)
+            } catch let error as APIClientError {
+                if error.kind == .authRefresh {
+                    throw error
+                }
+                throw APIClientError(kind: .authRefresh, statusCode: response.status, message: error.message)
+            } catch {
+                throw APIClientError(kind: .authRefresh, statusCode: response.status, message: nil)
             }
         }
 
         let envelope = response.raw as? [String: Any] ?? [:]
         let success = (envelope["isSuccess"] as? Bool) ?? (envelope["success"] as? Bool) ?? false
         let sourceData = payload(from: envelope)
+        let failureKind: APIFailureKind?
+        if success {
+            failureKind = nil
+        } else if response.status >= 400 {
+            failureKind = .httpStatus
+        } else {
+            failureKind = .serverEnvelope
+        }
         return APIEnvelope(
             success: success,
             data: mapper(sourceData),
             pagination: pagination(from: envelope),
             message: envelope["msg"] as? String ?? envelope["message"] as? String,
             errorData: success ? nil : sourceData as? [String: Any],
-            refreshedToken: refreshedToken
+            refreshedToken: refreshedToken,
+            statusCode: response.status,
+            failureKind: failureKind
         )
     }
 
@@ -271,9 +291,22 @@ struct APIClient: Sendable {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let body, method != .get {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            } catch {
+                throw APIClientError(kind: .requestEncoding, statusCode: nil, message: nil)
+            }
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                throw APIClientError(kind: .cancellation, statusCode: nil, message: nil)
+            }
+            throw APIClientError(kind: .transport, statusCode: nil, message: nil)
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let json = data.isEmpty ? nil : try? JSONSerialization.jsonObject(with: data)
         return (status, json)
