@@ -48,7 +48,7 @@ Rules:
 
 ### Visual Rules
 
-- The navigation bar should inherit the page's warm canvas background.
+- The navigation bar should inherit the page's neutral canvas background.
 - Keep toolbar icons visually native and lightweight.
 - Avoid custom shadows, borders, or nested glass effects in the toolbar.
 - Page-level Liquid Glass may appear in content cards, but not as an extra wrapper around navigation controls.

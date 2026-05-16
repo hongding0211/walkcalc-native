@@ -565,6 +565,7 @@ struct ArchivedGroupsView: View {
                                 if pendingAction?.groupID == group.id {
                                     ProgressView()
                                         .controlSize(.small)
+                                        .softLedgerProgressTint()
                                         .frame(minWidth: 64, minHeight: restoreMinHeight)
                                 } else {
                                     Text(L("Restore"))
@@ -776,6 +777,7 @@ struct GroupSettingsSheet: View {
                         if pendingAction == .archive {
                             ProgressView()
                                 .controlSize(.small)
+                                .softLedgerProgressTint()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -793,6 +795,7 @@ struct GroupSettingsSheet: View {
                         if pendingAction == .delete {
                             ProgressView()
                                 .controlSize(.small)
+                                .softLedgerProgressTint()
                         }
                     }
                 }
@@ -1254,7 +1257,7 @@ struct AddMemberSearchView: View {
             if isLoading {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(SoftLedgerTheme.secondaryInk)
+                    .softLedgerProgressTint()
             }
 
             Text(text)
@@ -1973,6 +1976,7 @@ private struct BalancesRootView: View {
                         if resolvingMode == .all {
                             ProgressView()
                                 .controlSize(.small)
+                                .softLedgerProgressTint()
                         }
                         Text(resolveAllTitle)
                     }
@@ -2146,6 +2150,7 @@ private struct SettlementPlanRow: View {
             if isResolving {
                 ProgressView()
                     .controlSize(.small)
+                    .softLedgerProgressTint()
                     .frame(width: chevronSize, height: chevronSize)
                     .accessibilityHidden(true)
             } else {
@@ -2343,6 +2348,7 @@ private struct MemberBalanceDetailView: View {
         HStack(spacing: 10) {
             ProgressView()
                 .controlSize(.small)
+                .softLedgerProgressTint()
             Text(L("Loading more..."))
                 .font(.subheadline)
                 .foregroundStyle(SoftLedgerTheme.secondaryInk)

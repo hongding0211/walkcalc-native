@@ -73,6 +73,7 @@ struct GroupView: View {
                     } else {
                         VStack(spacing: 10) {
                             ProgressView()
+                                .softLedgerProgressTint()
                             Text(L("Loading groups..."))
                                 .font(.callout)
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -318,6 +319,7 @@ private struct RecordSearchCanvas: View {
         HStack(spacing: 10) {
             ProgressView()
                 .controlSize(.small)
+                .softLedgerProgressTint()
             Text(L("Searching records..."))
                 .font(.subheadline)
                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -555,6 +557,7 @@ private struct GroupExpensesSection: View {
         HStack(spacing: 10) {
             ProgressView()
                 .controlSize(.small)
+                .softLedgerProgressTint()
             Text(L("Loading more..."))
                 .font(.subheadline)
                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -689,6 +692,7 @@ struct RecordDeleteConfirmationModifier: ViewModifier {
             .overlay {
                 if isDeleting {
                     ProgressView()
+                        .softLedgerProgressTint()
                         .padding(18)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }

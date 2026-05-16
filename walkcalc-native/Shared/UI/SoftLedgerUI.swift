@@ -2,13 +2,13 @@ import SwiftUI
 import UIKit
 
 enum SoftLedgerTheme {
-    static let canvas = adaptive(light: 0xF6F2EA, dark: 0x131416)
-    static let paper = adaptive(light: 0xFEFCF6, dark: 0x1D1E20)
-    static let formPaper = adaptive(light: 0xFFFDF8, dark: 0x222326)
-    static let ink = adaptive(light: 0x25221D, dark: 0xF1F0EC)
-    static let secondaryInk = adaptive(light: 0x746C5D, dark: 0xC7C4BE)
-    static let mutedInk = adaptive(light: 0x9D917E, dark: 0x92918C)
-    static let rule = adaptive(light: 0xDAD2C0, dark: 0x34363A)
+    static let canvas = adaptive(light: 0xF7F7F7, dark: 0x000000)
+    static let paper = adaptive(light: 0xFFFFFF, dark: 0x141414)
+    static let formPaper = adaptive(light: 0xFFFFFF, dark: 0x1C1C1C)
+    static let ink = adaptive(light: 0x1C1C1C, dark: 0xF2F2F2)
+    static let secondaryInk = adaptive(light: 0x666666, dark: 0xC7C7C7)
+    static let mutedInk = adaptive(light: 0x8A8A8A, dark: 0x8E8E8E)
+    static let rule = adaptive(light: 0xD9D9D9, dark: 0x3A3A3A)
     static let positive = adaptive(light: 0x167454, dark: 0x77C99E)
     static let negative = adaptive(light: 0xAC2F24, dark: 0xF07C6C)
     static let accent = adaptive(light: 0xB15525, dark: 0xE49B63)
@@ -43,11 +43,18 @@ struct AsyncConfirmationIcon: View {
             if isPending {
                 ProgressView()
                     .controlSize(.small)
+                    .softLedgerProgressTint()
             } else {
                 Image(systemName: systemImage)
             }
         }
         .frame(width: 18, height: 18)
+    }
+}
+
+private struct SoftLedgerProgressTintModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.tint(.secondary)
     }
 }
 
@@ -466,6 +473,10 @@ extension View {
         self
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+    }
+
+    func softLedgerProgressTint() -> some View {
+        modifier(SoftLedgerProgressTintModifier())
     }
 
     func softLedgerDismissesKeyboardOnBackgroundTap(isActive: Bool = true, onDismiss: @escaping () -> Void = {}) -> some View {

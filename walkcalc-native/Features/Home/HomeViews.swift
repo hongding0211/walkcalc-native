@@ -31,6 +31,7 @@ struct ContentView: View {
                 ZStack {
                     SoftLedgerBackground()
                     ProgressView()
+                        .softLedgerProgressTint()
                 }
             } else if store.isLoggedIn {
                 RootHomeView()
@@ -79,6 +80,7 @@ struct LoginView: View {
                 HStack(spacing: 8) {
                     if store.isSigningIn {
                         ProgressView()
+                            .softLedgerProgressTint()
                     }
                     Text(L("Login"))
                 }
@@ -133,6 +135,7 @@ struct RootHomeView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         if activeGroups.isEmpty, store.canLoadMoreGroups {
                             ProgressView()
+                                .softLedgerProgressTint()
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 80)
                                 .task { await store.loadMoreGroups() }
@@ -179,6 +182,7 @@ struct RootHomeView: View {
 
                                 if store.isLoadingMoreGroups {
                                     ProgressView()
+                                        .softLedgerProgressTint()
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 8)
                                 }
@@ -549,6 +553,7 @@ private struct GroupSummaryRow: View {
             if isPending {
                 ProgressView()
                     .controlSize(.small)
+                    .softLedgerProgressTint()
             } else {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))

@@ -47,7 +47,7 @@ The Groups home page uses a native iOS navigation header, following the Notes ap
 
 ### Visual Rules
 
-- The navigation bar should inherit the page's warm canvas background.
+- The navigation bar should inherit the page's neutral canvas background.
 - Keep toolbar icons visually native and lightweight.
 - Do not apply the app theme tint to the page root, because the top-right toolbar icons should remain system primary: black in light mode and white in dark mode.
 - Avoid custom shadows, borders, or nested glass effects in the toolbar.

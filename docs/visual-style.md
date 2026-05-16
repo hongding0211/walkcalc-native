@@ -40,16 +40,17 @@ Older B and D code may remain in the playground as reference, but they are not t
 
 ### Light Mode
 
-Light mode keeps the soft paper quality from B.
+Light mode uses a shallow grayscale app canvas so future accent themes have a neutral base while cards and rows can remain crisp white. Supporting hierarchy follows the original canvas-to-card relationship, but without warm paper tint.
 
 | Token | Hex | Usage |
 | --- | --- | --- |
-| `canvas` | `#F6F2EA` | App background |
-| `paper` | `#FEFCF6` | Card and row surfaces |
-| `ink` | `#25221D` | Primary text |
-| `secondaryInk` | `#746C5D` | Secondary labels |
-| `mutedInk` | `#9D917E` | Metadata and less important text |
-| `rule` | `#DAD2C0` | Borders and separators |
+| `canvas` | `#F7F7F7` | App background |
+| `paper` | `#FFFFFF` | Card and row surfaces |
+| `formPaper` | `#FFFFFF` | Form and list row surfaces |
+| `ink` | `#1C1C1C` | Primary text |
+| `secondaryInk` | `#666666` | Secondary labels |
+| `mutedInk` | `#8A8A8A` | Metadata and less important text |
+| `rule` | `#D9D9D9` | Borders and separators |
 | `positive` | `#167454` | Receivable / positive balances |
 | `negative` | `#AC2F24` | Payable / negative balances |
 | `accent` | `#B15525` | Primary accent and selected action |
@@ -57,16 +58,17 @@ Light mode keeps the soft paper quality from B.
 
 ### Dark Mode
 
-Dark mode must not use a deep yellow or brown base. The accepted direction is neutral graphite: the background stays clean and nearly neutral, while warmth comes from off-white text and restrained accent usage.
+Dark mode uses a pure black app canvas. Supporting hierarchy comes from grayscale near-black surfaces, grayscale text, and restrained accent usage.
 
 | Token | Hex | Usage |
 | --- | --- | --- |
-| `canvas` | `#131416` | App background |
-| `paper` | `#1D1E20` | Card and row surfaces |
-| `ink` | `#F1F0EC` | Primary text |
-| `secondaryInk` | `#C7C4BE` | Secondary labels |
-| `mutedInk` | `#92918C` | Metadata and less important text |
-| `rule` | `#34363A` | Borders and separators |
+| `canvas` | `#000000` | App background |
+| `paper` | `#141414` | Card and row surfaces |
+| `formPaper` | `#1C1C1C` | Form and list row surfaces |
+| `ink` | `#F2F2F2` | Primary text |
+| `secondaryInk` | `#C7C7C7` | Secondary labels |
+| `mutedInk` | `#8E8E8E` | Metadata and less important text |
+| `rule` | `#3A3A3A` | Borders and separators |
 | `positive` | `#77C99E` | Receivable / positive balances |
 | `negative` | `#F07C6C` | Payable / negative balances |
 | `accent` | `#E49B63` | Primary accent and selected action |
@@ -139,6 +141,7 @@ Use SF Symbols for functional icons.
 
 - Do not return to a yellow/brown dark-mode background.
 - Do not make dark mode cold blue-gray.
+- Do not reintroduce warm neutral backgrounds, surfaces, text, or separators into production UI.
 - Do not introduce serif typography.
 - Do not split Chinese and English into separate design assumptions only.
 - Do not overuse Liquid Glass.
