@@ -25,7 +25,7 @@ Package.resolved
 *.log
 .env
 .env.*
+AGENTS.md
 
 # App distribution output
 *.xcarchive
-

@@ -42,16 +42,6 @@ struct ContentView: View {
             await store.requestNotificationPermissionIfNeeded()
             await store.bootstrap()
         }
-        .overlay {
-            if store.isLoading {
-                ZStack {
-                    Color.black.opacity(0.10).ignoresSafeArea()
-                    ProgressView()
-                        .padding(18)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-            }
-        }
         .alert(item: Binding(get: { store.urgentAlert }, set: { store.urgentAlert = $0 })) { alert in
             Alert(
                 title: Text(alert.title),
@@ -122,6 +112,7 @@ struct RootHomeView: View {
     @State private var archiveCandidate: WalkGroup?
     @State private var archiveBlockedCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
+    @State private var pendingGroupAction: HomeGroupPendingAction?
 
     private var activeGroups: [WalkGroup] {
         guard let user = store.user else { return store.groups }
@@ -160,9 +151,10 @@ struct RootHomeView: View {
                             LazyVStack(spacing: 16) {
                                 ForEach(activeGroups) { group in
                                     NavigationLink(value: Route.group(group.id)) {
-                                        GroupSummaryRow(group: group)
+                                        GroupSummaryRow(group: group, isPending: pendingGroupAction?.groupID == group.id)
                                     }
                                     .buttonStyle(.plain)
+                                    .disabled(pendingGroupAction != nil)
                                     .onAppear {
                                         if group.id == activeGroups.last?.id {
                                             Task { await store.loadMoreGroups() }
@@ -174,12 +166,14 @@ struct RootHomeView: View {
                                         } label: {
                                             Label(L("Archive group"), systemImage: "archivebox")
                                         }
+                                        .disabled(pendingGroupAction != nil)
 
                                         Button(role: .destructive) {
                                             deleteCandidate = group
                                         } label: {
                                             Label(L("Delete group"), systemImage: "trash")
                                         }
+                                        .disabled(pendingGroupAction != nil)
                                     }
                                 }
 
@@ -285,7 +279,7 @@ struct RootHomeView: View {
             Button(L("Cancel"), role: .cancel) {}
             Button(L("Archive group")) {
                 if let group = archiveCandidate {
-                    Task { _ = await store.archiveGroup(group.id) }
+                    Task { await archiveConfirmed(group) }
                 }
                 archiveCandidate = nil
             }
@@ -304,7 +298,7 @@ struct RootHomeView: View {
             Button(L("Cancel"), role: .cancel) {}
             Button(L("Delete group"), role: .destructive) {
                 if let group = deleteCandidate {
-                    Task { _ = await store.deleteGroup(group.id) }
+                    Task { await deleteConfirmed(group) }
                 }
                 deleteCandidate = nil
             }
@@ -331,6 +325,32 @@ struct RootHomeView: View {
             archiveBlockedCandidate = group
         } else {
             archiveCandidate = group
+        }
+    }
+
+    private func archiveConfirmed(_ group: WalkGroup) async {
+        guard pendingGroupAction == nil else { return }
+        pendingGroupAction = .archive(group.id)
+        _ = await store.archiveGroupWithFeedback(group.id)
+        pendingGroupAction = nil
+    }
+
+    private func deleteConfirmed(_ group: WalkGroup) async {
+        guard pendingGroupAction == nil else { return }
+        pendingGroupAction = .delete(group.id)
+        _ = await store.deleteGroupWithFeedback(group.id)
+        pendingGroupAction = nil
+    }
+}
+
+private enum HomeGroupPendingAction: Equatable {
+    case archive(String)
+    case delete(String)
+
+    var groupID: String {
+        switch self {
+        case .archive(let groupID), .delete(let groupID):
+            return groupID
         }
     }
 }
@@ -389,17 +409,14 @@ private struct JoinGroupSheet: View {
                     Image(systemName: "xmark")
                 }
                 .accessibilityLabel(L("Cancel"))
+                .disabled(isSubmitting)
             }
 
             ToolbarItem(placement: .confirmationAction) {
                 Button {
                     submit()
                 } label: {
-                    if isSubmitting {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "checkmark")
-                    }
+                    AsyncConfirmationIcon(isPending: isSubmitting)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(SoftLedgerTheme.accent)
@@ -420,11 +437,11 @@ private struct JoinGroupSheet: View {
 
         Task {
             let result = await store.joinGroupWithFeedback(code: code)
-            isSubmitting = false
             if result.success {
                 dismiss()
                 onDone()
             } else {
+                isSubmitting = false
                 joinErrorMessage = result.message ?? L("No group matches this ID. Check it and try again.")
             }
         }
@@ -482,6 +499,7 @@ private struct GroupSummaryRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 82
 
     let group: WalkGroup
+    let isPending: Bool
 
     private var myBalance: MoneyMinor {
         if group.hasCurrentUserBalanceSummary {
@@ -528,9 +546,14 @@ private struct GroupSummaryRow: View {
                 .frame(minWidth: amountMinWidth, alignment: .trailing)
                 .layoutPriority(2)
 
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+            if isPending {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+            }
         }
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, verticalPadding)

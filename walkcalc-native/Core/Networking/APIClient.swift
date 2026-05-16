@@ -10,14 +10,14 @@ enum HTTPMethod: String {
 struct APIClient: Sendable {
     #if DEBUG
     var baseURL = URL(string: ProcessInfo.processInfo.environment["WALKCALC_API_BASE_URL"] ?? "http://127.0.0.1:3500")!
-    var webBaseURL = URL(string: ProcessInfo.processInfo.environment["HONG97_WEB_BASE_URL"] ?? "http://127.0.0.1:3000")!
+    var webBaseURL = URL(string: ProcessInfo.processInfo.environment["HONG97_WEB_BASE_URL"] ?? "http://localhost:3000")!
     #else
     var baseURL = URL(string: ProcessInfo.processInfo.environment["WALKCALC_API_BASE_URL"] ?? "https://hong97.ltd/api")!
     var webBaseURL = URL(string: ProcessInfo.processInfo.environment["HONG97_WEB_BASE_URL"] ?? "https://hong97.ltd")!
     #endif
 
     var ledgerAPIEnabled: Bool {
-        Self.environmentFlag("WALKCALC_LEDGER_API_ENABLED")
+        Self.environmentFlag("WALKCALC_LEDGER_API_ENABLED", defaultValue: true)
     }
 
     func loginURL() -> URL {
@@ -228,8 +228,11 @@ struct APIClient: Sendable {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func environmentFlag(_ key: String) -> Bool {
+    private static func environmentFlag(_ key: String, defaultValue: Bool = false) -> Bool {
         guard let rawValue = ProcessInfo.processInfo.environment[key]?.lowercased() else {
+            return defaultValue
+        }
+        if ["0", "false", "no", "off"].contains(rawValue) {
             return false
         }
         return ["1", "true", "yes", "on"].contains(rawValue)
@@ -288,6 +291,7 @@ struct APIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(L10n.serverLanguageCode, forHTTPHeaderField: "x-locale")
         if let token {
+            request.httpShouldHandleCookies = false
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let body, method != .get {

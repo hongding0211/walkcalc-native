@@ -34,6 +34,23 @@ struct SoftLedgerBackground: View {
     }
 }
 
+struct AsyncConfirmationIcon: View {
+    let isPending: Bool
+    var systemImage = "checkmark"
+
+    var body: some View {
+        Group {
+            if isPending {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: systemImage)
+            }
+        }
+        .frame(width: 18, height: 18)
+    }
+}
+
 struct SoftLedgerCard<Content: View>: View {
     var cornerRadius: CGFloat = 16
     var usesGlass = false

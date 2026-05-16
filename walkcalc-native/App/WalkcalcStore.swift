@@ -58,7 +58,6 @@ final class WalkcalcStore: ObservableObject {
     @Published private(set) var groupTotal = 0
     @Published private(set) var isLoadingMoreGroups = false
     @Published var isBootstrapping = true
-    @Published var isLoading = false
     @Published private(set) var isSigningIn = false
     @Published var urgentAlert: StoreAlert?
     @Published var themeColorId: String = UserDefaults.standard.string(forKey: "themeColor") ?? "blue"
@@ -674,8 +673,6 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func joinGroupWithFeedback(code: String) async -> JoinGroupResult {
-        isLoading = true
-        defer { isLoading = false }
         do {
             guard api.ledgerAPIEnabled else {
                 return JoinGroupResult(success: false, message: nil)
@@ -1173,8 +1170,6 @@ final class WalkcalcStore: ObservableObject {
     }
 
     private func withLoadingResult(operation: String, _ action: () async throws -> StoreActionResult) async -> StoreActionResult {
-        isLoading = true
-        defer { isLoading = false }
         do {
             let result = try await action()
             if !result.success {

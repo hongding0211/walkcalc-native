@@ -681,35 +681,52 @@ struct RecordDeleteConfirmationModifier: ViewModifier {
     let groupId: String
     @Binding var record: WalkRecord?
     let onDeleted: (WalkRecord) -> Void
+    @State private var isDeleting = false
 
     func body(content: Content) -> some View {
-        content.alert(
-            L("Confirm delete?"),
-            isPresented: Binding(
-                get: { record != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        record = nil
-                    }
+        content
+            .disabled(isDeleting)
+            .overlay {
+                if isDeleting {
+                    ProgressView()
+                        .padding(18)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-            )
-        ) {
-            Button(L("Cancel"), role: .cancel) {
-                record = nil
             }
-            Button(L("Delete"), role: .destructive) {
-                guard let candidate = record else { return }
-                Task {
-                    if await store.deleteRecord(groupId: groupId, recordId: candidate.recordId) {
-                        onDeleted(candidate)
+            .alert(
+                L("Confirm delete?"),
+                isPresented: Binding(
+                    get: { record != nil && !isDeleting },
+                    set: { isPresented in
+                        if !isPresented, !isDeleting {
+                            record = nil
+                        }
                     }
+                )
+            ) {
+                Button(L("Cancel"), role: .cancel) {
                     record = nil
                 }
+                Button(L("Delete"), role: .destructive) {
+                    guard let candidate = record else { return }
+                    Task {
+                        await delete(candidate)
+                    }
+                }
             }
+    }
+
+    private func delete(_ candidate: WalkRecord) async {
+        guard !isDeleting else { return }
+        isDeleting = true
+        let result = await store.deleteRecordWithFeedback(groupId: groupId, recordId: candidate.recordId)
+        if result.success {
+            onDeleted(candidate)
         }
+        record = nil
+        isDeleting = false
     }
 }
-
 extension View {
     func recordDeleteConfirmation(
         groupId: String,

@@ -79,6 +79,7 @@ struct CreateGroupSheet: View {
     @State private var selectedUsers: [UserProfile] = []
     @State private var tempUsers: [String] = []
     @State private var actionMessage: String?
+    @State private var isSubmitting = false
 
     private var members: [Member] {
         var result: [Member] = []
@@ -91,7 +92,7 @@ struct CreateGroupSheet: View {
     }
 
     private var canCreate: Bool {
-        !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSubmitting
     }
 
     var body: some View {
@@ -124,6 +125,7 @@ struct CreateGroupSheet: View {
                         for user in users where !selectedUsers.contains(user) {
                             selectedUsers.append(user)
                         }
+                        return .success
                     }
                 } label: {
                     Text(L("Add member"))
@@ -135,6 +137,7 @@ struct CreateGroupSheet: View {
                         for name in names where !tempUsers.contains(name) {
                             tempUsers.append(name)
                         }
+                        return .success
                     }
                 } label: {
                     Text(L("Add temporary member"))
@@ -158,29 +161,35 @@ struct CreateGroupSheet: View {
                     Image(systemName: "xmark")
                 }
                 .accessibilityLabel(L("Cancel"))
+                .disabled(isSubmitting)
             }
 
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    Task {
-                        let name = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
-                        actionMessage = nil
-                        let result = await store.createGroupWithFeedback(name: name, users: selectedUsers, tempUsers: tempUsers)
-                        if result.success {
-                            dismiss()
-                            onDone()
-                        } else if let message = result.message {
-                            actionMessage = message
-                        }
-                    }
+                    Task { await submit() }
                 } label: {
-                    Image(systemName: "checkmark")
+                    AsyncConfirmationIcon(isPending: isSubmitting)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(SoftLedgerTheme.accent)
                 .disabled(!canCreate)
                 .accessibilityLabel(L("Create"))
             }
+        }
+    }
+
+    private func submit() async {
+        guard canCreate else { return }
+        let name = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        actionMessage = nil
+        isSubmitting = true
+        let result = await store.createGroupWithFeedback(name: name, users: selectedUsers, tempUsers: tempUsers)
+        if result.success {
+            dismiss()
+            onDone()
+        } else {
+            isSubmitting = false
+            actionMessage = result.message
         }
     }
 }
@@ -284,9 +293,18 @@ private struct AddTemporaryMemberView: View {
     @Environment(\.dismiss) private var dismiss
 
     let existingNames: Set<String>
-    let onAdd: ([String]) -> Void
+    let showsSubmitProgress: Bool
+    let onAdd: ([String]) async -> StoreActionResult
     @State private var name = ""
     @State private var selectedNames: [String] = []
+    @State private var actionMessage: String?
+    @State private var isSubmitting = false
+
+    init(existingNames: Set<String>, showsSubmitProgress: Bool = false, onAdd: @escaping ([String]) async -> StoreActionResult) {
+        self.existingNames = existingNames
+        self.showsSubmitProgress = showsSubmitProgress
+        self.onAdd = onAdd
+    }
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -298,7 +316,7 @@ private struct AddTemporaryMemberView: View {
     }
 
     private var canAdd: Bool {
-        !selectedNames.isEmpty
+        !selectedNames.isEmpty && !isSubmitting
     }
 
     private var existingNameKeys: Set<String> {
@@ -347,6 +365,15 @@ private struct AddTemporaryMemberView: View {
                 }
                 .listRowBackground(SoftLedgerTheme.formPaper)
             }
+
+            if let actionMessage {
+                Section {
+                    Text(actionMessage)
+                        .font(.footnote)
+                        .foregroundStyle(SoftLedgerTheme.negative)
+                }
+                .listRowBackground(SoftLedgerTheme.formPaper)
+            }
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
@@ -359,7 +386,7 @@ private struct AddTemporaryMemberView: View {
                 Button {
                     submit()
                 } label: {
-                    Image(systemName: "checkmark")
+                    AsyncConfirmationIcon(isPending: showsSubmitProgress && isSubmitting)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(SoftLedgerTheme.accent)
@@ -381,8 +408,18 @@ private struct AddTemporaryMemberView: View {
 
     private func submit() {
         guard canAdd else { return }
-        onAdd(selectedNames)
-        dismiss()
+        let names = selectedNames
+        actionMessage = nil
+        isSubmitting = true
+        Task {
+            let result = await onAdd(names)
+            if result.success {
+                dismiss()
+            } else {
+                isSubmitting = false
+                actionMessage = result.message
+            }
+        }
     }
 
     private func nameKey(_ value: String) -> String {
@@ -493,6 +530,8 @@ struct ArchivedGroupsView: View {
 
     let groups: [WalkGroup]
     @State private var deleteCandidate: WalkGroup?
+    @State private var pendingAction: ArchivedGroupPendingAction?
+    @State private var actionMessage: String?
 
     var body: some View {
         Form {
@@ -501,6 +540,12 @@ struct ArchivedGroupsView: View {
                     Text(L("No archived groups"))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 } else {
+                    if let actionMessage {
+                        Text(actionMessage)
+                            .font(.footnote)
+                            .foregroundStyle(SoftLedgerTheme.negative)
+                    }
+
                     ForEach(groups) { group in
                         HStack(spacing: rowSpacing) {
                             VStack(alignment: .leading, spacing: textSpacing) {
@@ -515,34 +560,45 @@ struct ArchivedGroupsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                             Button {
-                                Task { _ = await store.unarchiveGroup(group.id) }
+                                Task { await restore(group) }
                             } label: {
-                                Text(L("Restore"))
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(SoftLedgerTheme.accent)
-                                    .padding(.horizontal, restoreHorizontalPadding)
-                                    .frame(minHeight: restoreMinHeight)
-                                    .contentShape(Rectangle())
+                                if pendingAction?.groupID == group.id {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .frame(minWidth: 64, minHeight: restoreMinHeight)
+                                } else {
+                                    Text(L("Restore"))
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(SoftLedgerTheme.accent)
+                                        .padding(.horizontal, restoreHorizontalPadding)
+                                        .frame(minHeight: restoreMinHeight)
+                                        .contentShape(Rectangle())
+                                }
                             }
                             .buttonStyle(.plain)
+                            .disabled(pendingAction != nil)
                         }
                         .contextMenu {
                             Button(L("Restore")) {
-                                Task { _ = await store.unarchiveGroup(group.id) }
+                                Task { await restore(group) }
                             }
+                            .disabled(pendingAction != nil)
                             Button(L("Delete"), role: .destructive) {
                                 deleteCandidate = group
                             }
+                            .disabled(pendingAction != nil)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(L("Delete"), role: .destructive) {
                                 deleteCandidate = group
                             }
+                            .disabled(pendingAction != nil)
 
                             Button(L("Restore")) {
-                                Task { _ = await store.unarchiveGroup(group.id) }
+                                Task { await restore(group) }
                             }
                             .tint(SoftLedgerTheme.accent)
+                            .disabled(pendingAction != nil)
                         }
                     }
                 }
@@ -557,7 +613,7 @@ struct ArchivedGroupsView: View {
             Button(L("Cancel"), role: .cancel) {}
             Button(L("Delete group"), role: .destructive) {
                 if let group = deleteCandidate {
-                    Task { _ = await store.deleteGroup(group.id) }
+                    Task { await delete(group) }
                 }
                 deleteCandidate = nil
             }
@@ -565,6 +621,40 @@ struct ArchivedGroupsView: View {
             if deleteCandidate?.shouldShowDeleteResolutionNotice == true {
                 Text(L("Any unresolved balances will be automatically resolved to zero before this group is deleted."))
             }
+        }
+    }
+
+    private func restore(_ group: WalkGroup) async {
+        guard pendingAction == nil else { return }
+        actionMessage = nil
+        pendingAction = .restore(group.id)
+        let result = await store.unarchiveGroupWithFeedback(group.id)
+        if !result.success {
+            actionMessage = result.message
+        }
+        pendingAction = nil
+    }
+
+    private func delete(_ group: WalkGroup) async {
+        guard pendingAction == nil else { return }
+        actionMessage = nil
+        pendingAction = .delete(group.id)
+        let result = await store.deleteGroupWithFeedback(group.id)
+        if !result.success {
+            actionMessage = result.message
+        }
+        pendingAction = nil
+    }
+}
+
+private enum ArchivedGroupPendingAction: Equatable {
+    case restore(String)
+    case delete(String)
+
+    var groupID: String {
+        switch self {
+        case .restore(let groupID), .delete(let groupID):
+            return groupID
         }
     }
 }
@@ -582,6 +672,7 @@ struct GroupSettingsSheet: View {
     @State private var confirmation: GroupSettingsConfirmation?
     @State private var isShowingArchiveBlockedAlert = false
     @State private var actionMessage: String?
+    @State private var pendingAction: GroupSettingsPendingAction?
 
     init(group: WalkGroup, onDone: @escaping () -> Void, onArchive: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.group = group
@@ -593,6 +684,10 @@ struct GroupSettingsSheet: View {
 
     private var currentGroup: WalkGroup {
         store.group(id: group.id) ?? group
+    }
+
+    private var isSubmitting: Bool {
+        pendingAction != nil
     }
 
     var body: some View {
@@ -637,14 +732,13 @@ struct GroupSettingsSheet: View {
 
             Section(L("Members")) {
                 NavigationLink {
-                    AddMemberSearchView(existingMemberIds: Set(currentGroup.allMembers.map(\.uuid))) { users in
-                        Task {
-                            actionMessage = nil
-                            let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
-                            if !result.success {
-                                actionMessage = result.message
-                            }
+                    AddMemberSearchView(existingMemberIds: Set(currentGroup.allMembers.map(\.uuid)), showsSubmitProgress: true) { users in
+                        actionMessage = nil
+                        let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
+                        if !result.success {
+                            actionMessage = result.message
                         }
+                        return result
                     }
                 } label: {
                     Text(L("Add member"))
@@ -652,14 +746,13 @@ struct GroupSettingsSheet: View {
                 }
 
                 NavigationLink {
-                    AddTemporaryMemberView(existingNames: Set(currentGroup.tempUsers.map(\.name))) { values in
-                        Task {
-                            actionMessage = nil
-                            let result = await store.addMembersWithFeedback(groupId: group.id, users: [], tempUsers: values)
-                            if !result.success {
-                                actionMessage = result.message
-                            }
+                    AddTemporaryMemberView(existingNames: Set(currentGroup.tempUsers.map(\.name)), showsSubmitProgress: true) { values in
+                        actionMessage = nil
+                        let result = await store.addMembersWithFeedback(groupId: group.id, users: [], tempUsers: values)
+                        if !result.success {
+                            actionMessage = result.message
                         }
+                        return result
                     }
                 } label: {
                     Text(L("Add temporary member"))
@@ -676,19 +769,38 @@ struct GroupSettingsSheet: View {
                         confirmation = .archive
                     }
                 } label: {
-                    Text(L("Archive group"))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    HStack {
+                        Text(L("Archive group"))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        if pendingAction == .archive {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(isSubmitting)
 
-                Button(L("Delete group"), role: .destructive) {
+                Button(role: .destructive) {
                     confirmation = .delete
+                } label: {
+                    HStack {
+                        Text(L("Delete group"))
+                        Spacer()
+                        if pendingAction == .delete {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
                 }
+                .disabled(isSubmitting)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
         }
+        .disabled(isSubmitting)
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
         .tint(SoftLedgerTheme.accent)
@@ -704,28 +816,18 @@ struct GroupSettingsSheet: View {
                     Image(systemName: "xmark")
                 }
                 .accessibilityLabel(L("Cancel"))
+                .disabled(isSubmitting)
             }
 
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    Task {
-                        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmed.isEmpty, trimmed != group.name {
-                            actionMessage = nil
-                            let result = await store.changeGroupNameWithFeedback(group.id, name: trimmed)
-                            if !result.success {
-                                actionMessage = result.message
-                                return
-                            }
-                        }
-                        dismiss()
-                        onDone()
-                    }
+                    Task { await saveAndDismiss() }
                 } label: {
-                    Image(systemName: "checkmark")
+                    AsyncConfirmationIcon(isPending: pendingAction == .rename)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(SoftLedgerTheme.accent)
+                .disabled(isSubmitting)
                 .accessibilityLabel(L("Done"))
             }
         }
@@ -734,31 +836,13 @@ struct GroupSettingsSheet: View {
             case .archive:
                 Button(L("Archive group")) {
                     confirmation = nil
-                    Task {
-                        actionMessage = nil
-                        let result = await store.archiveGroupWithFeedback(group.id)
-                        if result.success {
-                            dismiss()
-                            onArchive()
-                        } else if let message = result.message {
-                            actionMessage = message
-                        }
-                    }
+                    Task { await archiveGroup() }
                 }
                 .keyboardShortcut(.defaultAction)
             case .delete:
                 Button(L("Delete group"), role: .destructive) {
                     confirmation = nil
-                    Task {
-                        actionMessage = nil
-                        let result = await store.deleteGroupWithFeedback(group.id)
-                        if result.success {
-                            dismiss()
-                            onDelete()
-                        } else if let message = result.message {
-                            actionMessage = message
-                        }
-                    }
+                    Task { await deleteGroup() }
                 }
             case nil:
                 EmptyView()
@@ -795,6 +879,52 @@ struct GroupSettingsSheet: View {
             set: { if !$0 { confirmation = nil } }
         )
     }
+
+    private func saveAndDismiss() async {
+        guard !isSubmitting else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, trimmed != group.name {
+            actionMessage = nil
+            pendingAction = .rename
+            let result = await store.changeGroupNameWithFeedback(group.id, name: trimmed)
+            if !result.success {
+                pendingAction = nil
+                actionMessage = result.message
+                return
+            }
+            pendingAction = nil
+        }
+        dismiss()
+        onDone()
+    }
+
+    private func archiveGroup() async {
+        guard !isSubmitting else { return }
+        actionMessage = nil
+        pendingAction = .archive
+        let result = await store.archiveGroupWithFeedback(group.id)
+        if result.success {
+            dismiss()
+            onArchive()
+        } else {
+            pendingAction = nil
+            actionMessage = result.message
+        }
+    }
+
+    private func deleteGroup() async {
+        guard !isSubmitting else { return }
+        actionMessage = nil
+        pendingAction = .delete
+        let result = await store.deleteGroupWithFeedback(group.id)
+        if result.success {
+            dismiss()
+            onDelete()
+        } else {
+            pendingAction = nil
+            actionMessage = result.message
+        }
+    }
 }
 
 enum GroupSettingsConfirmation: Identifiable {
@@ -807,6 +937,12 @@ enum GroupSettingsConfirmation: Identifiable {
         case .delete: "delete"
         }
     }
+}
+
+private enum GroupSettingsPendingAction {
+    case rename
+    case archive
+    case delete
 }
 
 private struct GroupMembersView: View {
@@ -891,17 +1027,16 @@ struct PeopleSetupSheet: View {
         Form {
             Section {
                 NavigationLink {
-                    AddMemberSearchView(existingMemberIds: Set(group.allMembers.map(\.uuid))) { users in
-                        Task {
-                            actionMessage = nil
-                            let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
-                            if result.success {
-                                dismiss()
-                                onDone()
-                            } else if let message = result.message {
-                                actionMessage = message
-                            }
+                    AddMemberSearchView(existingMemberIds: Set(group.allMembers.map(\.uuid)), showsSubmitProgress: true) { users in
+                        actionMessage = nil
+                        let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
+                        if result.success {
+                            dismiss()
+                            onDone()
+                        } else if let message = result.message {
+                            actionMessage = message
                         }
+                        return result
                     }
                 } label: {
                     Text(L("Add member"))
@@ -909,17 +1044,16 @@ struct PeopleSetupSheet: View {
                 }
 
                 NavigationLink {
-                    AddTemporaryMemberView(existingNames: Set(group.tempUsers.map(\.name))) { values in
-                        Task {
-                            actionMessage = nil
-                            let result = await store.addMembersWithFeedback(groupId: group.id, users: [], tempUsers: values)
-                            if result.success {
-                                dismiss()
-                                onDone()
-                            } else if let message = result.message {
-                                actionMessage = message
-                            }
+                    AddTemporaryMemberView(existingNames: Set(group.tempUsers.map(\.name)), showsSubmitProgress: true) { values in
+                        actionMessage = nil
+                        let result = await store.addMembersWithFeedback(groupId: group.id, users: [], tempUsers: values)
+                        if result.success {
+                            dismiss()
+                            onDone()
+                        } else if let message = result.message {
+                            actionMessage = message
                         }
+                        return result
                     }
                 } label: {
                     Text(L("Add temporary member"))
@@ -959,16 +1093,25 @@ struct AddMemberSearchView: View {
     @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
 
     let existingMemberIds: Set<String>
-    let onAdd: ([UserProfile]) -> Void
+    let showsSubmitProgress: Bool
+    let onAdd: ([UserProfile]) async -> StoreActionResult
 
     @State private var searchText = ""
     @State private var results: [UserProfile] = []
     @State private var selectedUsers: [UserProfile] = []
     @State private var isSearching = false
     @State private var completedSearchText = ""
+    @State private var actionMessage: String?
+    @State private var isSubmitting = false
+
+    init(existingMemberIds: Set<String>, showsSubmitProgress: Bool = false, onAdd: @escaping ([UserProfile]) async -> StoreActionResult) {
+        self.existingMemberIds = existingMemberIds
+        self.showsSubmitProgress = showsSubmitProgress
+        self.onAdd = onAdd
+    }
 
     private var canAdd: Bool {
-        !selectedUsers.isEmpty
+        !selectedUsers.isEmpty && !isSubmitting
     }
 
     private var trimmedSearchText: String {
@@ -1058,6 +1201,15 @@ struct AddMemberSearchView: View {
                 }
                 .listRowBackground(SoftLedgerTheme.formPaper)
             }
+
+            if let actionMessage {
+                Section {
+                    Text(actionMessage)
+                        .font(.footnote)
+                        .foregroundStyle(SoftLedgerTheme.negative)
+                }
+                .listRowBackground(SoftLedgerTheme.formPaper)
+            }
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
@@ -1068,10 +1220,9 @@ struct AddMemberSearchView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    onAdd(selectedUsers)
-                    dismiss()
+                    submit()
                 } label: {
-                    Image(systemName: "checkmark")
+                    AsyncConfirmationIcon(isPending: showsSubmitProgress && isSubmitting)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(SoftLedgerTheme.accent)
@@ -1138,6 +1289,22 @@ struct AddMemberSearchView: View {
     private func remove(_ user: UserProfile) {
         selectedUsers.removeAll { $0.uuid == user.uuid }
     }
+
+    private func submit() {
+        guard canAdd else { return }
+        let users = selectedUsers
+        actionMessage = nil
+        isSubmitting = true
+        Task {
+            let result = await onAdd(users)
+            if result.success {
+                dismiss()
+            } else {
+                isSubmitting = false
+                actionMessage = result.message
+            }
+        }
+    }
 }
 
 struct RecordEditorView: View {
@@ -1158,6 +1325,7 @@ struct RecordEditorView: View {
     @State private var message: String?
     @State private var deleteCandidate: WalkRecord?
     @State private var hasEditIntent: Bool
+    @State private var isSubmitting = false
 
     init(groupId: String, record: WalkRecord? = nil, onDone: @escaping () -> Void) {
         self.groupId = groupId
@@ -1243,10 +1411,12 @@ struct RecordEditorView: View {
                         deleteCandidate = record
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
+                    .disabled(isSubmitting)
                 }
                 .listRowBackground(SoftLedgerTheme.formPaper)
             }
         }
+        .disabled(isSubmitting)
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.interactively)
         .background(SoftLedgerTheme.canvas)
@@ -1262,17 +1432,18 @@ struct RecordEditorView: View {
                         Image(systemName: "xmark")
                     }
                     .accessibilityLabel(L("Cancel"))
+                    .disabled(isSubmitting)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await submit() }
                     } label: {
-                        Image(systemName: "checkmark")
+                        AsyncConfirmationIcon(isPending: isSubmitting)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(SoftLedgerTheme.accent)
-                    .disabled(!canSave)
+                    .disabled(!canSave || isSubmitting)
                     .accessibilityLabel(L("Save"))
                 }
             }
@@ -1328,6 +1499,7 @@ struct RecordEditorView: View {
     }
 
     private func submit() async {
+        guard !isSubmitting else { return }
         do {
             _ = try Money.parseDisplay(amount)
         } catch {
@@ -1339,6 +1511,8 @@ struct RecordEditorView: View {
             return
         }
 
+        message = nil
+        isSubmitting = true
         let result: StoreActionResult
         if let record {
             result = await store.editRecordWithFeedback(
@@ -1367,8 +1541,11 @@ struct RecordEditorView: View {
         if result.success {
             dismiss()
             onDone()
-        } else if let resultMessage = result.message {
-            message = resultMessage
+        } else {
+            isSubmitting = false
+            if let resultMessage = result.message {
+                message = resultMessage
+            }
         }
     }
 }
@@ -1670,6 +1847,9 @@ private struct BalancesRootView: View {
     @State private var showsResolveConfirmation = false
     @State private var pendingResolveMode = ResolveMode.all
     @State private var pendingResolveDebts: [ResolvedDebt] = []
+    @State private var resolvingMode: ResolveMode?
+    @State private var resolvingDebtID: UUID?
+    @State private var resolveMessage: String?
     @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
@@ -1724,6 +1904,10 @@ private struct BalancesRootView: View {
         )
     }
 
+    private var isResolving: Bool {
+        resolvingMode != nil
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             SoftLedgerBackground()
@@ -1757,11 +1941,21 @@ private struct BalancesRootView: View {
                     }
 
                     if !debts.isEmpty {
-                        SettlementPlanSection(debts: debts) { debt in
+                        SettlementPlanSection(
+                            debts: debts,
+                            resolvingDebtID: resolvingDebtID,
+                            isDisabled: isResolving
+                        ) { debt in
                             pendingResolveMode = .single
                             pendingResolveDebts = [debt]
                             showsResolveConfirmation = true
                         }
+                    }
+
+                    if let resolveMessage {
+                        Text(resolveMessage)
+                            .font(.footnote)
+                            .foregroundStyle(SoftLedgerTheme.negative)
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
@@ -1770,13 +1964,22 @@ private struct BalancesRootView: View {
             }
 
             if !debts.isEmpty {
-                Button(resolveAllTitle) {
+                Button {
                     pendingResolveMode = .all
                     pendingResolveDebts = debts
                     showsResolveConfirmation = true
+                } label: {
+                    HStack(spacing: 8) {
+                        if resolvingMode == .all {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(resolveAllTitle)
+                    }
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
+                .disabled(isResolving)
                 .padding(.bottom, resolveButtonBottomPadding)
             }
         }
@@ -1796,18 +1999,10 @@ private struct BalancesRootView: View {
                 pendingResolveDebts = []
                 pendingResolveMode = .all
 
-                Task {
-                    switch resolveMode {
-                    case .all:
-                        _ = await store.resolveAll(groupId: group.id, debts: debtsToResolve)
-                    case .single:
-                        guard let debt = debtsToResolve.first else { return }
-                        _ = await store.resolveSingle(groupId: group.id, debt: debt)
-                    }
-                }
+                Task { await resolve(mode: resolveMode, debts: debtsToResolve) }
             }
             .keyboardShortcut(.defaultAction)
-            .disabled(pendingResolveDebts.isEmpty)
+            .disabled(pendingResolveDebts.isEmpty || isResolving)
         } message: {
             if !resolveConfirmationMessage.isEmpty {
                 Text(resolveConfirmationMessage)
@@ -1828,6 +2023,32 @@ private struct BalancesRootView: View {
         case all
         case single
     }
+
+    private func resolve(mode: ResolveMode, debts: [ResolvedDebt]) async {
+        guard !isResolving else { return }
+        resolveMessage = nil
+        resolvingMode = mode
+        resolvingDebtID = mode == .single ? debts.first?.id : nil
+
+        let result: StoreActionResult
+        switch mode {
+        case .all:
+            result = await store.resolveAllWithFeedback(groupId: group.id, debts: debts)
+        case .single:
+            guard let debt = debts.first else {
+                resolvingMode = nil
+                resolvingDebtID = nil
+                return
+            }
+            result = await store.resolveSingleWithFeedback(groupId: group.id, debt: debt)
+        }
+
+        if !result.success {
+            resolveMessage = result.message
+        }
+        resolvingMode = nil
+        resolvingDebtID = nil
+    }
 }
 
 private struct SettlementPlanSection: View {
@@ -1835,6 +2056,8 @@ private struct SettlementPlanSection: View {
     @ScaledMetric(relativeTo: .subheadline) private var cardSpacing = 10
 
     let debts: [ResolvedDebt]
+    let resolvingDebtID: UUID?
+    let isDisabled: Bool
     let onResolve: (ResolvedDebt) -> Void
 
     var body: some View {
@@ -1845,9 +2068,10 @@ private struct SettlementPlanSection: View {
 
             LazyVStack(spacing: cardSpacing) {
                 ForEach(debts) { debt in
-                    SettlementPlanRow(debt: debt) {
+                    SettlementPlanRow(debt: debt, isResolving: resolvingDebtID == debt.id) {
                         onResolve(debt)
                     }
+                    .disabled(isDisabled)
                 }
             }
         }
@@ -1870,6 +2094,7 @@ private struct SettlementPlanRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
 
     let debt: ResolvedDebt
+    let isResolving: Bool
     let onResolve: () -> Void
 
     var body: some View {
@@ -1918,10 +2143,17 @@ private struct SettlementPlanRow: View {
                 .frame(minWidth: amountMinWidth, alignment: .trailing)
                 .layoutPriority(3)
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: chevronSize, weight: .semibold))
-                .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.64))
-                .accessibilityHidden(true)
+            if isResolving {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: chevronSize, height: chevronSize)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: chevronSize, weight: .semibold))
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.64))
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, cardHorizontalPadding)
         .padding(.vertical, cardVerticalPadding)
