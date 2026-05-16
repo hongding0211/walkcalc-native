@@ -240,6 +240,7 @@ private struct RecordSearchCanvas: View {
                 .focused($isSearchFocused)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
+                .softLedgerAccentTint()
                 .submitLabel(.search)
 
             if !query.isEmpty {

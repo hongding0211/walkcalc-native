@@ -27,7 +27,7 @@ enum SoftLedgerTheme {
 }
 
 private struct SoftLedgerAppThemeKey: EnvironmentKey {
-    static let defaultValue: AppTheme = .yellow
+    static let defaultValue: AppTheme = .defaultTheme
 }
 
 extension EnvironmentValues {

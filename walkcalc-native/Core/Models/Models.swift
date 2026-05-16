@@ -188,9 +188,9 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
         case .yellow:
             return Self.adaptiveColor(light: 0xB15525, dark: 0xE49B63)
         case .blue:
-            return Color(uiColor: .systemBlue)
+            return Self.adaptiveColor(light: 0x2C6AA0, dark: 0x6EA3D0)
         case .green:
-            return Self.adaptiveColor(light: 0x17845B, dark: 0x78DFA8)
+            return Self.adaptiveColor(light: 0x1D6F50, dark: 0x6FBC8D)
         case .black:
             return Self.adaptiveColor(light: 0x18181B, dark: 0xFAFAFA)
         }
@@ -201,9 +201,9 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
         case .yellow:
             return Self.adaptiveUIColor(light: 0xB15525, dark: 0xE49B63)
         case .blue:
-            return .systemBlue
+            return Self.adaptiveUIColor(light: 0x2C6AA0, dark: 0x6EA3D0)
         case .green:
-            return Self.adaptiveUIColor(light: 0x17845B, dark: 0x78DFA8)
+            return Self.adaptiveUIColor(light: 0x1D6F50, dark: 0x6FBC8D)
         case .black:
             return Self.adaptiveUIColor(light: 0x18181B, dark: 0xFAFAFA)
         }
@@ -214,9 +214,9 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
         case .yellow:
             return Self.adaptiveColor(light: 0xEDCBA4, dark: 0x38322F)
         case .blue:
-            return Self.adaptiveColor(light: 0xD8E8FF, dark: 0x16324F)
+            return Self.adaptiveColor(light: 0xDCE7F1, dark: 0x1A2F40)
         case .green:
-            return Self.adaptiveColor(light: 0xDDF5EA, dark: 0x173629)
+            return Self.adaptiveColor(light: 0xDCEBE3, dark: 0x1A3327)
         case .black:
             return Self.adaptiveColor(light: 0xF4F4F5, dark: 0x27272A)
         }
@@ -227,9 +227,9 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
         case .yellow:
             return Color(hex: 0xB15525)
         case .blue:
-            return Color(uiColor: .systemBlue)
+            return Color(hex: 0x2C6AA0)
         case .green:
-            return Color(hex: 0x17845B)
+            return Color(hex: 0x1D6F50)
         case .black:
             return Color(hex: 0x18181B)
         }
@@ -240,9 +240,9 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
         case .yellow:
             return Color(hex: 0xEDCBA4)
         case .blue:
-            return Color(hex: 0xD8E8FF)
+            return Color(hex: 0xDCE7F1)
         case .green:
-            return Color(hex: 0xDDF5EA)
+            return Color(hex: 0xDCEBE3)
         case .black:
             return Color(hex: 0xF4F4F5)
         }

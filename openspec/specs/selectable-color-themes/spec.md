@@ -7,21 +7,21 @@ Define the supported selectable app themes, how theme choice persists locally, a
 ## Requirements
 
 ### Requirement: Supported App Themes
-The app SHALL provide exactly four selectable color themes: system blue, black, yellow, and green.
+The app SHALL provide exactly four selectable color themes: blue, black, yellow, and green.
 
 #### Scenario: Theme list is shown
 - **WHEN** the app presents the theme picker
-- **THEN** the available choices are shown in this order: system blue, black, yellow, and green
+- **THEN** the available choices are shown in this order: blue, black, yellow, and green
 - **AND** each choice has a stable identifier, accessibility label, and visible color preview
 
 #### Scenario: Default theme is needed
 - **WHEN** no supported theme preference has been saved
-- **THEN** the app uses the system blue theme
-- **AND** the system blue theme uses the platform blue accent direction
+- **THEN** the app uses the blue theme
+- **AND** the blue theme uses a restrained platform-blue accent direction
 
 #### Scenario: Unsupported theme value is encountered
 - **WHEN** persisted theme data contains an unknown or no-longer-supported value
-- **THEN** the app falls back to the system blue theme
+- **THEN** the app falls back to the blue theme
 - **AND** the app does not crash or show an empty picker selection
 
 ### Requirement: Theme Selection Persists Locally
@@ -38,7 +38,7 @@ The app SHALL persist the selected theme locally and restore it across launches.
 
 #### Scenario: Legacy color preference exists
 - **WHEN** the app has an older local `themeColor` preference but no new selected theme value
-- **THEN** the app maps `blue` to system blue, `green` to green, `gold` to yellow, and unsupported legacy values to system blue
+- **THEN** the app maps `blue` to blue, `green` to green, `gold` to yellow, and unsupported legacy values to blue
 
 ### Requirement: Selected Theme Applies To Explicit Accent-Owned UI
 The app SHALL apply the selected theme to explicitly accent-owned UI consistently across production SwiftUI screens without recoloring UI that previously used secondary, tertiary, primary, or inherited default styling.

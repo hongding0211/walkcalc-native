@@ -384,6 +384,7 @@ private struct JoinGroupSheet: View {
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .focused($isGroupIDFocused)
+                    .softLedgerAccentTint()
                     .submitLabel(.join)
                     .onSubmit(submit)
                     .onChange(of: groupID) { _, newValue in

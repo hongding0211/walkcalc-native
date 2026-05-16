@@ -100,6 +100,7 @@ struct CreateGroupSheet: View {
             Section(L("Group")) {
                 TextField(L("Name"), text: $groupName)
                     .textInputAutocapitalization(.words)
+                    .softLedgerAccentTint()
 
                 if let actionMessage {
                     Text(actionMessage)
@@ -332,6 +333,7 @@ private struct AddTemporaryMemberView: View {
                 HStack(spacing: 12) {
                     TextField(L("Name"), text: $name)
                         .textInputAutocapitalization(.words)
+                        .softLedgerAccentTint()
                         .submitLabel(.done)
                         .onSubmit(addCandidate)
 
@@ -791,6 +793,7 @@ struct GroupSettingsSheet: View {
                     TextField(L("Group name"), text: $name)
                         .textInputAutocapitalization(.words)
                         .multilineTextAlignment(.trailing)
+                        .softLedgerAccentTint()
                 }
 
                 HStack {
@@ -1243,6 +1246,7 @@ struct AddMemberSearchView: View {
                 TextField(L("Search by name"), text: $searchText)
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
+                    .softLedgerAccentTint()
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
@@ -1466,6 +1470,7 @@ struct RecordEditorView: View {
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .minimumScaleFactor(0.72)
                         .focused($focusedField, equals: .amount)
+                        .softLedgerAccentTint()
                 }
                 .padding(.vertical, 10)
             }
@@ -1485,6 +1490,7 @@ struct RecordEditorView: View {
                 TextField(L("Optional note"), text: $note, axis: .vertical)
                     .lineLimit(3, reservesSpace: true)
                     .focused($focusedField, equals: .note)
+                    .softLedgerAccentTint()
 
                 if let message {
                     Text(message)
