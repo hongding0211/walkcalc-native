@@ -129,6 +129,11 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
+    func prepareNetworkAccessForStartup() async {
+        guard !isFixtureMode else { return }
+        await api.warmUpNetworkAccess()
+    }
+
     func setTheme(_ theme: AppTheme) {
         selectedTheme = theme
         theme.persist()

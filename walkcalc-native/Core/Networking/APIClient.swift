@@ -40,6 +40,16 @@ struct APIClient: Sendable {
         webBaseURL.appendingPathComponent("auth/callback").absoluteString
     }
 
+    func warmUpNetworkAccess() async {
+        await withTaskGroup(of: Void.self) { group in
+            for url in networkWarmUpURLs() {
+                group.addTask {
+                    await Self.sendWarmUpRequest(to: url)
+                }
+            }
+        }
+    }
+
     func userInfo(token: String) async throws -> APIEnvelope<UserProfile> {
         try await request(.get, path: "/auth/info", token: token, mapper: mapUser)
     }
@@ -236,6 +246,25 @@ struct APIClient: Sendable {
             return false
         }
         return ["1", "true", "yes", "on"].contains(rawValue)
+    }
+
+    private func networkWarmUpURLs() -> [URL] {
+        var seen = Set<String>()
+        return [baseURL, webBaseURL].filter { url in
+            let key = url.absoluteString
+            guard !seen.contains(key) else { return false }
+            seen.insert(key)
+            return true
+        }
+    }
+
+    private static func sendWarmUpRequest(to url: URL) async {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.timeoutInterval = 2
+        request.setValue(L10n.serverLanguageCode, forHTTPHeaderField: "x-locale")
+        _ = try? await URLSession.shared.data(for: request)
     }
 
     private func request<T>(_ method: HTTPMethod, path: String, query: [String: String] = [:], token: String, body: [String: Any]? = nil, mapper: (Any?) -> T) async throws -> APIEnvelope<T> {

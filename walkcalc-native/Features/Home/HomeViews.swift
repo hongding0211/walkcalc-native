@@ -40,6 +40,7 @@ struct ContentView: View {
             }
         }
         .task {
+            await store.prepareNetworkAccessForStartup()
             await store.requestNotificationPermissionIfNeeded()
             await store.bootstrap()
         }
