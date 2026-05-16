@@ -11,9 +11,7 @@ enum SoftLedgerTheme {
     static let rule = adaptive(light: 0xD9D9D9, dark: 0x3A3A3A)
     static let positive = adaptive(light: 0x167454, dark: 0x77C99E)
     static let negative = adaptive(light: 0xAC2F24, dark: 0xF07C6C)
-    static let accent = adaptive(light: 0xB15525, dark: 0xE49B63)
-    static let accentUIColor = adaptiveUIColor(light: 0xB15525, dark: 0xE49B63)
-    static let accentSoft = adaptive(light: 0xEDCBA4, dark: 0x38322F)
+    static let yellowAccent = adaptive(light: 0xB15525, dark: 0xE49B63)
 
     private static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(UIColor { traitCollection in
@@ -25,6 +23,43 @@ enum SoftLedgerTheme {
         UIColor { traitCollection in
             UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
         }
+    }
+}
+
+private struct SoftLedgerAppThemeKey: EnvironmentKey {
+    static let defaultValue: AppTheme = .yellow
+}
+
+extension EnvironmentValues {
+    var softLedgerAppTheme: AppTheme {
+        get { self[SoftLedgerAppThemeKey.self] }
+        set { self[SoftLedgerAppThemeKey.self] = newValue }
+    }
+}
+
+private struct SoftLedgerAccentTintModifier: ViewModifier {
+    @Environment(\.softLedgerAppTheme) private var appTheme
+
+    func body(content: Content) -> some View {
+        content.tint(appTheme.accent)
+    }
+}
+
+private struct SoftLedgerAccentForegroundModifier: ViewModifier {
+    @Environment(\.softLedgerAppTheme) private var appTheme
+
+    func body(content: Content) -> some View {
+        content.foregroundStyle(appTheme.accent)
+    }
+}
+
+extension View {
+    func softLedgerAccentTint() -> some View {
+        modifier(SoftLedgerAccentTintModifier())
+    }
+
+    func softLedgerAccentForeground() -> some View {
+        modifier(SoftLedgerAccentForegroundModifier())
     }
 }
 
@@ -399,7 +434,7 @@ struct ExpenseCategory: Identifiable, Hashable {
 let expenseCategories: [ExpenseCategory] = [
     .init(id: "food", titleKey: "Meal", symbol: "fork.knife", color: Color(red: 0.188, green: 0.424, blue: 0.537)),
     .init(id: "beverage", titleKey: "Drink", symbol: "cup.and.saucer.fill", color: Color(red: 0.522, green: 0.384, blue: 0.250)),
-    .init(id: "accommodation", titleKey: "Hotel", symbol: "bed.double.fill", color: SoftLedgerTheme.accent),
+    .init(id: "accommodation", titleKey: "Hotel", symbol: "bed.double.fill", color: SoftLedgerTheme.yellowAccent),
     .init(id: "shopping", titleKey: "Shopping", symbol: "cart.fill", color: Color(red: 0.314, green: 0.470, blue: 0.760)),
     .init(id: "traffic", titleKey: "Transport", symbol: "tram.fill", color: SoftLedgerTheme.positive),
     .init(id: "stay", titleKey: "Stay", symbol: "house.fill", color: Color(red: 0.376, green: 0.570, blue: 0.494)),

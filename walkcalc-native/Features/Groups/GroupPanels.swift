@@ -148,7 +148,6 @@ struct CreateGroupSheet: View {
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
-        .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Create group"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap()
@@ -171,7 +170,7 @@ struct CreateGroupSheet: View {
                     AsyncConfirmationIcon(isPending: isSubmitting)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(SoftLedgerTheme.accent)
+                .softLedgerAccentTint()
                 .disabled(!canCreate)
                 .accessibilityLabel(L("Create"))
             }
@@ -342,7 +341,7 @@ private struct AddTemporaryMemberView: View {
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(SoftLedgerTheme.accent)
+                                .softLedgerAccentForeground()
                         }
                         .buttonStyle(.borderless)
                         .accessibilityLabel(L("Add"))
@@ -377,7 +376,6 @@ private struct AddTemporaryMemberView: View {
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
-        .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Add temporary member"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap()
@@ -389,7 +387,7 @@ private struct AddTemporaryMemberView: View {
                     AsyncConfirmationIcon(isPending: showsSubmitProgress && isSubmitting)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(SoftLedgerTheme.accent)
+                .softLedgerAccentTint()
                 .disabled(!canAdd)
                 .accessibilityLabel(L("Add"))
             }
@@ -437,6 +435,7 @@ struct SettingsSheet: View {
     let onDone: () -> Void
     @State private var confirmLogout = false
     @State private var showingProfile = false
+    @State private var displayedTheme = AppTheme.load()
 
     var body: some View {
         Form {
@@ -452,12 +451,27 @@ struct SettingsSheet: View {
                 Button {
                     showingProfile = true
                 } label: {
-                    Text(L("Edit profile"))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    HStack {
+                        Text(L("Edit profile"))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            }
+            .listRowBackground(SoftLedgerTheme.formPaper)
+
+            Section(L("Appearance")) {
+                ThemePickerRow(selectedTheme: displayedTheme) { theme in
+                    displayedTheme = theme
+                    store.setTheme(theme)
+                }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
@@ -480,7 +494,6 @@ struct SettingsSheet: View {
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
-        .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Settings"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -501,10 +514,17 @@ struct SettingsSheet: View {
                 } label: {
                     Image(systemName: "checkmark")
                 }
+                .id(displayedTheme.id)
+                .tint(displayedTheme.accent)
                 .buttonStyle(.borderedProminent)
-                .tint(SoftLedgerTheme.accent)
                 .accessibilityLabel(L("Done"))
             }
+        }
+        .onAppear {
+            displayedTheme = store.selectedTheme
+        }
+        .onChange(of: store.selectedTheme) { _, theme in
+            displayedTheme = theme
         }
         .alert(L("Confirm logout?"), isPresented: $confirmLogout) {
             Button(L("Cancel"), role: .cancel) {}
@@ -518,6 +538,75 @@ struct SettingsSheet: View {
             SSOProfileView(url: store.api.profileURL(), token: store.token)
                 .immersiveWebSheet()
         }
+    }
+}
+
+private struct ThemePickerRow: View {
+    let selectedTheme: AppTheme
+    let onSelect: (AppTheme) -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(AppTheme.allCases) { theme in
+                Button {
+                    onSelect(theme)
+                } label: {
+                    ThemePreviewSwatch(theme: theme, isSelected: selectedTheme == theme)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L(theme.titleKey))
+                .accessibilityValue(selectedTheme == theme ? L("Selected") : "")
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 44)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ThemePreviewSwatch: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let theme: AppTheme
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            HStack(spacing: 0) {
+                theme.previewSoftAccent
+                theme.previewAccent
+            }
+            .clipShape(Circle())
+            .overlay {
+                Circle().stroke(SoftLedgerTheme.rule.opacity(0.72), lineWidth: 1)
+            }
+            .frame(width: 26, height: 26)
+
+            if isSelected {
+                Circle()
+                    .fill(theme.accent)
+                    .frame(width: 15, height: 15)
+                    .overlay {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(checkmarkColor)
+                    }
+                    .overlay {
+                        Circle().stroke(SoftLedgerTheme.formPaper, lineWidth: 1.5)
+                    }
+                    .offset(x: 2, y: 2)
+            }
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+    }
+
+    private var checkmarkColor: Color {
+        if theme == .black, colorScheme == .dark {
+            return Color.black
+        }
+        return Color.white
     }
 }
 
@@ -570,7 +659,7 @@ struct ArchivedGroupsView: View {
                                 } else {
                                     Text(L("Restore"))
                                         .font(.body.weight(.semibold))
-                                        .foregroundStyle(SoftLedgerTheme.accent)
+                                        .softLedgerAccentForeground()
                                         .padding(.horizontal, restoreHorizontalPadding)
                                         .frame(minHeight: restoreMinHeight)
                                         .contentShape(Rectangle())
@@ -598,7 +687,7 @@ struct ArchivedGroupsView: View {
                             Button(L("Restore")) {
                                 Task { await restore(group) }
                             }
-                            .tint(SoftLedgerTheme.accent)
+                            .softLedgerAccentTint()
                             .disabled(pendingAction != nil)
                         }
                     }
@@ -806,7 +895,6 @@ struct GroupSettingsSheet: View {
         .disabled(isSubmitting)
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
-        .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Group settings"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap()
@@ -829,7 +917,7 @@ struct GroupSettingsSheet: View {
                     AsyncConfirmationIcon(isPending: pendingAction == .rename)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(SoftLedgerTheme.accent)
+                .softLedgerAccentTint()
                 .disabled(isSubmitting)
                 .accessibilityLabel(L("Done"))
             }
@@ -1073,7 +1161,6 @@ struct PeopleSetupSheet: View {
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
-        .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Add people"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1216,7 +1303,6 @@ struct AddMemberSearchView: View {
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
-        .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Add member"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap()
@@ -1228,7 +1314,7 @@ struct AddMemberSearchView: View {
                     AsyncConfirmationIcon(isPending: showsSubmitProgress && isSubmitting)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(SoftLedgerTheme.accent)
+                .softLedgerAccentTint()
                 .disabled(!canAdd)
                 .accessibilityLabel(L("Add"))
             }
@@ -1278,7 +1364,7 @@ struct AddMemberSearchView: View {
             Spacer()
             Image(systemName: trailingSystemImage)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.accent)
+                .softLedgerAccentForeground()
         }
         .frame(minHeight: avatarSize, alignment: .leading)
     }
@@ -1423,7 +1509,6 @@ struct RecordEditorView: View {
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.interactively)
         .background(SoftLedgerTheme.canvas)
-        .tint(SoftLedgerTheme.accent)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1445,7 +1530,7 @@ struct RecordEditorView: View {
                         AsyncConfirmationIcon(isPending: isSubmitting)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(SoftLedgerTheme.accent)
+                    .softLedgerAccentTint()
                     .disabled(!canSave || isSubmitting)
                     .accessibilityLabel(L("Save"))
                 }
@@ -1669,6 +1754,8 @@ private struct SplitInlineEditor: View {
 }
 
 private struct SelectableSplitAvatar: View {
+    @Environment(\.softLedgerAppTheme) private var appTheme
+
     let member: Member
     let isSelected: Bool
     let avatarSize: CGFloat
@@ -1694,18 +1781,12 @@ private struct SelectableSplitAvatar: View {
             SoftLedgerAvatar(member: member, size: avatarSize)
                 .overlay {
                     Circle()
-                        .stroke(isSelected ? SoftLedgerTheme.accent : SoftLedgerTheme.rule.opacity(0.45), lineWidth: isSelected ? max(1.5, avatarSize / 18) : 1)
-                }
-                .overlay {
-                    if isSelected {
-                        Circle()
-                            .fill(SoftLedgerTheme.accent.opacity(0.16))
-                    }
+                        .stroke(isSelected ? appTheme.accent : SoftLedgerTheme.rule.opacity(0.45), lineWidth: isSelected ? max(1.5, avatarSize / 18) : 1)
                 }
 
             if isSelected {
                 Circle()
-                    .fill(SoftLedgerTheme.accent)
+                    .fill(appTheme.accent)
                     .frame(width: checkSize, height: checkSize)
                     .overlay {
                         Image(systemName: "checkmark")
@@ -1720,6 +1801,8 @@ private struct SelectableSplitAvatar: View {
 }
 
 private struct CategoryInlineEditor: View {
+    @Environment(\.softLedgerAppTheme) private var appTheme
+
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 12
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 58
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 12
@@ -1749,7 +1832,7 @@ private struct CategoryInlineEditor: View {
                             .background(category.color.opacity(0.13), in: Circle())
                             .overlay {
                                 Circle()
-                                    .stroke(selection == category.id ? SoftLedgerTheme.accent : Color.clear, lineWidth: max(1.5, iconSize / 19))
+                                    .stroke(selection == category.id ? appTheme.accent : Color.clear, lineWidth: max(1.5, iconSize / 19))
                             }
 
                         Text(L(category.titleKey))
@@ -1990,7 +2073,6 @@ private struct BalancesRootView: View {
         .navigationTitle(L("Balances"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
-        .tint(SoftLedgerTheme.accent)
         .task(id: group.id) {
             await store.refreshGroupBalances(group.id)
             await store.refreshSettlementSuggestion(groupId: group.id)
@@ -2083,6 +2165,8 @@ private struct SettlementPlanSection: View {
 }
 
 private struct SettlementPlanRow: View {
+    @Environment(\.softLedgerAppTheme) private var appTheme
+
     @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
     @ScaledMetric(relativeTo: .caption) private var receiverAvatarSize = 20
     @ScaledMetric(relativeTo: .caption) private var arrowBadgeSize = 18
@@ -2179,7 +2263,7 @@ private struct SettlementPlanRow: View {
                 .font(.system(size: arrowBadgeFontSize, weight: .bold))
                 .foregroundStyle(SoftLedgerTheme.paper)
                 .frame(width: arrowBadgeSize, height: arrowBadgeSize)
-                .background(SoftLedgerTheme.accent, in: Circle())
+                .background(appTheme.accent, in: Circle())
                 .overlay {
                     Circle()
                         .stroke(SoftLedgerTheme.paper, lineWidth: max(1, arrowBadgeSize / 9))

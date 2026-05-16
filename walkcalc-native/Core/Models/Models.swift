@@ -158,19 +158,138 @@ struct MemberRecordPage {
     var records: [WalkRecord]
 }
 
-struct ThemeColorOption: Identifiable, Hashable {
-    var id: String
-    var label: String
-    var color: Color
-    var uiColor: UIColor
-}
+enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
+    case blue
+    case black
+    case yellow
+    case green
 
-let themeColorOptions: [ThemeColorOption] = [
-    .init(id: "blue", label: "Blue", color: Color(hex: 0x316FE2), uiColor: UIColor(hex: 0x316FE2)),
-    .init(id: "green", label: "Green", color: Color(hex: 0x22A06B), uiColor: UIColor(hex: 0x22A06B)),
-    .init(id: "rose", label: "Rose", color: Color(hex: 0xE0527C), uiColor: UIColor(hex: 0xE0527C)),
-    .init(id: "gold", label: "Gold", color: Color(hex: 0xF8D03A), uiColor: UIColor(hex: 0xC99700))
-]
+    static let defaultTheme: AppTheme = .blue
+    static let storageKey = "walkcalc.selectedTheme"
+    static let legacyStorageKey = "themeColor"
+
+    var id: String { rawValue }
+
+    var titleKey: String {
+        switch self {
+        case .yellow:
+            return "Yellow"
+        case .blue:
+            return "Blue"
+        case .green:
+            return "Green"
+        case .black:
+            return "Black"
+        }
+    }
+
+    var accent: Color {
+        switch self {
+        case .yellow:
+            return Self.adaptiveColor(light: 0xB15525, dark: 0xE49B63)
+        case .blue:
+            return Color(uiColor: .systemBlue)
+        case .green:
+            return Self.adaptiveColor(light: 0x17845B, dark: 0x78DFA8)
+        case .black:
+            return Self.adaptiveColor(light: 0x18181B, dark: 0xFAFAFA)
+        }
+    }
+
+    var accentUIColor: UIColor {
+        switch self {
+        case .yellow:
+            return Self.adaptiveUIColor(light: 0xB15525, dark: 0xE49B63)
+        case .blue:
+            return .systemBlue
+        case .green:
+            return Self.adaptiveUIColor(light: 0x17845B, dark: 0x78DFA8)
+        case .black:
+            return Self.adaptiveUIColor(light: 0x18181B, dark: 0xFAFAFA)
+        }
+    }
+
+    var accentSoft: Color {
+        switch self {
+        case .yellow:
+            return Self.adaptiveColor(light: 0xEDCBA4, dark: 0x38322F)
+        case .blue:
+            return Self.adaptiveColor(light: 0xD8E8FF, dark: 0x16324F)
+        case .green:
+            return Self.adaptiveColor(light: 0xDDF5EA, dark: 0x173629)
+        case .black:
+            return Self.adaptiveColor(light: 0xF4F4F5, dark: 0x27272A)
+        }
+    }
+
+    var previewAccent: Color {
+        switch self {
+        case .yellow:
+            return Color(hex: 0xB15525)
+        case .blue:
+            return Color(uiColor: .systemBlue)
+        case .green:
+            return Color(hex: 0x17845B)
+        case .black:
+            return Color(hex: 0x18181B)
+        }
+    }
+
+    var previewSoftAccent: Color {
+        switch self {
+        case .yellow:
+            return Color(hex: 0xEDCBA4)
+        case .blue:
+            return Color(hex: 0xD8E8FF)
+        case .green:
+            return Color(hex: 0xDDF5EA)
+        case .black:
+            return Color(hex: 0xF4F4F5)
+        }
+    }
+
+    static func load(from defaults: UserDefaults = .standard) -> AppTheme {
+        if let storedValue = defaults.string(forKey: storageKey),
+           let storedTheme = AppTheme(rawValue: storedValue) {
+            return storedTheme
+        }
+
+        if let legacyValue = defaults.string(forKey: legacyStorageKey) {
+            return theme(forLegacyValue: legacyValue)
+        }
+
+        return defaultTheme
+    }
+
+    static func theme(forLegacyValue value: String) -> AppTheme {
+        switch value {
+        case "blue":
+            return .blue
+        case "green":
+            return .green
+        case "gold":
+            return .yellow
+        default:
+            return defaultTheme
+        }
+    }
+
+    func persist(to defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: Self.storageKey)
+    }
+
+    private static func adaptiveColor(light: UInt32, dark: UInt32) -> Color {
+        Color(UIColor { traitCollection in
+            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
+        })
+    }
+
+    private static func adaptiveUIColor(light: UInt32, dark: UInt32) -> UIColor {
+        UIColor { traitCollection in
+            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
+        }
+    }
+}
 
 let categoryEmoji: [String: String] = [
     "food": "🍚",

@@ -60,7 +60,7 @@ final class WalkcalcStore: ObservableObject {
     @Published var isBootstrapping = true
     @Published private(set) var isSigningIn = false
     @Published var urgentAlert: StoreAlert?
-    @Published var themeColorId: String = UserDefaults.standard.string(forKey: "themeColor") ?? "blue"
+    @Published var selectedTheme: AppTheme = AppTheme.load()
     @Published var isFixtureMode = false
     @Published private var recordSearchResultsByKey: [String: [WalkRecord]] = [:]
     @Published private var recordSearchTotalsByKey: [String: Int] = [:]
@@ -80,11 +80,11 @@ final class WalkcalcStore: ObservableObject {
     private let networkFeedbackLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "walkcalc-native", category: "NetworkFeedback")
 
     var primaryColor: Color {
-        themeColorOptions.first(where: { $0.id == themeColorId })?.color ?? themeColorOptions[0].color
+        selectedTheme.accent
     }
 
     var primaryUIColor: UIColor {
-        themeColorOptions.first(where: { $0.id == themeColorId })?.uiColor ?? themeColorOptions[0].uiColor
+        selectedTheme.accentUIColor
     }
 
     var isLoggedIn: Bool {
@@ -129,9 +129,13 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
+    func setTheme(_ theme: AppTheme) {
+        selectedTheme = theme
+        theme.persist()
+    }
+
     func setThemeColor(_ id: String) {
-        themeColorId = id
-        UserDefaults.standard.set(id, forKey: "themeColor")
+        setTheme(AppTheme(rawValue: id) ?? AppTheme.theme(forLegacyValue: id))
     }
 
     func signIn(token: String) async {

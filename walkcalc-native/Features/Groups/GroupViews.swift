@@ -411,7 +411,7 @@ private struct GroupBalancesSection: View {
                         HStack(spacing: 8) {
                             Text(balances.count > 3 ? L("View all") : L("View details"))
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(SoftLedgerTheme.accent)
+                                .softLedgerAccentForeground()
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.semibold))
@@ -748,7 +748,7 @@ private struct PeopleSetupEmptyState: View {
         VStack(spacing: 18) {
             Image(systemName: "person.2")
                 .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(SoftLedgerTheme.accent)
+                .softLedgerAccentForeground()
                 .frame(width: 64, height: 64)
                 .background(SoftLedgerTheme.paper, in: Circle())
                 .overlay {

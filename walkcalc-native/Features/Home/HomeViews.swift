@@ -65,7 +65,7 @@ struct LoginView: View {
             VStack(spacing: 14) {
                 Image(systemName: "figure.walk.circle.fill")
                     .font(.system(size: 88))
-                    .foregroundStyle(SoftLedgerTheme.accent)
+                    .softLedgerAccentForeground()
                 Text("Walking Calculator")
                     .font(.title.bold())
                     .foregroundStyle(SoftLedgerTheme.ink)
@@ -89,7 +89,7 @@ struct LoginView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .tint(SoftLedgerTheme.accent)
+            .softLedgerAccentTint()
             .disabled(store.isSigningIn)
             .padding(.bottom, 24)
         }
@@ -398,7 +398,6 @@ private struct JoinGroupSheet: View {
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
-        .tint(SoftLedgerTheme.accent)
         .navigationTitle(L("Join group"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap(isActive: isGroupIDFocused) {
@@ -423,7 +422,7 @@ private struct JoinGroupSheet: View {
                     AsyncConfirmationIcon(isPending: isSubmitting)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(SoftLedgerTheme.accent)
+                .softLedgerAccentTint()
                 .disabled(!canJoinGroup)
                 .accessibilityLabel(L("Join"))
             }
@@ -589,7 +588,7 @@ private struct GroupsEmptyState: View {
         VStack(spacing: 18) {
             Image(systemName: "person.2")
                 .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(SoftLedgerTheme.accent)
+                .softLedgerAccentForeground()
                 .frame(width: 64, height: 64)
                 .background(SoftLedgerTheme.paper, in: Circle())
                 .overlay {
@@ -637,7 +636,7 @@ private struct AboutSheet: View {
         VStack(spacing: 10) {
             Image(systemName: "figure.walk.circle.fill")
                 .font(.system(size: 58))
-                .foregroundStyle(SoftLedgerTheme.accent)
+                .softLedgerAccentForeground()
             Text("Walking Calculator")
                 .font(.title3.bold())
             Text(L("Expense splitting for groups, trips, and daily costs."))
