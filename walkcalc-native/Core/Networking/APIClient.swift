@@ -1,5 +1,7 @@
 import Foundation
+#if DEBUG
 import Network
+#endif
 
 enum HTTPMethod: String {
     case get = "GET"
@@ -43,9 +45,11 @@ struct APIClient: Sendable {
 
     func warmUpNetworkAccess() async {
         await withTaskGroup(of: Void.self) { group in
+            #if DEBUG
             group.addTask {
                 await Self.triggerLocalNetworkPrivacyPrompt()
             }
+            #endif
             for url in networkWarmUpURLs() {
                 group.addTask {
                     await Self.sendWarmUpRequest(to: url)
@@ -271,6 +275,7 @@ struct APIClient: Sendable {
         _ = try? await URLSession.shared.data(for: request)
     }
 
+    #if DEBUG
     private static func triggerLocalNetworkPrivacyPrompt() async {
         let parameters = NWParameters()
         parameters.includePeerToPeer = true
@@ -279,6 +284,7 @@ struct APIClient: Sendable {
         try? await Task.sleep(nanoseconds: 1_200_000_000)
         browser.cancel()
     }
+    #endif
 
     private func request<T>(_ method: HTTPMethod, path: String, query: [String: String] = [:], token: String, body: [String: Any]? = nil, mapper: (Any?) -> T) async throws -> APIEnvelope<T> {
         var response = try await execute(method, path: path, query: query, token: token, body: body)

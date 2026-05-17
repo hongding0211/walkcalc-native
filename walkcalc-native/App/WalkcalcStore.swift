@@ -53,6 +53,21 @@ private enum FeedbackDisposition: String {
     case urgentAlert
 }
 
+private enum HomeRefreshResult {
+    case success
+    case recoverableFailure
+    case unrecoverableAuthFailure
+
+    var succeeded: Bool {
+        switch self {
+        case .success:
+            return true
+        case .recoverableFailure, .unrecoverableAuthFailure:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class WalkcalcStore: ObservableObject {
     @Published var token: String?
@@ -128,17 +143,20 @@ final class WalkcalcStore: ObservableObject {
             startupRoute = .loginRequired
             return
         }
-        await loadUser(token: token)
-        guard user != nil else {
+        async let userProfile = fetchUser(token: token)
+        async let homeBootstrap = bootstrapHomeIfNeeded(token: token)
+        let signedInUser = await userProfile
+        let homeBootstrapResult = await homeBootstrap
+        guard let signedInUser else {
+            resetLedgerState()
             startupRoute = .loginRequired
             return
         }
-        await registerPushDeviceIfPossible(reason: "app_open")
-        if api.ledgerAPIEnabled {
-            await refreshHome()
-        } else {
-            resetLedgerState()
+        if homeBootstrapResult == .unrecoverableAuthFailure {
+            return
         }
+        user = signedInUser
+        await registerPushDeviceIfPossible(reason: "app_open")
         startupRoute = .authenticated
     }
 
@@ -170,15 +188,11 @@ final class WalkcalcStore: ObservableObject {
         }
 
         user = signedInUser
-        startupRoute = .authenticated
         await registerPushDeviceIfPossible(reason: "sign_in")
-        if api.ledgerAPIEnabled {
-            guard await refreshHome() else {
-                return
-            }
-        } else {
-            resetLedgerState()
+        if await bootstrapHomeIfNeeded(token: token) == .unrecoverableAuthFailure {
+            return
         }
+        startupRoute = .authenticated
     }
 
     func logout() {
@@ -398,11 +412,25 @@ final class WalkcalcStore: ObservableObject {
     @discardableResult
     func refreshHome(search: String? = nil) async -> Bool {
         if isFixtureMode { return true }
+        guard let token else { return false }
+        return await refreshHome(token: token, search: search).succeeded
+    }
+
+    private func bootstrapHomeIfNeeded(token: String) async -> HomeRefreshResult {
+        if isFixtureMode { return .success }
         guard api.ledgerAPIEnabled else {
             resetLedgerState()
-            return true
+            return .success
         }
-        guard let token else { return false }
+        return await refreshHome(token: token)
+    }
+
+    private func refreshHome(token: String, search: String? = nil) async -> HomeRefreshResult {
+        if isFixtureMode { return .success }
+        guard api.ledgerAPIEnabled else {
+            resetLedgerState()
+            return .success
+        }
         let query = normalizedQuery(search)
         do {
             async let groupsResponse = api.groups(page: 1, pageSize: groupPageSize, search: optionalQuery(query), token: token)
@@ -418,14 +446,14 @@ final class WalkcalcStore: ObservableObject {
                 groups = mergedGroupSummaries(response.data ?? [])
                 groupsPage = response.pagination?.page ?? 1
                 groupTotal = response.pagination?.total ?? groups.count
-                return true
+                return .success
             } else {
-                recordFailure(operation: "refreshHome.groups", intent: .backgroundRefresh, disposition: .silent, response: response)
-                return false
+                let authFailure = recordFailure(operation: "refreshHome.groups", intent: .backgroundRefresh, disposition: .silent, response: response)
+                return authFailure ? .unrecoverableAuthFailure : .recoverableFailure
             }
         } catch {
-            recordFailure(operation: "refreshHome", intent: .backgroundRefresh, disposition: .silent, error: error)
-            return false
+            let authFailure = recordFailure(operation: "refreshHome", intent: .backgroundRefresh, disposition: .silent, error: error)
+            return authFailure ? .unrecoverableAuthFailure : .recoverableFailure
         }
     }
 

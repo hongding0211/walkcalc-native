@@ -31,8 +31,19 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Allow Walking Calculator to scan group QR codes.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Walking Calculator connects to the local development backend.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_walkcalc._tcp</string>
+	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Allow Walking Calculator to attach your current location to new records.</string>
 	<key>UIApplicationSceneManifest</key>
