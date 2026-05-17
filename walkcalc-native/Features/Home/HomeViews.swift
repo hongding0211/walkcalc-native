@@ -28,11 +28,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if store.isBootstrapping {
-                ZStack {
-                    SoftLedgerBackground()
-                    ProgressView()
-                        .softLedgerProgressTint()
-                }
+                LoginScreen(isSigningIn: false, onLogin: {})
             } else if store.isLoggedIn {
                 RootHomeView()
             } else {
@@ -61,41 +57,9 @@ struct LoginView: View {
     @State private var showingSSO = false
 
     var body: some View {
-        VStack {
-            Spacer()
-            VStack(spacing: 14) {
-                Image(systemName: "figure.walk.circle.fill")
-                    .font(.system(size: 88))
-                    .softLedgerAccentForeground()
-                Text("Walking Calculator")
-                    .font(.title.bold())
-                    .foregroundStyle(SoftLedgerTheme.ink)
-                Text(L("Login"))
-                    .font(.subheadline)
-                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
-            }
-            Spacer()
-            Button {
-                showingSSO = true
-            } label: {
-                HStack(spacing: 8) {
-                    if store.isSigningIn {
-                        ProgressView()
-                            .softLedgerProgressTint()
-                    }
-                    Text(L("Login"))
-                }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 22)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .softLedgerAccentTint()
-            .disabled(store.isSigningIn)
-            .padding(.bottom, 24)
+        LoginScreen(isSigningIn: store.isSigningIn) {
+            showingSSO = true
         }
-        .padding(24)
-        .background(SoftLedgerBackground())
         .sheet(isPresented: $showingSSO) {
             SSOLoginView { token in
                 showingSSO = false
@@ -104,6 +68,143 @@ struct LoginView: View {
                 }
             }
             .immersiveWebSheet()
+        }
+    }
+}
+
+private struct LoginScreen: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let isSigningIn: Bool
+    let onLogin: () -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            let layout = LoginLayout(size: proxy.size)
+            let markScale = layout.scale * 1.08
+
+            ZStack(alignment: .topLeading) {
+                loginBackground
+                    .ignoresSafeArea()
+
+                LoginBrandMark(scale: markScale)
+                    .frame(width: layout.value(70.2), height: layout.value(80.229))
+                    .offset(x: layout.x(16), y: layout.y(308))
+
+                Text("Walking Calculator")
+                    .font(.system(size: layout.value(21), weight: .semibold))
+                    .foregroundStyle(primaryText)
+                    .frame(width: layout.value(310), alignment: .leading)
+                    .lineLimit(1)
+                    .offset(x: layout.x(42), y: layout.y(412))
+
+                Text(L("Login to continue"))
+                    .font(.system(size: layout.value(15), weight: .medium))
+                    .foregroundStyle(secondaryText)
+                    .frame(width: layout.value(260), alignment: .leading)
+                    .lineLimit(1)
+                    .offset(x: layout.x(42), y: layout.y(446))
+
+                Button(action: onLogin) {
+                    HStack(spacing: layout.value(8)) {
+                        if isSigningIn {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(buttonForeground)
+                        }
+                        Text(L("Login"))
+                    }
+                    .font(.system(size: layout.value(17), weight: .semibold))
+                    .foregroundStyle(buttonForeground)
+                    .frame(width: layout.value(318), height: layout.value(52))
+                    .background(buttonBackground, in: RoundedRectangle(cornerRadius: layout.value(17), style: .continuous))
+                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.26 : 0.12), radius: layout.value(18), y: layout.value(8))
+                }
+                .buttonStyle(.plain)
+                .disabled(isSigningIn)
+                .offset(x: layout.x(36), y: layout.y(708))
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private var loginBackground: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0x050505)) : Color(UIColor(hex: 0xF4F4F5))
+    }
+
+    private var primaryText: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0xF5F5F2)) : Color(UIColor(hex: 0x1E1E1E))
+    }
+
+    private var secondaryText: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0x8F8F8A)) : Color(UIColor(hex: 0xA9A9A9))
+    }
+
+    private var buttonBackground: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0xF4F4F0)) : Color(UIColor(hex: 0x050505))
+    }
+
+    private var buttonForeground: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0x050505)) : .white
+    }
+}
+
+private struct LoginLayout {
+    private static let baseSize = CGSize(width: 390, height: 844)
+
+    let scale: CGFloat
+    private let origin: CGPoint
+
+    init(size: CGSize) {
+        let rawScale = min(size.width / Self.baseSize.width, size.height / Self.baseSize.height)
+        scale = min(max(rawScale, 0.82), 1.0)
+        let layoutSize = CGSize(width: Self.baseSize.width * scale, height: Self.baseSize.height * scale)
+        origin = CGPoint(x: (size.width - layoutSize.width) / 2, y: (size.height - layoutSize.height) / 2)
+    }
+
+    func value(_ base: CGFloat) -> CGFloat {
+        base * scale
+    }
+
+    func x(_ base: CGFloat) -> CGFloat {
+        origin.x + value(base)
+    }
+
+    func y(_ base: CGFloat) -> CGFloat {
+        origin.y + value(base)
+    }
+}
+
+private struct LoginBrandMark: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let scale: CGFloat
+
+    private var leftCapsule: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0xF8F8F5)) : .white
+    }
+
+    private var rightCapsule: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0xA0A09C)) : Color(UIColor(hex: 0x050505))
+    }
+
+    private var shadowOpacity: Double {
+        colorScheme == .dark ? 0.38 : 0.18
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 13.638 * scale, style: .continuous)
+                .fill(leftCapsule)
+                .frame(width: 27.277 * scale, height: 49.911 * scale)
+                .shadow(color: .black.opacity(shadowOpacity), radius: 4.643 * scale, y: 1.741 * scale)
+                .offset(x: 12.77 * scale, y: 12.19 * scale)
+
+            RoundedRectangle(cornerRadius: 13.638 * scale, style: .continuous)
+                .fill(rightCapsule)
+                .frame(width: 27.277 * scale, height: 49.911 * scale)
+                .shadow(color: .black.opacity(shadowOpacity), radius: 4.643 * scale, y: 1.741 * scale)
+                .offset(x: 26.12 * scale, y: 12.19 * scale)
         }
     }
 }

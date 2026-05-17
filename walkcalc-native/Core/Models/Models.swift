@@ -164,7 +164,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
     case yellow
     case green
 
-    static let defaultTheme: AppTheme = .blue
+    static let defaultTheme: AppTheme = .black
     static let storageKey = "walkcalc.selectedTheme"
     static let legacyStorageKey = "themeColor"
 
