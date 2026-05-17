@@ -31,6 +31,12 @@ struct StoreAlert: Identifiable {
     let message: String
 }
 
+enum StartupRoute {
+    case resolving
+    case loginRequired
+    case authenticated
+}
+
 private enum NetworkOperationIntent: String {
     case bootstrapAuth
     case backgroundRefresh
@@ -58,6 +64,7 @@ final class WalkcalcStore: ObservableObject {
     @Published private(set) var groupTotal = 0
     @Published private(set) var isLoadingMoreGroups = false
     @Published var isBootstrapping = true
+    @Published private(set) var startupRoute: StartupRoute = .resolving
     @Published private(set) var isSigningIn = false
     @Published var urgentAlert: StoreAlert?
     @Published var selectedTheme: AppTheme = AppTheme.load()
@@ -111,22 +118,28 @@ final class WalkcalcStore: ObservableObject {
 
     func bootstrap() async {
         if isFixtureMode {
-            isBootstrapping = false
+            finishStartup(.authenticated)
             return
         }
+        isBootstrapping = true
+        startupRoute = .resolving
         defer { isBootstrapping = false }
         guard let token else {
+            startupRoute = .loginRequired
             return
         }
         await loadUser(token: token)
-        if user != nil {
-            await registerPushDeviceIfPossible(reason: "app_open")
-            if api.ledgerAPIEnabled {
-                await refreshHome()
-            } else {
-                resetLedgerState()
-            }
+        guard user != nil else {
+            startupRoute = .loginRequired
+            return
         }
+        await registerPushDeviceIfPossible(reason: "app_open")
+        if api.ledgerAPIEnabled {
+            await refreshHome()
+        } else {
+            resetLedgerState()
+        }
+        startupRoute = .authenticated
     }
 
     func prepareNetworkAccessForStartup() async {
@@ -152,10 +165,12 @@ final class WalkcalcStore: ObservableObject {
         UserDefaults.standard.set(token, forKey: "walkcalc.token")
 
         guard let signedInUser = await fetchUser(token: token) else {
+            startupRoute = .loginRequired
             return
         }
 
         user = signedInUser
+        startupRoute = .authenticated
         await registerPushDeviceIfPossible(reason: "sign_in")
         if api.ledgerAPIEnabled {
             guard await refreshHome() else {
@@ -171,7 +186,14 @@ final class WalkcalcStore: ObservableObject {
         user = nil
         resetLedgerState()
         isSigningIn = false
+        startupRoute = .loginRequired
+        NativeAuthSession.clearAuthCookies(baseURL: api.baseURL, webBaseURL: api.webBaseURL)
         UserDefaults.standard.removeObject(forKey: "walkcalc.token")
+    }
+
+    func finishStartup(_ route: StartupRoute) {
+        startupRoute = route
+        isBootstrapping = false
     }
 
     private func resetLedgerState() {
@@ -248,12 +270,17 @@ final class WalkcalcStore: ObservableObject {
                     self.pushDeviceRegistrationTask = nil
                 }
             }
-            if let response = try? await api.registerPushDevice(
-                token: token,
-                payload: pushDeviceRegistrationPayload(providerToken: providerToken, reason: reason)
-            ) {
+            do {
+                let response = try await api.registerPushDevice(
+                    token: token,
+                    payload: pushDeviceRegistrationPayload(providerToken: providerToken, reason: reason)
+                )
                 await MainActor.run {
                     self.applyRefreshedToken(response)
+                }
+            } catch {
+                await MainActor.run {
+                    _ = self.recordFailure(operation: "registerPushDevice", intent: .backgroundRefresh, disposition: .silent, error: error)
                 }
             }
         }
@@ -265,11 +292,12 @@ final class WalkcalcStore: ObservableObject {
         let bundle = Bundle.main
         let info = bundle.infoDictionary ?? [:]
         let device = UIDevice.current
+        let environment = pushEnvironment
         return [
             "appId": ProcessInfo.processInfo.environment["WALKCALC_PUSH_APP_ID"] ?? "walkcalc-ios",
             "platform": "ios",
             "providerToken": providerToken,
-            "environment": pushEnvironment,
+            "environment": environment,
             "locale": L10n.serverLanguageCode,
             "deviceId": stablePushDeviceId,
             "appVersion": info["CFBundleShortVersionString"] as? String ?? "",
@@ -280,7 +308,8 @@ final class WalkcalcStore: ObservableObject {
                 "reason": reason,
                 "systemName": device.systemName,
                 "systemVersion": device.systemVersion,
-                "interfaceIdiom": interfaceIdiomName(device.userInterfaceIdiom)
+                "interfaceIdiom": interfaceIdiomName(device.userInterfaceIdiom),
+                "pushEnvironment": environment
             ]
         ]
     }
@@ -289,11 +318,46 @@ final class WalkcalcStore: ObservableObject {
         if let environment = ProcessInfo.processInfo.environment["WALKCALC_PUSH_ENVIRONMENT"], !environment.isEmpty {
             return environment
         }
+        return signedAPNsEnvironment
+    }
+
+    private var signedAPNsEnvironment: String {
+        if let value = embeddedProvisioningAPNsEnvironment {
+            return value
+        }
+
         #if DEBUG
         return "sandbox"
         #else
         return "production"
         #endif
+    }
+
+    private var embeddedProvisioningAPNsEnvironment: String? {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url)
+        else { return nil }
+
+        let profile = String(decoding: data, as: UTF8.self)
+        guard let keyRange = profile.range(of: "<key>aps-environment</key>") else {
+            return nil
+        }
+
+        let remainder = profile[keyRange.upperBound...]
+        guard let valueStart = remainder.range(of: "<string>"),
+              let valueEnd = remainder[valueStart.upperBound...].range(of: "</string>")
+        else { return nil }
+
+        let value = remainder[valueStart.upperBound..<valueEnd.lowerBound]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        switch value {
+        case "development":
+            return "sandbox"
+        case "production":
+            return "production"
+        default:
+            return nil
+        }
     }
 
     private var stablePushDeviceId: String {
@@ -1178,6 +1242,26 @@ final class WalkcalcStore: ObservableObject {
         UserDefaults.standard.set(refreshedToken, forKey: "walkcalc.token")
     }
 
+    private func handleUnrecoverableAuthFailure(operation: String) {
+        networkFeedbackLogger.notice("Auth failure operation=\(operation, privacy: .public)")
+        token = nil
+        user = nil
+        resetLedgerState()
+        isSigningIn = false
+        startupRoute = .loginRequired
+        NativeAuthSession.clearAuthCookies(baseURL: api.baseURL, webBaseURL: api.webBaseURL)
+        UserDefaults.standard.removeObject(forKey: "walkcalc.token")
+    }
+
+    private func isUnrecoverableAuthFailure<T>(_ response: APIEnvelope<T>) -> Bool {
+        response.failureKind == .authRefresh || response.statusCode == 401 || response.statusCode == 403
+    }
+
+    private func isUnrecoverableAuthFailure(_ error: Error) -> Bool {
+        guard let clientError = error as? APIClientError else { return false }
+        return clientError.kind == .authRefresh || clientError.statusCode == 401 || clientError.statusCode == 403
+    }
+
     private func withLoadingResult(operation: String, _ action: () async throws -> StoreActionResult) async -> StoreActionResult {
         do {
             let result = try await action()
@@ -1196,17 +1280,29 @@ final class WalkcalcStore: ObservableObject {
         return .failure(response.messageWithLimitDetail)
     }
 
-    private func recordFailure<T>(operation: String, intent: NetworkOperationIntent, disposition: FeedbackDisposition, response: APIEnvelope<T>) {
+    @discardableResult
+    private func recordFailure<T>(operation: String, intent: NetworkOperationIntent, disposition: FeedbackDisposition, response: APIEnvelope<T>) -> Bool {
+        if isUnrecoverableAuthFailure(response) {
+            handleUnrecoverableAuthFailure(operation: operation)
+            return true
+        }
         let kind = response.failureKind?.rawValue ?? APIFailureKind.serverEnvelope.rawValue
         let status = response.statusCode ?? 0
         networkFeedbackLogger.info("Network failure operation=\(operation, privacy: .public) intent=\(intent.rawValue, privacy: .public) disposition=\(disposition.rawValue, privacy: .public) kind=\(kind, privacy: .public) status=\(status, privacy: .public)")
+        return false
     }
 
-    private func recordFailure(operation: String, intent: NetworkOperationIntent, disposition: FeedbackDisposition, error: Error) {
+    @discardableResult
+    private func recordFailure(operation: String, intent: NetworkOperationIntent, disposition: FeedbackDisposition, error: Error) -> Bool {
+        if isUnrecoverableAuthFailure(error) {
+            handleUnrecoverableAuthFailure(operation: operation)
+            return true
+        }
         let clientError = error as? APIClientError
         let kind = clientError?.kind.rawValue ?? APIFailureKind.transport.rawValue
         let status = clientError?.statusCode ?? 0
         networkFeedbackLogger.info("Network failure operation=\(operation, privacy: .public) intent=\(intent.rawValue, privacy: .public) disposition=\(disposition.rawValue, privacy: .public) kind=\(kind, privacy: .public) status=\(status, privacy: .public)")
+        return false
     }
 }
 

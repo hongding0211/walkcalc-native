@@ -27,18 +27,19 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if store.isBootstrapping {
-                LoginScreen(isSigningIn: false, onLogin: {})
-            } else if store.isLoggedIn {
+            switch store.startupRoute {
+            case .resolving:
+                LaunchGateView()
+            case .authenticated:
                 RootHomeView()
-            } else {
+            case .loginRequired:
                 LoginView()
             }
         }
         .task {
             await store.prepareNetworkAccessForStartup()
-            await store.requestNotificationPermissionIfNeeded()
             await store.bootstrap()
+            await store.requestNotificationPermissionIfNeeded()
         }
         .alert(item: Binding(get: { store.urgentAlert }, set: { store.urgentAlert = $0 })) { alert in
             Alert(
@@ -49,6 +50,43 @@ struct ContentView: View {
                 }
             )
         }
+    }
+}
+
+private struct LaunchGateView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        GeometryReader { proxy in
+            let layout = LoginLayout(size: proxy.size)
+            let markScale = layout.scale * 1.08
+
+            ZStack(alignment: .topLeading) {
+                background
+                    .ignoresSafeArea()
+
+                LoginBrandMark(scale: markScale)
+                    .frame(width: layout.value(70.2), height: layout.value(80.229))
+                    .offset(x: layout.x(16), y: layout.y(308))
+
+                Text("Walking Calculator")
+                    .font(.custom("PingFangSC-Semibold", size: layout.value(21)))
+                    .foregroundStyle(primaryText)
+                    .frame(width: layout.value(310), alignment: .leading)
+                    .lineLimit(1)
+                    .offset(x: layout.x(42), y: layout.y(412))
+            }
+        }
+        .ignoresSafeArea()
+        .accessibilityLabel(Text("Walking Calculator"))
+    }
+
+    private var background: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0x050505)) : Color(UIColor(hex: 0xF4F4F5))
+    }
+
+    private var primaryText: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0xF5F5F2)) : Color(UIColor(hex: 0x1E1E1E))
     }
 }
 
@@ -99,7 +137,7 @@ private struct LoginScreen: View {
                     .offset(x: layout.x(42), y: layout.y(412))
 
                 Text(L("Login to continue"))
-                    .font(.system(size: layout.value(15), weight: .medium))
+                    .font(.custom("PingFangSC-Medium", size: layout.value(15)))
                     .foregroundStyle(secondaryText)
                     .frame(width: layout.value(260), alignment: .leading)
                     .lineLimit(1)

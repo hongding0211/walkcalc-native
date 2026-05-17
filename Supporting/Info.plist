@@ -22,7 +22,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>ltd.hong97.walkingcalc</string>
+			<string>ltd.hong97.walkcalc</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>walkingcalc</string>
@@ -40,6 +40,10 @@
 	<string>Allow Walking Calculator to scan group QR codes.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Walking Calculator connects to the local development backend.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_walkcalc._tcp</string>
+	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Allow Walking Calculator to attach your current location to new records.</string>
 	<key>UIApplicationSceneManifest</key>

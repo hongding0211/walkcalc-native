@@ -28,6 +28,11 @@ struct walkcalc_nativeApp: App {
         if ProcessInfo.processInfo.arguments.contains("--verify-api-contract") {
             LedgerAPIContractVerification.assertAllCasesPass()
         }
+        if ProcessInfo.processInfo.arguments.contains("--verify-auth-session") {
+            Task {
+                await AuthSessionVerification.assertAllCasesPass()
+            }
+        }
         #endif
     }
 

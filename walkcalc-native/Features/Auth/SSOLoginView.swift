@@ -1,10 +1,13 @@
 import SwiftUI
 import WebKit
+import OSLog
 
 struct SSOLoginView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @State private var hasVisitedGithub = false
     var onToken: (String) -> Void
+
+    private let authSessionLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "walkcalc-native", category: "AuthSession")
 
     var body: some View {
         WebView(url: store.api.loginURL(), usesPersistentDataStore: false, onToken: { url, cookieStore in
@@ -30,24 +33,38 @@ struct SSOLoginView: View {
     }
 
     private func completeLogin(with token: String, cookies: [HTTPCookie]? = nil, cookieStore: WKHTTPCookieStore? = nil) {
-        if cookies != nil {
-            DispatchQueue.main.async {
-                onToken(token)
+        let api = store.api
+        if let cookies {
+            Task {
+                finishLogin(
+                    token: token,
+                    importResult: NativeAuthSession.importAuthCookies(cookies, baseURL: api.baseURL, webBaseURL: api.webBaseURL)
+                )
             }
             return
         }
 
         guard let cookieStore else {
-            DispatchQueue.main.async {
-                onToken(token)
+            Task {
+                finishLogin(token: token, importResult: NativeAuthSessionImportResult(importedCookieNames: []))
             }
             return
         }
 
-        cookieStore.getAllCookies { _ in
-            DispatchQueue.main.async {
-                onToken(token)
-            }
+        Task {
+            let importResult = await NativeAuthSession.importAuthCookies(from: cookieStore, baseURL: api.baseURL, webBaseURL: api.webBaseURL)
+            finishLogin(token: token, importResult: importResult)
+        }
+    }
+
+    private func finishLogin(token: String, importResult: NativeAuthSessionImportResult) {
+        if importResult.hasRefreshCredential {
+            authSessionLogger.info("Native auth session imported refresh credential")
+        } else {
+            authSessionLogger.notice("Native auth session completed without importable refresh credential")
+        }
+        DispatchQueue.main.async {
+            onToken(token)
         }
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 enum HTTPMethod: String {
     case get = "GET"
@@ -42,6 +43,9 @@ struct APIClient: Sendable {
 
     func warmUpNetworkAccess() async {
         await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await Self.triggerLocalNetworkPrivacyPrompt()
+            }
             for url in networkWarmUpURLs() {
                 group.addTask {
                     await Self.sendWarmUpRequest(to: url)
@@ -267,6 +271,15 @@ struct APIClient: Sendable {
         _ = try? await URLSession.shared.data(for: request)
     }
 
+    private static func triggerLocalNetworkPrivacyPrompt() async {
+        let parameters = NWParameters()
+        parameters.includePeerToPeer = true
+        let browser = NWBrowser(for: .bonjour(type: "_walkcalc._tcp", domain: nil), using: parameters)
+        browser.start(queue: .global(qos: .utility))
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        browser.cancel()
+    }
+
     private func request<T>(_ method: HTTPMethod, path: String, query: [String: String] = [:], token: String, body: [String: Any]? = nil, mapper: (Any?) -> T) async throws -> APIEnvelope<T> {
         var response = try await execute(method, path: path, query: query, token: token, body: body)
         var refreshedToken: String?
@@ -277,6 +290,9 @@ struct APIClient: Sendable {
                 }
                 refreshedToken = nextToken
                 response = try await execute(method, path: path, query: query, token: nextToken, body: body)
+                if response.status == 401 || response.status == 403 {
+                    throw APIClientError(kind: .authRefresh, statusCode: response.status, message: nil)
+                }
             } catch let error as APIClientError {
                 if error.kind == .authRefresh {
                     throw error
@@ -346,6 +362,9 @@ struct APIClient: Sendable {
     }
 
     private func refreshAccessToken() async throws -> String? {
+        guard NativeAuthSession.hasRefreshCredential(for: baseURL) else {
+            throw APIClientError(kind: .authRefresh, statusCode: nil, message: nil)
+        }
         let response = try await execute(.post, path: "/auth/refreshToken", query: [:], token: nil, body: nil)
         guard response.status >= 200, response.status < 300 else {
             return nil

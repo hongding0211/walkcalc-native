@@ -17,7 +17,7 @@ enum WalkcalcDebugFixture: String {
 extension WalkcalcStore {
     func applyDebugFixture(_ fixture: WalkcalcDebugFixture) {
         isFixtureMode = true
-        isBootstrapping = false
+        finishStartup(.authenticated)
         token = "debug-fixture-token"
         user = UserProfile(uuid: "fixture-current-user", name: "Hong", avatar: "")
         urgentAlert = nil
