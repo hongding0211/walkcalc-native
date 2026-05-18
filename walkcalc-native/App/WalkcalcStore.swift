@@ -31,7 +31,7 @@ struct StoreAlert: Identifiable {
     let message: String
 }
 
-enum StartupRoute {
+enum StartupRoute: Equatable {
     case resolving
     case loginRequired
     case authenticated
@@ -39,6 +39,7 @@ enum StartupRoute {
 
 private enum NetworkOperationIntent: String {
     case bootstrapAuth
+    case foregroundRefresh
     case backgroundRefresh
     case pagination
     case secondaryLoad
@@ -98,6 +99,7 @@ final class WalkcalcStore: ObservableObject {
     private var groupSearchQuery = ""
     private var apnsProviderToken = UserDefaults.standard.string(forKey: "walkcalc.apnsProviderToken")
     private var pushDeviceRegistrationTask: Task<Void, Never>?
+    private var isHandlingForegroundActivation = false
     private var cancellables: Set<AnyCancellable> = []
     private let networkFeedbackLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "walkcalc-native", category: "NetworkFeedback")
 
@@ -125,6 +127,7 @@ final class WalkcalcStore: ObservableObject {
             }
             .store(in: &cancellables)
         #if DEBUG
+        applyAuthSessionSimulationSeedIfRequested()
         if let fixture = WalkcalcDebugFixture.current {
             applyDebugFixture(fixture)
         }
@@ -163,6 +166,44 @@ final class WalkcalcStore: ObservableObject {
     func prepareNetworkAccessForStartup() async {
         guard !isFixtureMode else { return }
         await api.warmUpNetworkAccess()
+    }
+
+    var shouldSkipNotificationPermissionRequest: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["WALKCALC_SKIP_NOTIFICATION_PERMISSION"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("--simulate-auth-session-seed")
+        #else
+        false
+        #endif
+    }
+
+    func handleForegroundActivation() async {
+        guard !isFixtureMode else { return }
+        guard startupRoute == .authenticated else { return }
+        guard let token else { return }
+        guard !isHandlingForegroundActivation else { return }
+
+        isHandlingForegroundActivation = true
+        defer { isHandlingForegroundActivation = false }
+
+        do {
+            let response = try await api.userInfo(token: token)
+            applyRefreshedToken(response)
+            if response.success, let data = response.data {
+                user = data
+            } else {
+                recordFailure(operation: "foreground.userInfo", intent: .foregroundRefresh, disposition: .silent, response: response)
+                return
+            }
+        } catch {
+            recordFailure(operation: "foreground.userInfo", intent: .foregroundRefresh, disposition: .silent, error: error)
+            return
+        }
+
+        await registerPushDeviceIfPossible(reason: "foreground")
+        if api.ledgerAPIEnabled {
+            _ = await refreshHome()
+        }
     }
 
     func setTheme(_ theme: AppTheme) {
@@ -247,6 +288,9 @@ final class WalkcalcStore: ObservableObject {
 
     func requestNotificationPermissionIfNeeded() async {
         if isFixtureMode { return }
+        if shouldSkipNotificationPermissionRequest {
+            return
+        }
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         switch settings.authorizationStatus {

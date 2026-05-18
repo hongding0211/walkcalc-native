@@ -24,6 +24,7 @@ enum HomeSheet: Identifiable {
 
 struct ContentView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -39,7 +40,15 @@ struct ContentView: View {
         .task {
             await store.prepareNetworkAccessForStartup()
             await store.bootstrap()
-            await store.requestNotificationPermissionIfNeeded()
+            if !store.shouldSkipNotificationPermissionRequest {
+                await store.requestNotificationPermissionIfNeeded()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                await store.handleForegroundActivation()
+            }
         }
         .alert(item: Binding(get: { store.urgentAlert }, set: { store.urgentAlert = $0 })) { alert in
             Alert(

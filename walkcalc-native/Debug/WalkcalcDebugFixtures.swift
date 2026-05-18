@@ -16,6 +16,45 @@ enum WalkcalcDebugFixture: String {
 
 @MainActor
 extension WalkcalcStore {
+    func applyAuthSessionSimulationSeedIfRequested() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--simulate-auth-session-seed") else {
+            return
+        }
+
+        let environment = ProcessInfo.processInfo.environment
+        guard let accessToken = environment["WALKCALC_SIM_ACCESS_TOKEN"],
+              let refreshToken = environment["WALKCALC_SIM_REFRESH_TOKEN"],
+              !accessToken.isEmpty,
+              !refreshToken.isEmpty,
+              let apiHost = api.baseURL.host else {
+            print("AUTH_SIM seed skipped: missing WALKCALC_SIM_ACCESS_TOKEN or WALKCALC_SIM_REFRESH_TOKEN")
+            return
+        }
+
+        NativeAuthSession.clearAuthCookies(baseURL: api.baseURL, webBaseURL: api.webBaseURL)
+        let expiresDate = Date().addingTimeInterval(60 * 30)
+        let refreshCookie = HTTPCookie(properties: [
+            .domain: apiHost,
+            .path: "/",
+            .name: NativeAuthSession.refreshCookieName,
+            .value: refreshToken,
+            .expires: expiresDate,
+            HTTPCookiePropertyKey("HttpOnly"): "TRUE"
+        ])
+
+        if let refreshCookie {
+            _ = NativeAuthSession.importAuthCookies([refreshCookie], baseURL: api.baseURL, webBaseURL: api.webBaseURL)
+        }
+
+        token = accessToken
+        user = nil
+        finishStartup(.resolving)
+        isBootstrapping = true
+        UserDefaults.standard.set(accessToken, forKey: "walkcalc.token")
+        print("AUTH_SIM seeded accessToken and refreshCookie for \(api.baseURL.absoluteString)")
+    }
+
     func applyDebugFixture(_ fixture: WalkcalcDebugFixture) {
         isFixtureMode = true
         finishStartup(.authenticated)

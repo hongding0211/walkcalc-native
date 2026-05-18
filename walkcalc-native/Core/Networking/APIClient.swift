@@ -371,12 +371,16 @@ struct APIClient: Sendable {
         guard NativeAuthSession.hasRefreshCredential(for: baseURL) else {
             throw APIClientError(kind: .authRefresh, statusCode: nil, message: nil)
         }
-        let response = try await execute(.post, path: "/auth/refreshToken", query: [:], token: nil, body: nil)
+        let body = NativeAuthSession.refreshToken(for: baseURL).map { ["refreshToken": $0] }
+        let response = try await execute(.post, path: "/auth/refreshToken", query: [:], token: nil, body: body)
         guard response.status >= 200, response.status < 300 else {
             return nil
         }
         let envelope = response.raw as? [String: Any] ?? [:]
         let data = payload(from: envelope) as? [String: Any] ?? [:]
+        if let refreshToken = data["refreshToken"] as? String, !refreshToken.isEmpty {
+            NativeAuthSession.storeRefreshToken(refreshToken, for: baseURL)
+        }
         return data["accessToken"] as? String ?? data["token"] as? String
     }
 }

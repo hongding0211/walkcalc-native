@@ -5,6 +5,7 @@ enum AuthSessionVerification {
     static func assertAllCasesPass() async {
         await verifyCookieImportAndClear()
         await verifyRefreshRetryPersistsAccessToken()
+        await verifyForegroundActivationRefreshesSession()
         await verifyMissingRefreshCredentialFailsAsAuthRefresh()
         await verifyTransportFailureRemainsNonAuth()
     }
@@ -65,6 +66,58 @@ enum AuthSessionVerification {
             expect(response?.success, equals: true, prefix: "auth-session-refresh-response")
             expect(response?.refreshedToken, equals: "fresh-token", prefix: "auth-session-refresh-token")
             expect(calls.paths, equals: ["/auth/info", "/auth/refreshToken", "/auth/info"], prefix: "auth-session-refresh-call-order")
+        }
+    }
+
+    private static func verifyForegroundActivationRefreshesSession() async {
+        await withMockProtocol { calls in
+            _ = NativeAuthSession.importAuthCookies([
+                makeCookie(name: NativeAuthSession.refreshCookieName, value: "refresh", domain: "127.0.0.1")
+            ].compactMap { $0 }, baseURL: APIClient().baseURL, webBaseURL: APIClient().webBaseURL)
+
+            MockURLProtocol.requestHandler = { request in
+                let path = request.url?.path ?? ""
+                calls.append((path, request.value(forHTTPHeaderField: "Authorization")))
+                if path == "/auth/info", request.value(forHTTPHeaderField: "Authorization") == "Bearer expired-token" {
+                    return httpResponse(status: 401, url: request.url!)
+                }
+                if path == "/auth/refreshToken" {
+                    return httpResponse(
+                        status: 200,
+                        url: request.url!,
+                        json: ["success": true, "data": ["accessToken": "foreground-token", "refreshToken": "rotated"]],
+                        headers: ["Set-Cookie": "refreshToken=rotated; Path=/; HttpOnly"]
+                    )
+                }
+                if path == "/auth/info", request.value(forHTTPHeaderField: "Authorization") == "Bearer foreground-token" {
+                    return httpResponse(status: 200, url: request.url!, json: [
+                        "success": true,
+                        "data": [
+                            "userId": "user-1",
+                            "profile": ["name": "Foreground User"]
+                        ]
+                    ])
+                }
+                if path == "/walkcalc/home/summary" {
+                    return httpResponse(status: 200, url: request.url!, json: ["success": true, "data": ["totalBalance": "0"]])
+                }
+                if path == "/walkcalc/groups/my" {
+                    return httpResponse(status: 200, url: request.url!, json: ["success": true, "data": []])
+                }
+                return httpResponse(status: 500, url: request.url!)
+            }
+
+            let store = WalkcalcStore()
+            store.token = "expired-token"
+            store.user = UserProfile(uuid: "user-1", name: "Old User", avatar: "")
+            store.finishStartup(.authenticated)
+            await store.handleForegroundActivation()
+
+            expect(store.token, equals: Optional("foreground-token"), prefix: "auth-session-foreground-token")
+            expect(store.user?.name, equals: Optional("Foreground User"), prefix: "auth-session-foreground-user")
+            expect(calls.paths.contains("/auth/refreshToken"), equals: true, prefix: "auth-session-foreground-refresh-called")
+            expect(calls.paths.contains("/walkcalc/home/summary"), equals: true, prefix: "auth-session-foreground-home-called")
+            expect(calls.paths.contains("/walkcalc/groups/my"), equals: true, prefix: "auth-session-foreground-groups-called")
         }
     }
 

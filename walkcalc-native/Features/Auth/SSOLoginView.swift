@@ -17,7 +17,7 @@ struct SSOLoginView: View {
             }
             if url.absoluteString.hasPrefix(store.api.redirectPrefix()),
                let token = token(from: url) {
-                completeLogin(with: token, cookieStore: cookieStore)
+                completeLogin(with: token, refreshToken: refreshToken(from: url), cookieStore: cookieStore)
             }
         }, onFinish: { url, cookieStore in
             guard hasVisitedGithub,
@@ -27,17 +27,22 @@ struct SSOLoginView: View {
                 guard let token = cookies.first(where: { $0.name == "accessToken" })?.value else {
                     return
                 }
-                completeLogin(with: token, cookies: cookies)
+                completeLogin(
+                    with: token,
+                    refreshToken: cookies.first(where: { $0.name == NativeAuthSession.refreshCookieName })?.value,
+                    cookies: cookies
+                )
             }
         })
     }
 
-    private func completeLogin(with token: String, cookies: [HTTPCookie]? = nil, cookieStore: WKHTTPCookieStore? = nil) {
+    private func completeLogin(with token: String, refreshToken: String? = nil, cookies: [HTTPCookie]? = nil, cookieStore: WKHTTPCookieStore? = nil) {
         let api = store.api
         if let cookies {
             Task {
                 finishLogin(
                     token: token,
+                    refreshToken: refreshToken,
                     importResult: NativeAuthSession.importAuthCookies(cookies, baseURL: api.baseURL, webBaseURL: api.webBaseURL)
                 )
             }
@@ -46,19 +51,22 @@ struct SSOLoginView: View {
 
         guard let cookieStore else {
             Task {
-                finishLogin(token: token, importResult: NativeAuthSessionImportResult(importedCookieNames: []))
+                finishLogin(token: token, refreshToken: refreshToken, importResult: NativeAuthSessionImportResult(importedCookieNames: []))
             }
             return
         }
 
         Task {
             let importResult = await NativeAuthSession.importAuthCookies(from: cookieStore, baseURL: api.baseURL, webBaseURL: api.webBaseURL)
-            finishLogin(token: token, importResult: importResult)
+            finishLogin(token: token, refreshToken: refreshToken, importResult: importResult)
         }
     }
 
-    private func finishLogin(token: String, importResult: NativeAuthSessionImportResult) {
-        if importResult.hasRefreshCredential {
+    private func finishLogin(token: String, refreshToken: String?, importResult: NativeAuthSessionImportResult) {
+        if let refreshToken, !refreshToken.isEmpty {
+            NativeAuthSession.storeRefreshToken(refreshToken, for: store.api.baseURL)
+        }
+        if importResult.hasRefreshCredential || refreshToken?.isEmpty == false {
             authSessionLogger.info("Native auth session imported refresh credential")
         } else {
             authSessionLogger.notice("Native auth session completed without importable refresh credential")
@@ -98,6 +106,16 @@ struct SSOLoginView: View {
             return nil
         }
         return queryValue(query, key: "accessToken") ?? queryValue(query, key: "token")
+    }
+
+    private func refreshToken(from url: URL) -> String? {
+        if let fragment = url.fragment {
+            return queryValue(fragment, key: "refreshToken")
+        }
+        guard let query = url.query else {
+            return nil
+        }
+        return queryValue(query, key: "refreshToken")
     }
 
     private func queryValue(_ source: String, key: String) -> String? {

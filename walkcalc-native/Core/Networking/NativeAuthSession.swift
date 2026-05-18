@@ -12,6 +12,7 @@ struct NativeAuthSessionImportResult {
 enum NativeAuthSession {
     static let accessCookieName = "accessToken"
     static let refreshCookieName = "refreshToken"
+    private static let refreshTokenStoragePrefix = "walkcalc.refreshToken"
 
     private static let authCookieNames: Set<String> = [
         accessCookieName,
@@ -39,18 +40,35 @@ enum NativeAuthSession {
         let importedNames = Set(candidateCookies.map(\.name))
         for cookie in candidateCookies {
             persist(cookie, for: baseURL, webBaseURL: webBaseURL)
+            if cookie.name == refreshCookieName {
+                storeRefreshToken(cookie.value, for: baseURL)
+            }
         }
         return NativeAuthSessionImportResult(importedCookieNames: importedNames)
     }
 
+    static func storeRefreshToken(_ refreshToken: String, for baseURL: URL) {
+        guard !refreshToken.isEmpty else { return }
+        UserDefaults.standard.set(refreshToken, forKey: refreshTokenStorageKey(for: baseURL))
+    }
+
+    static func refreshToken(for baseURL: URL) -> String? {
+        guard let token = UserDefaults.standard.string(forKey: refreshTokenStorageKey(for: baseURL)),
+              !token.isEmpty else {
+            return nil
+        }
+        return token
+    }
+
     static func hasRefreshCredential(for baseURL: URL) -> Bool {
         guard let host = baseURL.host else { return false }
-        return HTTPCookieStorage.shared.cookies?
+        let hasCookie = HTTPCookieStorage.shared.cookies?
             .contains { cookie in
                 cookie.name == refreshCookieName
                     && cookieMatches(host: host, cookieDomain: cookie.domain)
                     && !isExpired(cookie)
             } ?? false
+        return hasCookie || refreshToken(for: baseURL) != nil
     }
 
     static func clearAuthCookies(baseURL: URL, webBaseURL: URL) {
@@ -61,6 +79,13 @@ enum NativeAuthSession {
                     && hosts.contains { cookieMatches(host: $0, cookieDomain: cookie.domain) || shouldDuplicateLoopbackCookie(cookieHost: cookie.domain, targetHost: $0) }
             }
             .forEach { HTTPCookieStorage.shared.deleteCookie($0) }
+        UserDefaults.standard.removeObject(forKey: refreshTokenStorageKey(for: baseURL))
+        UserDefaults.standard.removeObject(forKey: refreshTokenStorageKey(for: webBaseURL))
+    }
+
+    private static func refreshTokenStorageKey(for baseURL: URL) -> String {
+        guard let host = baseURL.host else { return refreshTokenStoragePrefix }
+        return "\(refreshTokenStoragePrefix).\(host)"
     }
 
     private static func allCookies(from cookieStore: WKHTTPCookieStore) async -> [HTTPCookie] {
