@@ -7,6 +7,7 @@ enum WalkcalcDebugFixture: String {
     case emptyBalance = "--ui-fixture-empty-balance"
     case stress = "--ui-fixture-stress"
     case edge = "--ui-fixture-edge"
+    case appStore = "--ui-fixture-appstore"
 
     static var current: WalkcalcDebugFixture? {
         ProcessInfo.processInfo.arguments.compactMap(WalkcalcDebugFixture.init(rawValue:)).first
@@ -42,8 +43,121 @@ extension WalkcalcStore {
             applyStressFixture()
         case .edge:
             applyEdgeFixture()
+        case .appStore:
+            applyAppStoreFixture()
         }
         totalBalanceMinor = totalDebtMinor()
+    }
+
+    private func applyAppStoreFixture() {
+        var tokyo = fixtureGroup(
+            id: "appstore-tokyo",
+            name: "Weekend in Tokyo",
+            members: [
+                fixtureMember("fixture-current-user", "Hong", debtMinor: "4320", costMinor: "18840", recordCount: 4),
+                fixtureMember("appstore-ava", "Ava", debtMinor: "-2160", costMinor: "12480", recordCount: 3),
+                fixtureMember("appstore-noah", "Noah", debtMinor: "-1260", costMinor: "9360", recordCount: 3),
+                fixtureMember("appstore-mia", "Mia", debtMinor: "-900", costMinor: "8160", recordCount: 2)
+            ],
+            tempUsers: []
+        )
+        tokyo.hasCurrentUserBalanceSummary = true
+        tokyo.currentUserBalanceMinor = "4320"
+        tokyo.currentUserExpenseShareMinor = "18840"
+        tokyo.currentUserPaidTotalMinor = "23160"
+        tokyo.currentUserRecordCount = 4
+        tokyo.participantCount = tokyo.allMembers.count
+        tokyo.participantPreview = Array(tokyo.allMembers.prefix(4))
+        tokyo.serverHasUnresolvedBalance = true
+
+        var apartment = fixtureGroup(
+            id: "appstore-apartment",
+            name: "Apartment Essentials",
+            members: [
+                fixtureMember("fixture-current-user", "Hong", debtMinor: "-1850", costMinor: "7340", recordCount: 2),
+                fixtureMember("appstore-lina", "Lina", debtMinor: "1850", costMinor: "9190", recordCount: 2)
+            ],
+            tempUsers: []
+        )
+        apartment.hasCurrentUserBalanceSummary = true
+        apartment.currentUserBalanceMinor = "-1850"
+        apartment.currentUserExpenseShareMinor = "7340"
+        apartment.currentUserPaidTotalMinor = "5490"
+        apartment.currentUserRecordCount = 2
+        apartment.participantCount = apartment.allMembers.count
+        apartment.participantPreview = apartment.allMembers
+        apartment.serverHasUnresolvedBalance = true
+
+        groups = [tokyo, apartment]
+
+        let now = Date().timeIntervalSince1970 * 1000
+        recordsByGroup[tokyo.id] = [
+            fixtureRecord(
+                id: "appstore-record-1",
+                payer: "fixture-current-user",
+                amountMinor: "12800",
+                participants: tokyo.allMembers.map(\.uuid),
+                category: "food",
+                note: "Dinner in Shibuya",
+                offsetHours: 0,
+                now: now
+            ),
+            fixtureRecord(
+                id: "appstore-record-2",
+                payer: "appstore-ava",
+                amountMinor: "24600",
+                participants: tokyo.allMembers.map(\.uuid),
+                category: "accommodation",
+                note: "Hotel for two nights",
+                offsetHours: 5,
+                now: now
+            ),
+            fixtureRecord(
+                id: "appstore-record-3",
+                payer: "appstore-noah",
+                amountMinor: "4800",
+                participants: ["fixture-current-user", "appstore-ava", "appstore-noah"],
+                category: "traffic",
+                note: "Airport train tickets",
+                offsetHours: 9,
+                now: now
+            ),
+            fixtureRecord(
+                id: "appstore-record-4",
+                payer: "fixture-current-user",
+                amountMinor: "3600",
+                participants: ["fixture-current-user", "appstore-mia"],
+                category: "beverage",
+                note: "Morning coffee run",
+                offsetHours: 12,
+                now: now
+            )
+        ]
+        recordTotals[tokyo.id] = recordsByGroup[tokyo.id]?.count ?? 0
+
+        recordsByGroup[apartment.id] = [
+            fixtureRecord(
+                id: "appstore-record-5",
+                payer: "appstore-lina",
+                amountMinor: "6280",
+                participants: apartment.allMembers.map(\.uuid),
+                category: "other",
+                note: "Kitchen restock",
+                offsetHours: 18,
+                now: now
+            ),
+            fixtureRecord(
+                id: "appstore-record-6",
+                payer: "fixture-current-user",
+                amountMinor: "4700",
+                participants: apartment.allMembers.map(\.uuid),
+                category: "shopping",
+                note: "Cleaning supplies",
+                offsetHours: 24,
+                now: now
+            )
+        ]
+        recordTotals[apartment.id] = recordsByGroup[apartment.id]?.count ?? 0
     }
 
     private func applyStressFixture() {
@@ -171,8 +285,50 @@ extension WalkcalcStore {
         )
     }
 
-    private func fixtureMember(_ uuid: String, _ name: String, isTemporary: Bool = false) -> Member {
-        Member(uuid: uuid, name: name, avatar: "", debtMinor: "0", costMinor: "0", isTemporary: isTemporary)
+    private func fixtureMember(
+        _ uuid: String,
+        _ name: String,
+        debtMinor: MoneyMinor = "0",
+        costMinor: MoneyMinor = "0",
+        recordCount: Int = 0,
+        isTemporary: Bool = false
+    ) -> Member {
+        Member(
+            uuid: uuid,
+            name: name,
+            avatar: "",
+            debtMinor: debtMinor,
+            costMinor: costMinor,
+            recordCount: recordCount,
+            isTemporary: isTemporary
+        )
+    }
+
+    private func fixtureRecord(
+        id: String,
+        payer: String,
+        amountMinor: MoneyMinor,
+        participants: [String],
+        category: String,
+        note: String,
+        offsetHours: TimeInterval,
+        now: TimeInterval
+    ) -> WalkRecord {
+        let timestamp = now - (offsetHours * 60 * 60 * 1000)
+        return WalkRecord(
+            recordId: id,
+            who: payer,
+            paidMinor: amountMinor,
+            forWhom: participants,
+            type: category,
+            text: note,
+            long: "",
+            lat: "",
+            createdAt: timestamp,
+            occurredAt: timestamp,
+            modifiedAt: timestamp,
+            isDebtResolve: false
+        )
     }
 }
 #endif

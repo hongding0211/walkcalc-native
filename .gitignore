@@ -9,6 +9,8 @@ xcuserdata/
 # Build products
 build/
 DerivedData/
+DerivedData-*/
+AppStoreScreenshots/
 *.ipa
 *.dSYM.zip
 *.dSYM

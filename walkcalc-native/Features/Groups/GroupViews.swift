@@ -23,11 +23,23 @@ struct GroupView: View {
     @Environment(\.dismiss) private var dismiss
 
     let groupId: String
-    @State private var activeSheet: GroupSheet?
+    @State private var activeSheet: GroupSheet? = Self.initialSheet()
     @State private var isSearchPresented = false
     @State private var isSystemSearchPresented = false
     @State private var ignoredSearchText = ""
     @State private var deleteCandidate: WalkRecord?
+
+    private static func initialSheet() -> GroupSheet? {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-open-new-expense") {
+            return .newExpense
+        }
+        if ProcessInfo.processInfo.arguments.contains("--ui-open-balances") {
+            return .balances(nil)
+        }
+        #endif
+        return nil
+    }
 
     private var group: WalkGroup? {
         store.group(id: groupId)

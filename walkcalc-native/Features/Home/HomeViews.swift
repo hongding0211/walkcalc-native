@@ -249,12 +249,21 @@ private struct LoginBrandMark: View {
 
 struct RootHomeView: View {
     @EnvironmentObject private var store: WalkcalcStore
-    @State private var path: [Route] = []
+    @State private var path: [Route] = Self.initialPath()
     @State private var activeSheet: HomeSheet?
     @State private var archiveCandidate: WalkGroup?
     @State private var archiveBlockedCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
     @State private var pendingGroupAction: HomeGroupPendingAction?
+
+    private static func initialPath() -> [Route] {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-open-appstore-group") {
+            return [.group("appstore-tokyo")]
+        }
+        #endif
+        return []
+    }
 
     private var activeGroups: [WalkGroup] {
         guard let user = store.user else { return store.groups }
