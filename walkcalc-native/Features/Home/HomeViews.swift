@@ -76,7 +76,7 @@ private struct LaunchGateView: View {
 
                 LoginBrandMark(scale: markScale)
                     .frame(width: layout.value(70.2), height: layout.value(80.229))
-                    .offset(x: layout.x(16), y: layout.y(308))
+                    .offset(x: layout.x(8), y: layout.y(308))
 
                 Text("Walking Calculator")
                     .font(.custom("PingFangSC-Semibold", size: layout.value(21)))
@@ -136,7 +136,7 @@ private struct LoginScreen: View {
 
                 LoginBrandMark(scale: markScale)
                     .frame(width: layout.value(70.2), height: layout.value(80.229))
-                    .offset(x: layout.x(16), y: layout.y(308))
+                    .offset(x: layout.x(8), y: layout.y(308))
 
                 Text("Walking Calculator")
                     .font(.system(size: layout.value(21), weight: .semibold))
@@ -228,7 +228,7 @@ private struct LoginBrandMark: View {
     let scale: CGFloat
 
     private var leftCapsule: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0xF8F8F5)) : .white
+        colorScheme == .dark ? Color(UIColor(hex: 0xF8F8F5)) : Color(UIColor(hex: 0xB6B6B6))
     }
 
     private var rightCapsule: Color {
