@@ -59,7 +59,7 @@ extension WalkcalcStore {
         isFixtureMode = true
         finishStartup(.authenticated)
         token = "debug-fixture-token"
-        user = UserProfile(uuid: "fixture-current-user", name: "Hong", avatar: "")
+        user = UserProfile(uuid: "fixture-current-user", name: "Hong", avatar: appStoreAvatarHong)
         urgentAlert = nil
         recordsByGroup = [:]
         recordTotals = [:]
@@ -93,10 +93,10 @@ extension WalkcalcStore {
             id: "appstore-tokyo",
             name: "Weekend in Tokyo",
             members: [
-                fixtureMember("fixture-current-user", "Hong", debtMinor: "4320", costMinor: "18840", recordCount: 4),
-                fixtureMember("appstore-ava", "Ava", debtMinor: "-2160", costMinor: "12480", recordCount: 3),
-                fixtureMember("appstore-noah", "Noah", debtMinor: "-1260", costMinor: "9360", recordCount: 3),
-                fixtureMember("appstore-mia", "Mia", debtMinor: "-900", costMinor: "8160", recordCount: 2)
+                fixtureMember("fixture-current-user", "Hong", debtMinor: "4320", costMinor: "18840", recordCount: 4, avatar: appStoreAvatarHong),
+                fixtureMember("appstore-ava", "Ava", debtMinor: "-2160", costMinor: "12480", recordCount: 3, avatar: appStoreAvatarAva),
+                fixtureMember("appstore-noah", "Noah", debtMinor: "-1260", costMinor: "9360", recordCount: 3, avatar: appStoreAvatarNoah),
+                fixtureMember("appstore-mia", "Mia", debtMinor: "-900", costMinor: "8160", recordCount: 2, avatar: appStoreAvatarMia)
             ],
             tempUsers: []
         )
@@ -113,8 +113,8 @@ extension WalkcalcStore {
             id: "appstore-apartment",
             name: "Apartment Essentials",
             members: [
-                fixtureMember("fixture-current-user", "Hong", debtMinor: "-1850", costMinor: "7340", recordCount: 2),
-                fixtureMember("appstore-lina", "Lina", debtMinor: "1850", costMinor: "9190", recordCount: 2)
+                fixtureMember("fixture-current-user", "Hong", debtMinor: "-1850", costMinor: "7340", recordCount: 2, avatar: appStoreAvatarHong),
+                fixtureMember("appstore-lina", "Lina", debtMinor: "1850", costMinor: "9190", recordCount: 2, avatar: appStoreAvatarLina)
             ],
             tempUsers: []
         )
@@ -331,12 +331,13 @@ extension WalkcalcStore {
         debtMinor: MoneyMinor = "0",
         costMinor: MoneyMinor = "0",
         recordCount: Int = 0,
-        isTemporary: Bool = false
+        isTemporary: Bool = false,
+        avatar: String = ""
     ) -> Member {
         Member(
             uuid: uuid,
             name: name,
-            avatar: "",
+            avatar: avatar,
             debtMinor: debtMinor,
             costMinor: costMinor,
             recordCount: recordCount,
@@ -369,6 +370,26 @@ extension WalkcalcStore {
             modifiedAt: timestamp,
             isDebtResolve: false
         )
+    }
+
+    private var appStoreAvatarHong: String {
+        "https://images.unsplash.com/photo-1672527838035-90ae2ad2e813?auto=format&fit=crop&crop=faces&w=160&h=160&q=80"
+    }
+
+    private var appStoreAvatarAva: String {
+        "https://images.unsplash.com/photo-1769961982389-bb243681421a?auto=format&fit=crop&crop=faces&w=160&h=160&q=80"
+    }
+
+    private var appStoreAvatarNoah: String {
+        "https://images.unsplash.com/photo-1758600587808-9e251cf34b94?auto=format&fit=crop&crop=faces&w=160&h=160&q=80"
+    }
+
+    private var appStoreAvatarMia: String {
+        "https://images.unsplash.com/photo-1581065178047-8ee15951ede6?auto=format&fit=crop&crop=faces&w=160&h=160&q=80"
+    }
+
+    private var appStoreAvatarLina: String {
+        "https://images.unsplash.com/photo-1758611969976-9f38286119ef?auto=format&fit=crop&crop=faces&w=160&h=160&q=80"
     }
 }
 #endif
