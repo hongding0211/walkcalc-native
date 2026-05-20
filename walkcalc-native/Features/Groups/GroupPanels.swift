@@ -675,16 +675,20 @@ struct ArchivedGroupsView: View {
                                 Task { await restore(group) }
                             }
                             .disabled(pendingAction != nil)
-                            Button(L("Delete"), role: .destructive) {
-                                deleteCandidate = group
+                            if group.canCurrentUserDelete {
+                                Button(L("Delete"), role: .destructive) {
+                                    deleteCandidate = group
+                                }
+                                .disabled(pendingAction != nil)
                             }
-                            .disabled(pendingAction != nil)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(L("Delete"), role: .destructive) {
-                                deleteCandidate = group
+                            if group.canCurrentUserDelete {
+                                Button(L("Delete"), role: .destructive) {
+                                    deleteCandidate = group
+                                }
+                                .disabled(pendingAction != nil)
                             }
-                            .disabled(pendingAction != nil)
 
                             Button(L("Restore")) {
                                 Task { await restore(group) }
@@ -728,6 +732,7 @@ struct ArchivedGroupsView: View {
     }
 
     private func delete(_ group: WalkGroup) async {
+        guard group.canCurrentUserDelete else { return }
         guard pendingAction == nil else { return }
         actionMessage = nil
         pendingAction = .delete(group.id)
@@ -887,20 +892,22 @@ struct GroupSettingsSheet: View {
                 .buttonStyle(.plain)
                 .disabled(isSubmitting)
 
-                Button(role: .destructive) {
-                    confirmation = .delete
-                } label: {
-                    HStack {
-                        Text(L("Delete group"))
-                        Spacer()
-                        if pendingAction == .delete {
-                            ProgressView()
-                                .controlSize(.small)
-                                .softLedgerProgressTint()
+                if currentGroup.canCurrentUserDelete {
+                    Button(role: .destructive) {
+                        confirmation = .delete
+                    } label: {
+                        HStack {
+                            Text(L("Delete group"))
+                            Spacer()
+                            if pendingAction == .delete {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .softLedgerProgressTint()
+                            }
                         }
                     }
+                    .disabled(isSubmitting)
                 }
-                .disabled(isSubmitting)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
         }
@@ -1016,6 +1023,7 @@ struct GroupSettingsSheet: View {
     }
 
     private func deleteGroup() async {
+        guard currentGroup.canCurrentUserDelete else { return }
         guard !isSubmitting else { return }
         actionMessage = nil
         pendingAction = .delete
@@ -1998,6 +2006,7 @@ private struct JustifiedGrid<Item, ID: Hashable, Content: View>: View {
 
 struct BalancesWorkspace: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @Environment(\.dismiss) private var dismiss
     let group: WalkGroup
     let initialMember: Member?
     @State private var path: [Member] = []
@@ -2008,7 +2017,9 @@ struct BalancesWorkspace: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            BalancesRootView(group: currentGroup) { member in
+            BalancesRootView(group: currentGroup, onResolveSucceeded: {
+                dismiss()
+            }) { member in
                 path.append(member)
             }
             .navigationDestination(for: Member.self) { member in
@@ -2042,6 +2053,7 @@ private struct BalancesRootView: View {
     @ScaledMetric(relativeTo: .body) private var resolveButtonBottomPadding = 14
 
     let group: WalkGroup
+    let onResolveSucceeded: () -> Void
     let onSelect: (Member) -> Void
 
     private var members: [Member] {
@@ -2224,7 +2236,12 @@ private struct BalancesRootView: View {
             result = await store.resolveSingleWithFeedback(groupId: group.id, debt: debt)
         }
 
-        if !result.success {
+        if result.success {
+            resolvingMode = nil
+            resolvingDebtID = nil
+            onResolveSucceeded()
+            return
+        } else {
             resolveMessage = result.message
         }
         resolvingMode = nil
@@ -2513,7 +2530,9 @@ private struct MemberBalanceDetailView: View {
         }
         .navigationDestination(item: $selectedRecord) { record in
             RecordEditorView(groupId: group.id, record: record) {
-                selectedRecord = nil
+                Task {
+                    await store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
+                }
             }
         }
         .recordDeleteConfirmation(groupId: group.id, record: $deleteCandidate) { deletedRecord in

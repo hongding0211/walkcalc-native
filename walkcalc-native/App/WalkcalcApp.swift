@@ -13,7 +13,7 @@ struct walkcalc_nativeApp: App {
     @StateObject private var store = WalkcalcStore()
 
     init() {
-        UIView.appearance().tintColor = AppTheme.defaultTheme.accentUIColor
+        AppTheme.defaultTheme.applySystemControlTint()
 
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--verify-temporal-display") {
@@ -56,6 +56,7 @@ struct walkcalc_nativeApp: App {
                 #endif
             }
             .environment(\.softLedgerAppTheme, store.selectedTheme)
+            .softLedgerUIKitTint(store.selectedTheme)
         }
     }
 }

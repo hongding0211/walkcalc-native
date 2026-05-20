@@ -18,6 +18,17 @@ enum GroupSheet: Identifiable {
     }
 }
 
+private extension GroupSheet {
+    var keepsTopBalanceVisible: Bool {
+        switch self {
+        case .balances:
+            return true
+        case .newExpense, .editExpense, .groupSettings, .peopleSetup:
+            return false
+        }
+    }
+}
+
 struct GroupView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
@@ -28,6 +39,7 @@ struct GroupView: View {
     @State private var isSystemSearchPresented = false
     @State private var ignoredSearchText = ""
     @State private var deleteCandidate: WalkRecord?
+    @State private var isDeletingRecord = false
 
     private static func initialSheet() -> GroupSheet? {
         #if DEBUG
@@ -54,6 +66,14 @@ struct GroupView: View {
         return group.allMembers.count == 1 && records.isEmpty
     }
 
+    private var isBalanceAnimationEnabled: Bool {
+        (activeSheet == nil || activeSheet?.keepsTopBalanceVisible == true)
+            && !isSearchPresented
+            && !isSystemSearchPresented
+            && deleteCandidate == nil
+            && !isDeletingRecord
+    }
+
     var body: some View {
         ZStack {
             SoftLedgerBackground()
@@ -66,7 +86,7 @@ struct GroupView: View {
                                 activeSheet = .peopleSetup
                             }
                         } else {
-                            GroupSummaryCard(group: group)
+                            GroupSummaryCard(group: group, isAnimationEnabled: isBalanceAnimationEnabled)
                             GroupBalancesSection(group: group) { selectedMember in
                                 activeSheet = .balances(selectedMember)
                             }
@@ -143,7 +163,7 @@ struct GroupView: View {
             isSearchPresented = true
         }
         .toolbarBackground(.hidden, for: .navigationBar)
-        .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate)
+        .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate, isDeleting: $isDeletingRecord)
         .task { await store.refreshGroup(groupId) }
         .sheet(isPresented: $isSearchPresented) {
             if let group {
@@ -345,6 +365,7 @@ private struct RecordSearchCanvas: View {
 private struct GroupSummaryCard: View {
     @EnvironmentObject private var store: WalkcalcStore
     let group: WalkGroup
+    let isAnimationEnabled: Bool
 
     private var myBalance: MoneyMinor {
         if group.hasCurrentUserBalanceSummary {
@@ -359,10 +380,13 @@ private struct GroupSummaryCard: View {
                 Text(L("My balance"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                Text(signedMoney(myBalance, style: .exact))
+                AnimatedBalanceAmountText(
+                    amountMinor: myBalance,
+                    style: .exact,
+                    isAnimationEnabled: isAnimationEnabled
+                )
                     .font(.system(size: 42, weight: .semibold, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(SoftLedgerTheme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
             }
@@ -696,8 +720,13 @@ struct RecordDeleteConfirmationModifier: ViewModifier {
 
     let groupId: String
     @Binding var record: WalkRecord?
+    let externalIsDeleting: Binding<Bool>?
     let onDeleted: (WalkRecord) -> Void
-    @State private var isDeleting = false
+    @State private var localIsDeleting = false
+
+    private var isDeleting: Bool {
+        externalIsDeleting?.wrappedValue ?? localIsDeleting
+    }
 
     func body(content: Content) -> some View {
         content
@@ -735,22 +764,31 @@ struct RecordDeleteConfirmationModifier: ViewModifier {
 
     private func delete(_ candidate: WalkRecord) async {
         guard !isDeleting else { return }
-        isDeleting = true
+        setDeleting(true)
         let result = await store.deleteRecordWithFeedback(groupId: groupId, recordId: candidate.recordId)
         if result.success {
             onDeleted(candidate)
         }
         record = nil
-        isDeleting = false
+        setDeleting(false)
+    }
+
+    private func setDeleting(_ value: Bool) {
+        if let externalIsDeleting {
+            externalIsDeleting.wrappedValue = value
+        } else {
+            localIsDeleting = value
+        }
     }
 }
 extension View {
     func recordDeleteConfirmation(
         groupId: String,
         record: Binding<WalkRecord?>,
+        isDeleting: Binding<Bool>? = nil,
         onDeleted: @escaping (WalkRecord) -> Void = { _ in }
     ) -> some View {
-        modifier(RecordDeleteConfirmationModifier(groupId: groupId, record: record, onDeleted: onDeleted))
+        modifier(RecordDeleteConfirmationModifier(groupId: groupId, record: record, externalIsDeleting: isDeleting, onDeleted: onDeleted))
     }
 }
 

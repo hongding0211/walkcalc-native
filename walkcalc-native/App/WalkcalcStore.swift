@@ -885,6 +885,9 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func deleteGroupWithFeedback(_ code: String) async -> StoreActionResult {
+        if let group = group(id: code), !group.canCurrentUserDelete {
+            return .failure(nil)
+        }
         if isFixtureMode {
             groups.removeAll { $0.id == code }
             recordsByGroup[code] = nil

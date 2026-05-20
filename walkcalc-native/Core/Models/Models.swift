@@ -81,6 +81,10 @@ struct WalkGroup: Identifiable, Hashable {
             ?? participantPreview.first { $0.uuid == ownerUserId }
     }
 
+    var canCurrentUserDelete: Bool {
+        isOwner
+    }
+
     var hasUnresolvedBalance: Bool {
         if let serverHasUnresolvedBalance {
             return serverHasUnresolvedBalance
@@ -187,6 +191,32 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
 
     var accentUIColor: UIColor {
         palette.accent.uiColor
+    }
+
+    var systemControlTintUIColor: UIColor {
+        self == .black ? UIColor(hex: 0x18181B) : accentUIColor
+    }
+
+    var alertContainerTintUIColor: UIColor {
+        guard self == .black else { return accentUIColor }
+
+        return UIColor { traitCollection in
+            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? 0xFFFFFF : 0x18181B)
+        }
+    }
+
+    var alertButtonTintUIColor: UIColor {
+        guard self == .black else { return accentUIColor }
+
+        return UIColor { traitCollection in
+            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? 0x18181B : 0xFFFFFF)
+        }
+    }
+
+    func applySystemControlTint() {
+        UIView.appearance().tintColor = systemControlTintUIColor
+        UIView.appearance(whenContainedInInstancesOf: [UIAlertController.self]).tintColor = alertContainerTintUIColor
+        UIButton.appearance(whenContainedInInstancesOf: [UIAlertController.self]).tintColor = alertButtonTintUIColor
     }
 
     var accentSoft: Color {

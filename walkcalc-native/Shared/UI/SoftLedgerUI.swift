@@ -46,6 +46,26 @@ private struct SoftLedgerAccentForegroundModifier: ViewModifier {
     }
 }
 
+private struct SoftLedgerUIKitTintBridge: UIViewRepresentable {
+    let appTheme: AppTheme
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            appTheme.applySystemControlTint()
+            let tintColor = appTheme.systemControlTintUIColor
+            uiView.window?.tintColor = tintColor
+            uiView.closestViewController()?.view.tintColor = tintColor
+        }
+    }
+}
+
 private struct SoftLedgerTextInputTintBridge: UIViewRepresentable {
     let tintColor: UIColor
 
@@ -95,6 +115,20 @@ private extension UIView {
 
         return result
     }
+
+    func closestViewController() -> UIViewController? {
+        var responder: UIResponder? = self
+
+        while let candidate = responder {
+            if let viewController = candidate as? UIViewController {
+                return viewController
+            }
+
+            responder = candidate.next
+        }
+
+        return nil
+    }
 }
 
 extension View {
@@ -104,6 +138,13 @@ extension View {
 
     func softLedgerAccentForeground() -> some View {
         modifier(SoftLedgerAccentForegroundModifier())
+    }
+
+    func softLedgerUIKitTint(_ appTheme: AppTheme) -> some View {
+        background {
+            SoftLedgerUIKitTintBridge(appTheme: appTheme)
+                .frame(width: 0, height: 0)
+        }
     }
 }
 
@@ -128,6 +169,103 @@ struct AsyncConfirmationIcon: View {
             }
         }
         .frame(width: 18, height: 18)
+    }
+}
+
+struct AnimatedBalanceAmountText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let amountMinor: MoneyMinor
+    var style: MoneyDisplayStyle = .exact
+    var isAnimationEnabled = true
+
+    @State private var displayedAmountMinor: MoneyMinor?
+    @State private var pendingAmountMinor: MoneyMinor?
+    @State private var isPulsing = false
+    @State private var pendingCommitTask: Task<Void, Never>?
+
+    private var resolvedAmountMinor: MoneyMinor {
+        displayedAmountMinor ?? amountMinor
+    }
+
+    private var transitionValue: Double {
+        NSDecimalNumber(decimal: Money.decimal(resolvedAmountMinor) / 100).doubleValue
+    }
+
+    var body: some View {
+        Text(signedMoney(resolvedAmountMinor, style: style))
+            .foregroundStyle(SoftLedgerTheme.ink)
+            .contentTransition(.numericText(value: transitionValue))
+            .scaleEffect(isPulsing ? 1.018 : 1, anchor: .leading)
+            .offset(y: isPulsing ? -1 : 0)
+            .onAppear {
+                if displayedAmountMinor == nil {
+                    displayedAmountMinor = amountMinor
+                }
+            }
+            .onDisappear {
+                pendingCommitTask?.cancel()
+            }
+            .onChange(of: amountMinor) { _, newValue in
+                receive(newValue)
+            }
+            .onChange(of: isAnimationEnabled) { _, isEnabled in
+                guard isEnabled, let pendingAmountMinor else { return }
+                self.pendingAmountMinor = nil
+                scheduleCommit(pendingAmountMinor, delayNanoseconds: 280_000_000)
+            }
+    }
+
+    private func receive(_ newValue: MoneyMinor) {
+        guard displayedAmountMinor != nil else {
+            displayedAmountMinor = newValue
+            return
+        }
+
+        guard newValue != displayedAmountMinor else {
+            pendingAmountMinor = nil
+            return
+        }
+
+        if isAnimationEnabled {
+            scheduleCommit(newValue, delayNanoseconds: 80_000_000)
+        } else {
+            pendingCommitTask?.cancel()
+            pendingAmountMinor = newValue
+        }
+    }
+
+    private func scheduleCommit(_ newValue: MoneyMinor, delayNanoseconds: UInt64) {
+        pendingCommitTask?.cancel()
+        pendingCommitTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: reduceMotion ? 0 : delayNanoseconds)
+            guard !Task.isCancelled else { return }
+            commit(newValue)
+        }
+    }
+
+    @MainActor
+    private func commit(_ newValue: MoneyMinor) {
+        guard newValue != displayedAmountMinor else { return }
+
+        if reduceMotion {
+            displayedAmountMinor = newValue
+            isPulsing = false
+            return
+        }
+
+        withAnimation(.snappy(duration: 0.34)) {
+            displayedAmountMinor = newValue
+            isPulsing = true
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.smooth(duration: 0.22)) {
+                isPulsing = false
+            }
+        }
     }
 }
 

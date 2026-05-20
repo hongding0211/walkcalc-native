@@ -284,6 +284,14 @@ struct RootHomeView: View {
         return store.groups.filter { $0.archivedUsers.contains(user.uuid) }
     }
 
+    private var isBalanceAnimationEnabled: Bool {
+        activeSheet == nil
+            && archiveCandidate == nil
+            && archiveBlockedCandidate == nil
+            && deleteCandidate == nil
+            && pendingGroupAction == nil
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             ZStack(alignment: .bottom) {
@@ -303,7 +311,7 @@ struct RootHomeView: View {
                                 onJoinGroup: { activeSheet = .join }
                             )
                         } else {
-                            HomeBalanceCard()
+                            HomeBalanceCard(isAnimationEnabled: isBalanceAnimationEnabled)
                             Text(L("All groups"))
                                 .font(.callout.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.ink)
@@ -329,12 +337,14 @@ struct RootHomeView: View {
                                         }
                                         .disabled(pendingGroupAction != nil)
 
-                                        Button(role: .destructive) {
-                                            deleteCandidate = group
-                                        } label: {
-                                            Label(L("Delete group"), systemImage: "trash")
+                                        if group.canCurrentUserDelete {
+                                            Button(role: .destructive) {
+                                                deleteCandidate = group
+                                            } label: {
+                                                Label(L("Delete group"), systemImage: "trash")
+                                            }
+                                            .disabled(pendingGroupAction != nil)
                                         }
-                                        .disabled(pendingGroupAction != nil)
                                     }
                                 }
 
@@ -498,6 +508,7 @@ struct RootHomeView: View {
     }
 
     private func deleteConfirmed(_ group: WalkGroup) async {
+        guard group.canCurrentUserDelete else { return }
         guard pendingGroupAction == nil else { return }
         pendingGroupAction = .delete(group.id)
         _ = await store.deleteGroupWithFeedback(group.id)
@@ -613,6 +624,8 @@ private struct JoinGroupSheet: View {
 private struct HomeBalanceCard: View {
     @EnvironmentObject private var store: WalkcalcStore
 
+    let isAnimationEnabled: Bool
+
     private var scopeText: String {
         let count = max(store.groupTotal, store.groups.count)
         if count == 1 {
@@ -628,10 +641,13 @@ private struct HomeBalanceCard: View {
                     Text(L("Total balance"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    Text(signedMoney(store.totalBalanceMinor, style: .exact))
+                    AnimatedBalanceAmountText(
+                        amountMinor: store.totalBalanceMinor,
+                        style: .exact,
+                        isAnimationEnabled: isAnimationEnabled
+                    )
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
