@@ -164,88 +164,34 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
     case yellow
     case green
 
-    static let defaultTheme: AppTheme = .black
+    static let defaultTheme: AppTheme = SoftLedgerThemeConfig.defaultAppTheme
     static let storageKey = "walkcalc.selectedTheme"
     static let legacyStorageKey = "themeColor"
 
     var id: String { rawValue }
 
     var titleKey: String {
-        switch self {
-        case .yellow:
-            return "Yellow"
-        case .blue:
-            return "Blue"
-        case .green:
-            return "Green"
-        case .black:
-            return "Black"
-        }
+        palette.titleKey
     }
 
     var accent: Color {
-        switch self {
-        case .yellow:
-            return Self.adaptiveColor(light: 0xB15525, dark: 0xE49B63)
-        case .blue:
-            return Self.adaptiveColor(light: 0x2C6AA0, dark: 0x6EA3D0)
-        case .green:
-            return Self.adaptiveColor(light: 0x1D6F50, dark: 0x6FBC8D)
-        case .black:
-            return Self.adaptiveColor(light: 0x18181B, dark: 0xFAFAFA)
-        }
+        palette.accent.color
     }
 
     var accentUIColor: UIColor {
-        switch self {
-        case .yellow:
-            return Self.adaptiveUIColor(light: 0xB15525, dark: 0xE49B63)
-        case .blue:
-            return Self.adaptiveUIColor(light: 0x2C6AA0, dark: 0x6EA3D0)
-        case .green:
-            return Self.adaptiveUIColor(light: 0x1D6F50, dark: 0x6FBC8D)
-        case .black:
-            return Self.adaptiveUIColor(light: 0x18181B, dark: 0xFAFAFA)
-        }
+        palette.accent.uiColor
     }
 
     var accentSoft: Color {
-        switch self {
-        case .yellow:
-            return Self.adaptiveColor(light: 0xEDCBA4, dark: 0x38322F)
-        case .blue:
-            return Self.adaptiveColor(light: 0xDCE7F1, dark: 0x1A2F40)
-        case .green:
-            return Self.adaptiveColor(light: 0xDCEBE3, dark: 0x1A3327)
-        case .black:
-            return Self.adaptiveColor(light: 0xF4F4F5, dark: 0x27272A)
-        }
+        palette.accentSoft.color
     }
 
     var previewAccent: Color {
-        switch self {
-        case .yellow:
-            return Color(hex: 0xB15525)
-        case .blue:
-            return Color(hex: 0x2C6AA0)
-        case .green:
-            return Color(hex: 0x1D6F50)
-        case .black:
-            return Color(hex: 0x18181B)
-        }
+        Color(hex: palette.previewAccent)
     }
 
     var previewSoftAccent: Color {
-        switch self {
-        case .yellow:
-            return Color(hex: 0xEDCBA4)
-        case .blue:
-            return Color(hex: 0xDCE7F1)
-        case .green:
-            return Color(hex: 0xDCEBE3)
-        case .black:
-            return Color(hex: 0xF4F4F5)
-        }
+        Color(hex: palette.previewSoftAccent)
     }
 
     static func load(from defaults: UserDefaults = .standard) -> AppTheme {
@@ -278,16 +224,8 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
         defaults.set(rawValue, forKey: Self.storageKey)
     }
 
-    private static func adaptiveColor(light: UInt32, dark: UInt32) -> Color {
-        Color(UIColor { traitCollection in
-            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
-        })
-    }
-
-    private static func adaptiveUIColor(light: UInt32, dark: UInt32) -> UIColor {
-        UIColor { traitCollection in
-            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
-        }
+    private var palette: AppThemePalette {
+        SoftLedgerThemeConfig.palette(for: self)
     }
 }
 

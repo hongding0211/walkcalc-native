@@ -2,28 +2,16 @@ import SwiftUI
 import UIKit
 
 enum SoftLedgerTheme {
-    static let canvas = adaptive(light: 0xF7F7F7, dark: 0x000000)
-    static let paper = adaptive(light: 0xFFFFFF, dark: 0x141414)
-    static let formPaper = adaptive(light: 0xFFFFFF, dark: 0x1C1C1C)
-    static let ink = adaptive(light: 0x1C1C1C, dark: 0xF2F2F2)
-    static let secondaryInk = adaptive(light: 0x666666, dark: 0xC7C7C7)
-    static let mutedInk = adaptive(light: 0x8A8A8A, dark: 0x8E8E8E)
-    static let rule = adaptive(light: 0xD9D9D9, dark: 0x3A3A3A)
-    static let positive = adaptive(light: 0x167454, dark: 0x77C99E)
-    static let negative = adaptive(light: 0xAC2F24, dark: 0xF07C6C)
-    static let yellowAccent = adaptive(light: 0xB15525, dark: 0xE49B63)
-
-    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
-        Color(UIColor { traitCollection in
-            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
-        })
-    }
-
-    private static func adaptiveUIColor(light: UInt32, dark: UInt32) -> UIColor {
-        UIColor { traitCollection in
-            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
-        }
-    }
+    static let canvas = SoftLedgerThemeConfig.neutral.canvas.color
+    static let paper = SoftLedgerThemeConfig.neutral.paper.color
+    static let formPaper = SoftLedgerThemeConfig.neutral.formPaper.color
+    static let ink = SoftLedgerThemeConfig.neutral.defaultText.color
+    static let secondaryInk = SoftLedgerThemeConfig.neutral.secondaryText.color
+    static let mutedInk = SoftLedgerThemeConfig.neutral.mutedText.color
+    static let rule = SoftLedgerThemeConfig.neutral.rule.color
+    static let positive = SoftLedgerThemeConfig.neutral.positive.color
+    static let negative = SoftLedgerThemeConfig.neutral.negative.color
+    static let yellowAccent = SoftLedgerThemeConfig.yellowAccent.color
 }
 
 private struct SoftLedgerAppThemeKey: EnvironmentKey {
@@ -41,7 +29,12 @@ private struct SoftLedgerAccentTintModifier: ViewModifier {
     @Environment(\.softLedgerAppTheme) private var appTheme
 
     func body(content: Content) -> some View {
-        content.tint(appTheme.accent)
+        content
+            .tint(appTheme.accent)
+            .background {
+                SoftLedgerTextInputTintBridge(tintColor: appTheme.accentUIColor)
+                    .frame(width: 0, height: 0)
+            }
     }
 }
 
@@ -50,6 +43,57 @@ private struct SoftLedgerAccentForegroundModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.foregroundStyle(appTheme.accent)
+    }
+}
+
+private struct SoftLedgerTextInputTintBridge: UIViewRepresentable {
+    let tintColor: UIColor
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            uiView.softLedgerApplyTextInputTint(tintColor)
+        }
+    }
+}
+
+private extension UIView {
+    func softLedgerApplyTextInputTint(_ tintColor: UIColor) {
+        var ancestor: UIView? = superview
+        var remainingDepth = 4
+
+        while let candidate = ancestor, remainingDepth > 0 {
+            let inputs = candidate.softLedgerTextInputDescendants()
+            if !inputs.isEmpty {
+                inputs.forEach { input in
+                    input.tintColor = tintColor
+                }
+                return
+            }
+
+            ancestor = candidate.superview
+            remainingDepth -= 1
+        }
+    }
+
+    func softLedgerTextInputDescendants() -> [UIView] {
+        var result: [UIView] = []
+
+        if self is UITextField || self is UITextView {
+            result.append(self)
+        }
+
+        for subview in subviews {
+            result.append(contentsOf: subview.softLedgerTextInputDescendants())
+        }
+
+        return result
     }
 }
 
