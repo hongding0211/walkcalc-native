@@ -781,6 +781,7 @@ final class WalkcalcStore: ObservableObject {
                 membersInfo: members,
                 tempUsers: temps,
                 archivedUsers: [],
+                ownerUserId: user?.uuid,
                 isOwner: true
             ), at: 0)
             recordsByGroup[groupId] = []

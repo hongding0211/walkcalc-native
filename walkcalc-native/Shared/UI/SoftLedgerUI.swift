@@ -486,7 +486,7 @@ let expenseCategories: [ExpenseCategory] = [
     .init(id: "transfer", titleKey: "Transfer", symbol: "banknote.fill", color: Color(red: 0.620, green: 0.514, blue: 0.218)),
     .init(id: "ticket", titleKey: "Ticket", symbol: "ticket.fill", color: Color(red: 0.612, green: 0.424, blue: 0.729)),
     .init(id: "game", titleKey: "Game", symbol: "dice.fill", color: Color(red: 0.553, green: 0.455, blue: 0.742)),
-    .init(id: "other", titleKey: "Other", symbol: "ellipsis", color: SoftLedgerTheme.mutedInk)
+    .init(id: "other", titleKey: "Other", symbol: "tag.fill", color: SoftLedgerTheme.mutedInk)
 ]
 
 let transferCategory = expenseCategories.first(where: { $0.id == "transfer" })!

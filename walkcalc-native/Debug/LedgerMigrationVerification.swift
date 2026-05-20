@@ -17,6 +17,7 @@ enum LedgerMigrationVerification {
             ],
             tempUsers: [],
             archivedUsers: [],
+            ownerUserId: "payer-a",
             isOwner: true
         )
 

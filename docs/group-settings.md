@@ -57,6 +57,13 @@ The Group section contains only information and edits that define the group itse
 - Do not make this row visually primary; it is reference information, not an action.
 - Do not hide the Group ID inside developer/debug metadata.
 
+### Group owner
+
+- Show `Group owner` above the `Members` row in the Group section.
+- Display the owner's avatar and display name using the same compact member identity treatment as other group people rows.
+- This row is informational only.
+- Do not add owner transfer, role management, or permission controls until backend behavior exists.
+
 ### Members summary
 
 - Show `Members` as an informational row inside the Group section.

@@ -60,6 +60,7 @@ struct WalkGroup: Identifiable, Hashable {
     var membersInfo: [Member]
     var tempUsers: [Member]
     var archivedUsers: [String]
+    var ownerUserId: String? = nil
     var isOwner: Bool
     var hasCurrentUserBalanceSummary: Bool = false
     var currentUserBalanceMinor: MoneyMinor = "0"
@@ -72,6 +73,12 @@ struct WalkGroup: Identifiable, Hashable {
 
     var allMembers: [Member] {
         membersInfo + tempUsers
+    }
+
+    var ownerMember: Member? {
+        guard let ownerUserId else { return nil }
+        return allMembers.first { $0.uuid == ownerUserId }
+            ?? participantPreview.first { $0.uuid == ownerUserId }
     }
 
     var hasUnresolvedBalance: Bool {

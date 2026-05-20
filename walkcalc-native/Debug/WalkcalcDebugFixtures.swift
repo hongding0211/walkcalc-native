@@ -320,6 +320,7 @@ extension WalkcalcStore {
             membersInfo: members,
             tempUsers: tempUsers,
             archivedUsers: [],
+            ownerUserId: members.first?.uuid,
             isOwner: true
         )
     }

@@ -42,6 +42,8 @@
 "Group" = "Group";
 "Group ID" = "Group ID";
 "Group name" = "Group name";
+"Group owner" = "Group owner";
+"Group owner marker" = " (Group owner)";
 "Group setting" = "Group setting";
 "I owed" = "I owed";
 "Invite friends to join the group 🥳" = "Invite friends to join the group 🥳";

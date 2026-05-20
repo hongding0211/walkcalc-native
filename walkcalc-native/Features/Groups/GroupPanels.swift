@@ -782,6 +782,11 @@ struct GroupSettingsSheet: View {
         pendingAction != nil
     }
 
+    private var currentUserOwnerFallback: Member? {
+        guard currentGroup.isOwner, currentGroup.ownerUserId == nil, let user = store.user else { return nil }
+        return Member(uuid: user.uuid, name: user.name, avatar: user.avatar, debtMinor: "0", costMinor: "0")
+    }
+
     var body: some View {
         Form {
             Section(L("Group")) {
@@ -803,6 +808,10 @@ struct GroupSettingsSheet: View {
                         .font(.body.monospaced())
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         .textSelection(.enabled)
+                }
+
+                if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
+                    GroupOwnerSummaryRow(owner: owner)
                 }
 
                 NavigationLink {
@@ -1021,6 +1030,32 @@ struct GroupSettingsSheet: View {
     }
 }
 
+private struct GroupOwnerSummaryRow: View {
+    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 26
+
+    let owner: Member
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(L("Group owner"))
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                SoftLedgerAvatar(member: owner, size: avatarSize, borderColor: SoftLedgerTheme.formPaper)
+
+                Text(owner.name)
+                    .font(.subheadline)
+                    .foregroundStyle(SoftLedgerTheme.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .layoutPriority(1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 enum GroupSettingsConfirmation: Identifiable {
     case archive
     case delete
@@ -1050,11 +1085,15 @@ private struct GroupMembersView: View {
         store.group(id: group.id) ?? group
     }
 
+    private var ownerUserId: String? {
+        currentGroup.ownerUserId ?? (currentGroup.isOwner ? store.user?.uuid : nil)
+    }
+
     var body: some View {
         Form {
             Section(L("Members")) {
                 ForEach(currentGroup.membersInfo) { member in
-                    GroupMemberInfoRow(member: member)
+                    GroupMemberInfoRow(member: member, isGroupOwner: member.uuid == ownerUserId)
                 }
             }
             .listRowInsets(rowInsets)
@@ -1092,17 +1131,28 @@ private struct GroupMemberInfoRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 10
 
     let member: Member
+    var isGroupOwner = false
 
     var body: some View {
         HStack(spacing: rowSpacing) {
             SoftLedgerAvatar(member: member, size: avatarSize, borderColor: SoftLedgerTheme.formPaper)
 
-            Text(member.name)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.ink)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
+            HStack(spacing: 0) {
+                Text(member.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                if isGroupOwner {
+                    Text(L("Group owner marker"))
+                        .font(.subheadline)
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            .layoutPriority(1)
         }
         .frame(minHeight: rowMinHeight)
         .accessibilityElement(children: .combine)
@@ -1648,7 +1698,7 @@ private struct PaidByInlineEditor: View {
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 10
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
-    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 58
+    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 60
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
     @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
@@ -1663,16 +1713,18 @@ private struct PaidByInlineEditor: View {
                 .foregroundStyle(SoftLedgerTheme.ink)
 
             JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { member in
+                let isMemberSelected = selection == member.uuid
+
                 Button {
                     onEdit()
                     selection = member.uuid
                 } label: {
                     VStack(spacing: textSpacing) {
-                        SelectableSplitAvatar(member: member, isSelected: selection == member.uuid, avatarSize: avatarSize)
+                        SelectableSplitAvatar(member: member, isSelected: isMemberSelected, avatarSize: avatarSize)
 
                         Text(member.name)
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .foregroundStyle(isMemberSelected ? SoftLedgerTheme.ink : SoftLedgerTheme.secondaryInk.opacity(0.74))
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(width: itemWidth)
@@ -1682,7 +1734,7 @@ private struct PaidByInlineEditor: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(L("Paid by")) \(member.name)")
-                .accessibilityAddTraits(selection == member.uuid ? .isSelected : [])
+                .accessibilityAddTraits(isMemberSelected ? .isSelected : [])
             }
         }
         .padding(.vertical, verticalPadding)
@@ -1695,10 +1747,12 @@ private enum ExpenseEditorField {
 }
 
 private struct SplitInlineEditor: View {
+    @Environment(\.softLedgerAppTheme) private var appTheme
+
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 10
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
-    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 58
+    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 60
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
     @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
@@ -1721,22 +1775,24 @@ private struct SplitInlineEditor: View {
                     }
                 }
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                .foregroundStyle(appTheme.accent)
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
             }
 
             JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { member in
+                let isMemberSelected = selection.contains(member.uuid)
+
                 Button {
                     onEdit()
                     toggle(member)
                 } label: {
                     VStack(spacing: textSpacing) {
-                        SelectableSplitAvatar(member: member, isSelected: selection.contains(member.uuid), avatarSize: avatarSize)
+                        SelectableSplitAvatar(member: member, isSelected: isMemberSelected, avatarSize: avatarSize)
 
                         Text(member.name)
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .foregroundStyle(isMemberSelected ? SoftLedgerTheme.ink : SoftLedgerTheme.secondaryInk.opacity(0.74))
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(width: itemWidth)
@@ -1745,6 +1801,8 @@ private struct SplitInlineEditor: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("\(L("Split")) \(member.name)")
+                .accessibilityAddTraits(isMemberSelected ? .isSelected : [])
             }
         }
         .padding(.vertical, verticalPadding)
@@ -1761,17 +1819,22 @@ private struct SplitInlineEditor: View {
 
 private struct SelectableSplitAvatar: View {
     @Environment(\.softLedgerAppTheme) private var appTheme
+    @Environment(\.colorScheme) private var colorScheme
 
     let member: Member
     let isSelected: Bool
     let avatarSize: CGFloat
 
     private var frameSize: CGFloat {
-        avatarSize + max(2, avatarSize / 18)
+        avatarSize + max(4, avatarSize / 9)
+    }
+
+    private var selectionPlateSize: CGFloat {
+        avatarSize + max(4, avatarSize / 9)
     }
 
     private var checkSize: CGFloat {
-        max(12, avatarSize * 0.42)
+        max(14, avatarSize * 0.46)
     }
 
     private var checkFontSize: CGFloat {
@@ -1782,14 +1845,37 @@ private struct SelectableSplitAvatar: View {
         max(1.5, avatarSize / 18)
     }
 
+    private var selectedStrokeWidth: CGFloat {
+        max(2, avatarSize / 15)
+    }
+
+    private var unselectedStrokeWidth: CGFloat {
+        1
+    }
+
+    private var checkmarkColor: Color {
+        colorScheme == .dark ? SoftLedgerTheme.canvas : Color.white
+    }
+
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack {
+            if isSelected {
+                Circle()
+                    .fill(appTheme.accentSoft)
+                    .frame(width: selectionPlateSize, height: selectionPlateSize)
+            }
+
             SoftLedgerAvatar(member: member, size: avatarSize)
                 .overlay {
                     Circle()
-                        .stroke(isSelected ? appTheme.accent : SoftLedgerTheme.rule.opacity(0.45), lineWidth: isSelected ? max(1.5, avatarSize / 18) : 1)
+                        .stroke(
+                            isSelected ? appTheme.accent : SoftLedgerTheme.rule.opacity(0.45),
+                            lineWidth: isSelected ? selectedStrokeWidth : unselectedStrokeWidth
+                        )
                 }
-
+        }
+        .frame(width: frameSize, height: frameSize)
+        .overlay(alignment: .bottomTrailing) {
             if isSelected {
                 Circle()
                     .fill(appTheme.accent)
@@ -1797,12 +1883,15 @@ private struct SelectableSplitAvatar: View {
                     .overlay {
                         Image(systemName: "checkmark")
                             .font(.system(size: checkFontSize, weight: .bold))
-                            .foregroundStyle(Color.white)
+                            .foregroundStyle(checkmarkColor)
+                    }
+                    .overlay {
+                        Circle()
+                            .stroke(SoftLedgerTheme.formPaper, lineWidth: max(1, avatarSize / 30))
                     }
                     .offset(x: checkOffset, y: checkOffset)
             }
         }
-        .frame(width: frameSize, height: frameSize)
     }
 }
 

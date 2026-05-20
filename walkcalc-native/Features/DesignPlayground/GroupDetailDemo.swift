@@ -1964,7 +1964,7 @@ private struct GroupDetailExpenseCategory: Identifiable {
         .init(id: "transfer", title: "Transfer", symbol: "banknote.fill", color: Color(red: 0.620, green: 0.514, blue: 0.218)),
         .init(id: "ticket", title: "Ticket", symbol: "ticket.fill", color: Color(red: 0.612, green: 0.424, blue: 0.729)),
         .init(id: "game", title: "Game", symbol: "dice.fill", color: Color(red: 0.553, green: 0.455, blue: 0.742)),
-        .init(id: "other", title: "Other", symbol: "ellipsis", color: GroupDetailTheme.mutedInk)
+        .init(id: "other", title: "Other", symbol: "tag.fill", color: GroupDetailTheme.mutedInk)
     ]
 }
 

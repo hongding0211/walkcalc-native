@@ -42,6 +42,8 @@
 "Group" = "群组";
 "Group ID" = "群组 ID";
 "Group name" = "群名";
+"Group owner" = "群主";
+"Group owner marker" = "（群主）";
 "Group setting" = "群组设置";
 "I owed" = "我欠别人";
 "Invite friends to join the group 🥳" = "邀请朋友加入群组 🥳";

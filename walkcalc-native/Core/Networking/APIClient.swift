@@ -557,6 +557,7 @@ private func mapGroup(_ raw: Any?) -> WalkGroup {
         membersInfo: members,
         tempUsers: tempUsers,
         archivedUsers: dict["archivedUserIds"] as? [String] ?? [],
+        ownerUserId: dict["ownerUserId"] as? String,
         isOwner: dict["isOwner"] as? Bool ?? false,
         hasCurrentUserBalanceSummary: dict["currentUserBalance"] != nil,
         currentUserBalanceMinor: Money.minorFromDecimalString(dict["currentUserBalance"]),
@@ -696,6 +697,8 @@ enum LedgerAPIContractVerification {
             ]
         ])
         expect(group.id, equals: "AB12", prefix: "group-code")
+        expect(group.ownerUserId, equals: Optional("user_1"), prefix: "group-owner-id")
+        expect(group.ownerMember?.name, equals: Optional("Hong"), prefix: "group-owner-member")
         expect(group.hasCurrentUserBalanceSummary, equals: true, prefix: "group-summary-flag")
         expect(group.currentUserBalanceMinor, equals: "1000", prefix: "group-current-balance")
         expect(group.membersInfo.first?.uuid, equals: "user_1", prefix: "formal-participant-id")
@@ -733,6 +736,8 @@ enum LedgerAPIContractVerification {
             ]
         ])
         expect(groupSummary.allMembers.count, equals: 0, prefix: "summary-no-full-members")
+        expect(groupSummary.ownerUserId, equals: Optional("user_1"), prefix: "summary-owner-id")
+        expect(groupSummary.ownerMember?.name, equals: Optional("Hong"), prefix: "summary-owner-preview")
         expect(groupSummary.participantCount, equals: 3, prefix: "summary-participant-count")
         expect(groupSummary.participantPreview.count, equals: 2, prefix: "summary-preview-count")
         expect(groupSummary.participantPreview.first?.name, equals: "Hong", prefix: "summary-preview-formal-name")
