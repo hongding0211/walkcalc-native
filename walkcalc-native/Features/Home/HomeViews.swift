@@ -1,3 +1,6 @@
+import AuthenticationServices
+import CryptoKit
+import Security
 import SwiftUI
 
 enum Route: Hashable {
@@ -102,11 +105,25 @@ private struct LaunchGateView: View {
 struct LoginView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @State private var showingSSO = false
+    @State private var currentAppleNonce: String?
 
     var body: some View {
-        LoginScreen(isSigningIn: store.isSigningIn) {
-            showingSSO = true
-        }
+        LoginScreen(
+            isSigningIn: store.isSigningIn,
+            privacyURL: store.api.privacyPolicyURL(),
+            onLogin: {
+                showingSSO = true
+            },
+            onAppleRequest: { request in
+                let nonce = randomNonceString()
+                currentAppleNonce = nonce
+                request.requestedScopes = [.fullName, .email]
+                request.nonce = sha256(nonce)
+            },
+            onAppleCompletion: { result in
+                handleAppleCompletion(result)
+            }
+        )
         .sheet(isPresented: $showingSSO) {
             SSOLoginView { token in
                 showingSSO = false
@@ -117,13 +134,49 @@ struct LoginView: View {
             .immersiveWebSheet()
         }
     }
+
+    private func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let identityToken = String(data: tokenData, encoding: .utf8) else {
+                store.urgentAlert = StoreAlert(title: L("Login failed"), message: L("Try again later."))
+                return
+            }
+            let authorizationCode = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
+            let fullName = credential.fullName.flatMap { components -> String? in
+                let value = PersonNameComponentsFormatter().string(from: components).trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : value
+            }
+            let nonce = currentAppleNonce
+            currentAppleNonce = nil
+            Task {
+                await store.signInWithApple(
+                    identityToken: identityToken,
+                    authorizationCode: authorizationCode,
+                    fullName: fullName,
+                    nonce: nonce
+                )
+            }
+        case .failure(let error):
+            currentAppleNonce = nil
+            if (error as? ASAuthorizationError)?.code == .canceled {
+                return
+            }
+            store.urgentAlert = StoreAlert(title: L("Login failed"), message: L("Try again later."))
+        }
+    }
 }
 
 private struct LoginScreen: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let isSigningIn: Bool
+    let privacyURL: URL
     let onLogin: () -> Void
+    let onAppleRequest: (ASAuthorizationAppleIDRequest) -> Void
+    let onAppleCompletion: (Result<ASAuthorization, Error>) -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -170,6 +223,19 @@ private struct LoginScreen: View {
                 .buttonStyle(.plain)
                 .disabled(isSigningIn)
                 .offset(x: layout.x(36), y: layout.y(708))
+
+                SignInWithAppleButton(.continue, onRequest: onAppleRequest, onCompletion: onAppleCompletion)
+                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                    .frame(width: layout.value(318), height: layout.value(52))
+                    .clipShape(RoundedRectangle(cornerRadius: layout.value(17), style: .continuous))
+                    .disabled(isSigningIn)
+                    .offset(x: layout.x(36), y: layout.y(644))
+
+                Link(L("Privacy Policy"), destination: privacyURL)
+                    .font(.custom("PingFangSC-Medium", size: layout.value(13)))
+                    .foregroundStyle(secondaryText)
+                    .frame(width: layout.value(318), height: layout.value(32))
+                    .offset(x: layout.x(36), y: layout.y(772))
             }
         }
         .ignoresSafeArea()
@@ -194,6 +260,39 @@ private struct LoginScreen: View {
     private var buttonForeground: Color {
         colorScheme == .dark ? Color(UIColor(hex: 0x050505)) : .white
     }
+}
+
+private func randomNonceString(length: Int = 32) -> String {
+    precondition(length > 0)
+    let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+    var result = ""
+    var remainingLength = length
+
+    while remainingLength > 0 {
+        var randoms = [UInt8](repeating: 0, count: 16)
+        let status = SecRandomCopyBytes(kSecRandomDefault, randoms.count, &randoms)
+        if status != errSecSuccess {
+            fatalError("Unable to generate nonce.")
+        }
+
+        randoms.forEach { random in
+            if remainingLength == 0 {
+                return
+            }
+            if Int(random) < charset.count {
+                result.append(charset[Int(random)])
+                remainingLength -= 1
+            }
+        }
+    }
+
+    return result
+}
+
+private func sha256(_ input: String) -> String {
+    let inputData = Data(input.utf8)
+    let hashedData = SHA256.hash(data: inputData)
+    return hashedData.map { String(format: "%02x", $0) }.joined()
 }
 
 private struct LoginLayout {

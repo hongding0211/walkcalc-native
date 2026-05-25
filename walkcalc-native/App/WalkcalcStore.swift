@@ -220,10 +220,46 @@ final class WalkcalcStore: ObservableObject {
         isSigningIn = true
         defer { isSigningIn = false }
 
+        await completeSignIn(token: token)
+    }
+
+    func signInWithApple(identityToken: String, authorizationCode: String?, fullName: String?, nonce: String?) async {
+        guard !isSigningIn else { return }
+        isSigningIn = true
+        defer { isSigningIn = false }
+
+        do {
+            let response = try await api.signInWithApple(
+                identityToken: identityToken,
+                authorizationCode: authorizationCode,
+                fullName: fullName,
+                nonce: nonce
+            )
+            guard response.success,
+                  let session = response.data,
+                  !session.accessToken.isEmpty else {
+                urgentAlert = StoreAlert(title: L("Login failed"), message: response.message ?? L("Try again later."))
+                return
+            }
+            await completeSignIn(token: session.accessToken, prefetchedUser: session.user)
+        } catch {
+            recordFailure(operation: "appleSignIn", intent: .bootstrapAuth, disposition: .local, error: error)
+            urgentAlert = StoreAlert(title: L("Login failed"), message: L("Try again later."))
+        }
+    }
+
+    private func completeSignIn(token: String, prefetchedUser: UserProfile? = nil) async {
         self.token = token
         UserDefaults.standard.set(token, forKey: "walkcalc.token")
 
-        guard let signedInUser = await fetchUser(token: token) else {
+        let resolvedUser: UserProfile?
+        if let prefetchedUser, !prefetchedUser.uuid.isEmpty {
+            resolvedUser = prefetchedUser
+        } else {
+            resolvedUser = await fetchUser(token: token)
+        }
+
+        guard let signedInUser = resolvedUser else {
             startupRoute = .loginRequired
             return
         }
@@ -234,6 +270,27 @@ final class WalkcalcStore: ObservableObject {
             return
         }
         startupRoute = .authenticated
+    }
+
+    func deleteAccountWithFeedback() async -> StoreActionResult {
+        guard let token else { return .failure(L("Login to continue")) }
+        do {
+            let response = try await api.deleteAccount(token: token)
+            if response.success {
+                logout()
+                return .success
+            }
+            return .failure(response.message ?? L("Delete account failed"))
+        } catch let error as APIClientError {
+            if error.kind == .authRefresh {
+                logout()
+            }
+            recordFailure(operation: "deleteAccount", intent: .dataLossSensitiveMutation, disposition: .local, error: error)
+            return .failure(error.message ?? L("Delete account failed"))
+        } catch {
+            recordFailure(operation: "deleteAccount", intent: .dataLossSensitiveMutation, disposition: .local, error: error)
+            return .failure(L("Delete account failed"))
+        }
     }
 
     func logout() {

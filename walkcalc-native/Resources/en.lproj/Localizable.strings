@@ -52,6 +52,7 @@
 "Location" = "Location";
 "Loading more..." = "Loading more...";
 "Login" = "Login";
+"Login failed" = "Login failed";
 "Login to continue" = "Login to continue";
 "Logout" = "Logout";
 "Members" = "Members";
@@ -65,6 +66,7 @@
 "No access to camera" = "No access to camera";
 "Notice" = "Notice";
 "Owed to me" = "Owed to me";
+"Privacy Policy" = "Privacy Policy";
 "Record count" = "Record count";
 "Record detail" = "Record detail";
 "Remark" = "Remark";
@@ -76,8 +78,10 @@
 "Settings" = "Settings";
 "Share" = "Share";
 "The End" = "The End";
+"This permanently deletes your account and cannot be undone." = "This permanently deletes your account and cannot be undone.";
 "Theme Color" = "Theme Color";
 "Total Debt" = "Total Debt";
+"Try again later." = "Try again later.";
 "Unarchive" = "Unarchive";
 "User" = "User";
 "Who paid" = "Who paid";
@@ -102,9 +106,13 @@
 "Create group" = "Create group";
 "Create a group or join one shared by friends, roommates, or a trip." = "Create a group or join one shared by friends, roommates, or a trip.";
 "Date" = "Date";
+"Delete account" = "Delete account";
+"Delete account failed" = "Delete account failed";
+"Delete account?" = "Delete account?";
 "Delete expense" = "Delete expense";
 "Delete group" = "Delete group";
 "Delete group?" = "Delete group?";
+"Deleting your account permanently removes your sign-in account and disconnects it from shared WalkCalc records." = "Deleting your account permanently removes your sign-in account and disconnects it from shared WalkCalc records.";
 "Done" = "Done";
 "Drink" = "Drink";
 "Edit expense" = "Edit expense";

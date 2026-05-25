@@ -28,9 +28,14 @@ struct APIClient: Sendable {
         var components = URLComponents(url: webBaseURL.appendingPathComponent("sso/login"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "redirect", value: redirect),
-            URLQueryItem(name: "hideNavbar", value: "1")
+            URLQueryItem(name: "hideNavbar", value: "1"),
+            URLQueryItem(name: "source", value: "walkcalc")
         ]
         return components.url!
+    }
+
+    func privacyPolicyURL() -> URL {
+        webBaseURL.appendingPathComponent("privacy/walkcalc")
     }
 
     func profileURL() -> URL {
@@ -60,6 +65,44 @@ struct APIClient: Sendable {
 
     func userInfo(token: String) async throws -> APIEnvelope<UserProfile> {
         try await request(.get, path: "/auth/info", token: token, mapper: mapUser)
+    }
+
+    func signInWithApple(identityToken: String, authorizationCode: String?, fullName: String?, nonce: String?) async throws -> APIEnvelope<LoginSession> {
+        var body: [String: Any] = ["identityToken": identityToken]
+        if let authorizationCode, !authorizationCode.isEmpty {
+            body["authorizationCode"] = authorizationCode
+        }
+        if let fullName, !fullName.isEmpty {
+            body["fullName"] = fullName
+        }
+        if let nonce, !nonce.isEmpty {
+            body["nonce"] = nonce
+        }
+
+        let response = try await execute(.post, path: "/auth/apple/native", query: [:], token: nil, body: body)
+        let envelope = response.raw as? [String: Any] ?? [:]
+        let success = (envelope["isSuccess"] as? Bool) ?? (envelope["success"] as? Bool) ?? false
+        let sourceData = payload(from: envelope)
+        let data = dictPayload(sourceData)
+        let refreshToken = data["refreshToken"] as? String
+        if let refreshToken, !refreshToken.isEmpty {
+            NativeAuthSession.storeRefreshToken(refreshToken, for: baseURL)
+        }
+        let session = LoginSession(
+            accessToken: data["accessToken"] as? String ?? data["token"] as? String ?? "",
+            refreshToken: refreshToken,
+            user: mapUser(data["user"])
+        )
+        return APIEnvelope(
+            success: success,
+            data: session,
+            pagination: nil,
+            message: envelope["msg"] as? String ?? envelope["message"] as? String,
+            errorData: success ? nil : sourceData as? [String: Any],
+            refreshedToken: nil,
+            statusCode: response.status,
+            failureKind: success ? nil : (response.status >= 400 ? .httpStatus : .serverEnvelope)
+        )
     }
 
     func homeSummary(token: String) async throws -> APIEnvelope<MoneyMinor> {
@@ -236,6 +279,12 @@ struct APIClient: Sendable {
     func resolveDebts(groupCode: String, token: String) async throws -> APIEnvelope<[WalkRecord]> {
         try await request(.post, path: "/walkcalc/groups/\(groupCode)/settlements/resolve", token: token, body: [:]) { raw in
             arrayPayload(dictPayload(raw)["records"]).map(mapRecord)
+        }
+    }
+
+    func deleteAccount(token: String) async throws -> APIEnvelope<[String: Any]> {
+        try await request(.delete, path: "/auth/account", token: token) { raw in
+            dictPayload(raw)
         }
     }
 

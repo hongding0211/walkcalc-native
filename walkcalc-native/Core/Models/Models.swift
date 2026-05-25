@@ -41,6 +41,12 @@ struct UserProfile: Identifiable, Hashable {
     var avatar: String
 }
 
+struct LoginSession {
+    var accessToken: String
+    var refreshToken: String?
+    var user: UserProfile?
+}
+
 struct Member: Identifiable, Hashable {
     var id: String { uuid }
     var uuid: String
