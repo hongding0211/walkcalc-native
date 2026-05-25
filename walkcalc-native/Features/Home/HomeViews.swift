@@ -105,11 +105,13 @@ private struct LaunchGateView: View {
 struct LoginView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @State private var showingSSO = false
+    @State private var isAppleAuthorizationInFlight = false
     @State private var currentAppleNonce: String?
 
     var body: some View {
         LoginScreen(
             isSigningIn: store.isSigningIn,
+            isAppleAuthorizationInFlight: isAppleAuthorizationInFlight,
             privacyURL: store.api.privacyPolicyURL(),
             onLogin: {
                 showingSSO = true
@@ -117,6 +119,7 @@ struct LoginView: View {
             onAppleRequest: { request in
                 let nonce = randomNonceString()
                 currentAppleNonce = nonce
+                isAppleAuthorizationInFlight = true
                 request.requestedScopes = [.fullName, .email]
                 request.nonce = sha256(nonce)
             },
@@ -141,6 +144,8 @@ struct LoginView: View {
             guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
                   let tokenData = credential.identityToken,
                   let identityToken = String(data: tokenData, encoding: .utf8) else {
+                currentAppleNonce = nil
+                isAppleAuthorizationInFlight = false
                 store.urgentAlert = StoreAlert(title: L("Login failed"), message: L("Try again later."))
                 return
             }
@@ -151,6 +156,7 @@ struct LoginView: View {
             }
             let nonce = currentAppleNonce
             currentAppleNonce = nil
+            isAppleAuthorizationInFlight = false
             Task {
                 await store.signInWithApple(
                     identityToken: identityToken,
@@ -161,6 +167,7 @@ struct LoginView: View {
             }
         case .failure(let error):
             currentAppleNonce = nil
+            isAppleAuthorizationInFlight = false
             if (error as? ASAuthorizationError)?.code == .canceled {
                 return
             }
@@ -173,6 +180,7 @@ private struct LoginScreen: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let isSigningIn: Bool
+    let isAppleAuthorizationInFlight: Bool
     let privacyURL: URL
     let onLogin: () -> Void
     let onAppleRequest: (ASAuthorizationAppleIDRequest) -> Void
@@ -182,6 +190,10 @@ private struct LoginScreen: View {
         GeometryReader { proxy in
             let layout = LoginLayout(size: proxy.size)
             let markScale = layout.scale * 1.08
+            let buttonWidth = layout.value(246)
+            let buttonHeight = layout.value(42)
+            let buttonCornerRadius = layout.value(12)
+            let buttonX = layout.x(72)
 
             ZStack(alignment: .topLeading) {
                 loginBackground
@@ -214,28 +226,27 @@ private struct LoginScreen: View {
                         }
                         Text(L("Login"))
                     }
-                    .font(.system(size: layout.value(17), weight: .semibold))
+                    .font(.system(size: layout.value(15), weight: .semibold))
                     .foregroundStyle(buttonForeground)
-                    .frame(width: layout.value(318), height: layout.value(52))
-                    .background(buttonBackground, in: RoundedRectangle(cornerRadius: layout.value(17), style: .continuous))
-                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.26 : 0.12), radius: layout.value(18), y: layout.value(8))
+                    .frame(width: buttonWidth, height: buttonHeight)
+                    .background(buttonBackground, in: RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .disabled(isSigningIn)
-                .offset(x: layout.x(36), y: layout.y(708))
+                .disabled(isInteractionDisabled)
+                .offset(x: buttonX, y: layout.y(712))
 
                 SignInWithAppleButton(.continue, onRequest: onAppleRequest, onCompletion: onAppleCompletion)
                     .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-                    .frame(width: layout.value(318), height: layout.value(52))
-                    .clipShape(RoundedRectangle(cornerRadius: layout.value(17), style: .continuous))
-                    .disabled(isSigningIn)
-                    .offset(x: layout.x(36), y: layout.y(644))
+                    .frame(width: buttonWidth, height: buttonHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous))
+                    .disabled(isInteractionDisabled)
+                    .offset(x: buttonX, y: layout.y(658))
 
                 Link(L("Privacy Policy"), destination: privacyURL)
                     .font(.custom("PingFangSC-Medium", size: layout.value(13)))
                     .foregroundStyle(secondaryText)
-                    .frame(width: layout.value(318), height: layout.value(32))
-                    .offset(x: layout.x(36), y: layout.y(772))
+                    .frame(width: buttonWidth, height: layout.value(32))
+                    .offset(x: buttonX, y: layout.y(762))
             }
         }
         .ignoresSafeArea()
@@ -259,6 +270,10 @@ private struct LoginScreen: View {
 
     private var buttonForeground: Color {
         colorScheme == .dark ? Color(UIColor(hex: 0x050505)) : .white
+    }
+
+    private var isInteractionDisabled: Bool {
+        isSigningIn || isAppleAuthorizationInFlight
     }
 }
 

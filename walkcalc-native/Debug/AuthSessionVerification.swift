@@ -4,6 +4,7 @@ import Foundation
 enum AuthSessionVerification {
     static func assertAllCasesPass() async {
         await verifyCookieImportAndClear()
+        await verifyAppleNativeLoginStoresSession()
         await verifyRefreshRetryPersistsAccessToken()
         await verifyForegroundActivationRefreshesSession()
         await verifyMissingRefreshCredentialFailsAsAuthRefresh()
@@ -28,6 +29,56 @@ enum AuthSessionVerification {
         let store = WalkcalcStore()
         store.logout()
         expect(NativeAuthSession.hasRefreshCredential(for: baseURL), equals: false, prefix: "auth-session-clear-refresh")
+    }
+
+    private static func verifyAppleNativeLoginStoresSession() async {
+        await withMockProtocol { calls in
+            NativeAuthSession.clearAuthCookies(baseURL: APIClient().baseURL, webBaseURL: APIClient().webBaseURL)
+            var capturedBody: [String: Any] = [:]
+            MockURLProtocol.requestHandler = { request in
+                let path = request.url?.path ?? ""
+                calls.append((path, request.value(forHTTPHeaderField: "Authorization")))
+                if path == "/auth/apple/native" {
+                    capturedBody = jsonBody(from: request)
+                    return httpResponse(status: 200, url: request.url!, json: [
+                        "isSuccess": true,
+                        "data": [
+                            "accessToken": "apple-access-token",
+                            "refreshToken": "apple-refresh-token",
+                            "user": [
+                                "userId": "apple-user",
+                                "profile": [
+                                    "name": "Apple User",
+                                    "avatar": "avatar-url"
+                                ]
+                            ]
+                        ]
+                    ])
+                }
+                return httpResponse(status: 500, url: request.url!)
+            }
+
+            do {
+                let response = try await APIClient().signInWithApple(
+                    identityToken: "apple-identity-token",
+                    authorizationCode: "apple-auth-code",
+                    fullName: "Apple User",
+                    nonce: "raw-nonce"
+                )
+                expect(response.success, equals: true, prefix: "auth-session-apple-success")
+                expect(response.data?.accessToken, equals: Optional("apple-access-token"), prefix: "auth-session-apple-access-token")
+                expect(response.data?.refreshToken, equals: Optional("apple-refresh-token"), prefix: "auth-session-apple-refresh-token")
+                expect(response.data?.user?.uuid, equals: Optional("apple-user"), prefix: "auth-session-apple-user")
+                expect(NativeAuthSession.refreshToken(for: APIClient().baseURL), equals: Optional("apple-refresh-token"), prefix: "auth-session-apple-refresh-persisted")
+                expect(capturedBody["identityToken"] as? String, equals: Optional("apple-identity-token"), prefix: "auth-session-apple-body-identity")
+                expect(capturedBody["authorizationCode"] as? String, equals: Optional("apple-auth-code"), prefix: "auth-session-apple-body-code")
+                expect(capturedBody["fullName"] as? String, equals: Optional("Apple User"), prefix: "auth-session-apple-body-name")
+                expect(capturedBody["nonce"] as? String, equals: Optional("raw-nonce"), prefix: "auth-session-apple-body-nonce")
+            } catch {
+                assertionFailure("auth-session-apple-native-login: unexpected error \(error)")
+            }
+            expect(calls.paths, equals: ["/auth/apple/native"], prefix: "auth-session-apple-call-order")
+        }
     }
 
     private static func verifyRefreshRetryPersistsAccessToken() async {
@@ -185,6 +236,32 @@ enum AuthSessionVerification {
         return (response, data)
     }
 
+    private static func jsonBody(from request: URLRequest) -> [String: Any] {
+        guard let data = request.httpBody ?? data(from: request.httpBodyStream),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return json
+    }
+
+    private static func data(from stream: InputStream?) -> Data? {
+        guard let stream else { return nil }
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+            } else {
+                break
+            }
+        }
+        return data.isEmpty ? nil : data
+    }
+
     private static func expect<T: Equatable>(_ actual: T, equals expected: T, prefix: String) {
         assert(actual == expected, "\(prefix): expected '\(expected)', got '\(actual)'")
     }
@@ -194,6 +271,7 @@ private final class AuthSessionCallRecorder {
     private(set) var values: [(path: String, authorization: String?)] = []
 
     func append(_ value: (path: String, authorization: String?)) {
+        guard !value.path.isEmpty else { return }
         values.append(value)
     }
 
