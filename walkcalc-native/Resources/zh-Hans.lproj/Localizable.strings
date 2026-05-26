@@ -80,7 +80,6 @@
 "Settings" = "设置";
 "Share" = "分享";
 "The End" = "已经到底啦";
-"This permanently deletes your account and cannot be undone." = "这会永久删除你的账号，且无法撤销。";
 "Theme Color" = "主题色";
 "Total Debt" = "债务统计";
 "Try again later." = "请稍后再试。";
@@ -108,13 +107,9 @@
 "Create group" = "创建群组";
 "Create a group or join one shared by friends, roommates, or a trip." = "创建群组，或加入朋友、室友、旅行伙伴共享的群组。";
 "Date" = "日期";
-"Delete account" = "删除账号";
-"Delete account failed" = "删除账号失败";
-"Delete account?" = "删除账号？";
 "Delete expense" = "删除支出";
 "Delete group" = "删除群组";
 "Delete group?" = "删除群组？";
-"Deleting your account permanently removes your sign-in account and disconnects it from shared WalkCalc records." = "删除账号会永久移除你的登录账号，并断开它与共享 WalkCalc 记录的关联。";
 "Done" = "完成";
 "Drink" = "饮品";
 "Edit expense" = "编辑支出";

@@ -80,7 +80,6 @@
 "Settings" = "Settings";
 "Share" = "Share";
 "The End" = "The End";
-"This permanently deletes your account and cannot be undone." = "This permanently deletes your account and cannot be undone.";
 "Theme Color" = "Theme Color";
 "Total Debt" = "Total Debt";
 "Try again later." = "Try again later.";
@@ -108,13 +107,9 @@
 "Create group" = "Create group";
 "Create a group or join one shared by friends, roommates, or a trip." = "Create a group or join one shared by friends, roommates, or a trip.";
 "Date" = "Date";
-"Delete account" = "Delete account";
-"Delete account failed" = "Delete account failed";
-"Delete account?" = "Delete account?";
 "Delete expense" = "Delete expense";
 "Delete group" = "Delete group";
 "Delete group?" = "Delete group?";
-"Deleting your account permanently removes your sign-in account and disconnects it from shared WalkCalc records." = "Deleting your account permanently removes your sign-in account and disconnects it from shared WalkCalc records.";
 "Done" = "Done";
 "Drink" = "Drink";
 "Edit expense" = "Edit expense";

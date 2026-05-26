@@ -40,7 +40,10 @@ struct APIClient: Sendable {
 
     func profileURL() -> URL {
         var components = URLComponents(url: webBaseURL.appendingPathComponent("sso/profile"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "hideNavbar", value: "1")]
+        components.queryItems = [
+            URLQueryItem(name: "hideNavbar", value: "1"),
+            URLQueryItem(name: "deleteCompletion", value: "message")
+        ]
         return components.url!
     }
 
@@ -279,12 +282,6 @@ struct APIClient: Sendable {
     func resolveDebts(groupCode: String, token: String) async throws -> APIEnvelope<[WalkRecord]> {
         try await request(.post, path: "/walkcalc/groups/\(groupCode)/settlements/resolve", token: token, body: [:]) { raw in
             arrayPayload(dictPayload(raw)["records"]).map(mapRecord)
-        }
-    }
-
-    func deleteAccount(token: String) async throws -> APIEnvelope<[String: Any]> {
-        try await request(.delete, path: "/auth/account", token: token) { raw in
-            dictPayload(raw)
         }
     }
 

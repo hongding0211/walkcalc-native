@@ -206,6 +206,28 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
+    func reconcileSessionAfterProfileDismiss() async {
+        guard !isFixtureMode else { return }
+        guard let token else { return }
+
+        do {
+            let response = try await api.userInfo(token: token)
+            applyRefreshedToken(response)
+            guard response.success, let data = response.data else {
+                recordFailure(operation: "profileDismiss.userInfo", intent: .foregroundRefresh, disposition: .silent, response: response)
+                logout()
+                return
+            }
+            user = data
+        } catch {
+            if isUnrecoverableAuthFailure(error) {
+                logout()
+            } else {
+                recordFailure(operation: "profileDismiss.userInfo", intent: .foregroundRefresh, disposition: .silent, error: error)
+            }
+        }
+    }
+
     func setTheme(_ theme: AppTheme) {
         selectedTheme = theme
         theme.persist()
@@ -269,27 +291,6 @@ final class WalkcalcStore: ObservableObject {
             return
         }
         startupRoute = .authenticated
-    }
-
-    func deleteAccountWithFeedback() async -> StoreActionResult {
-        guard let token else { return .failure(L("Login to continue")) }
-        do {
-            let response = try await api.deleteAccount(token: token)
-            if response.success {
-                logout()
-                return .success
-            }
-            return .failure(response.message ?? L("Delete account failed"))
-        } catch let error as APIClientError {
-            if error.kind == .authRefresh {
-                logout()
-            }
-            recordFailure(operation: "deleteAccount", intent: .dataLossSensitiveMutation, disposition: .local, error: error)
-            return .failure(error.message ?? L("Delete account failed"))
-        } catch {
-            recordFailure(operation: "deleteAccount", intent: .dataLossSensitiveMutation, disposition: .local, error: error)
-            return .failure(L("Delete account failed"))
-        }
     }
 
     func logout() {

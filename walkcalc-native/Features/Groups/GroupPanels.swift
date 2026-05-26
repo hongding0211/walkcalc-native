@@ -436,9 +436,6 @@ struct SettingsSheet: View {
     let archivedGroups: [WalkGroup]
     let onDone: () -> Void
     @State private var confirmLogout = false
-    @State private var confirmDeleteAccount = false
-    @State private var isDeletingAccount = false
-    @State private var accountDeletionMessage: String?
     @State private var showingProfile = false
     @State private var displayedTheme = AppTheme.load()
 
@@ -496,30 +493,6 @@ struct SettingsSheet: View {
                 }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
-
-            Section {
-                Button(role: .destructive) {
-                    confirmDeleteAccount = true
-                } label: {
-                    HStack {
-                        if isDeletingAccount {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text(L("Delete account"))
-                    }
-                }
-                .disabled(isDeletingAccount)
-
-                if let accountDeletionMessage {
-                    Text(accountDeletionMessage)
-                        .font(.footnote)
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                }
-            } footer: {
-                Text(L("Deleting your account permanently removes your sign-in account and disconnects it from shared WalkCalc records."))
-            }
-            .listRowBackground(SoftLedgerTheme.formPaper)
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
@@ -563,31 +536,17 @@ struct SettingsSheet: View {
                 onDone()
             }
         }
-        .alert(L("Delete account?"), isPresented: $confirmDeleteAccount) {
-            Button(L("Cancel"), role: .cancel) {}
-            Button(L("Delete account"), role: .destructive) {
-                Task { await deleteAccount() }
+        .sheet(isPresented: $showingProfile, onDismiss: {
+            Task { @MainActor in
+                await store.reconcileSessionAfterProfileDismiss()
+                if !store.isLoggedIn {
+                    dismiss()
+                    onDone()
+                }
             }
-        } message: {
-            Text(L("This permanently deletes your account and cannot be undone."))
-        }
-        .sheet(isPresented: $showingProfile) {
+        }) {
             SSOProfileView(url: store.api.profileURL(), token: store.token)
                 .immersiveWebSheet()
-        }
-    }
-
-    private func deleteAccount() async {
-        guard !isDeletingAccount else { return }
-        isDeletingAccount = true
-        accountDeletionMessage = nil
-        let result = await store.deleteAccountWithFeedback()
-        isDeletingAccount = false
-        if result.success {
-            dismiss()
-            onDone()
-        } else {
-            accountDeletionMessage = result.message
         }
     }
 }
