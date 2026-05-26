@@ -51,9 +51,11 @@
 "Latest edited" = "Latest edited";
 "Location" = "Location";
 "Loading more..." = "Loading more...";
-"Login" = "Login";
-"Login failed" = "Login failed";
-"Login to continue" = "Login to continue";
+"Login" = "Sign in";
+"Login failed" = "Sign in failed";
+"Login to continue" = "Sign in to continue";
+"Sign in" = "Sign in";
+"Sign in to continue" = "Sign in to continue";
 "Logout" = "Logout";
 "Members" = "Members";
 "Modify group name" = "Modify group name";

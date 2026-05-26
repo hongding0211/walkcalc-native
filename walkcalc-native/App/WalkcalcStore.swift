@@ -238,13 +238,12 @@ final class WalkcalcStore: ObservableObject {
             guard response.success,
                   let session = response.data,
                   !session.accessToken.isEmpty else {
-                urgentAlert = StoreAlert(title: L("Login failed"), message: response.message ?? L("Try again later."))
+                networkFeedbackLogger.notice("Apple sign-in rejected by server")
                 return
             }
             await completeSignIn(token: session.accessToken, prefetchedUser: session.user)
         } catch {
             recordFailure(operation: "appleSignIn", intent: .bootstrapAuth, disposition: .local, error: error)
-            urgentAlert = StoreAlert(title: L("Login failed"), message: L("Try again later."))
         }
     }
 

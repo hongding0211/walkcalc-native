@@ -54,6 +54,8 @@
 "Login" = "登录";
 "Login failed" = "登录失败";
 "Login to continue" = "登录以继续";
+"Sign in" = "登录";
+"Sign in to continue" = "登录以继续";
 "Logout" = "登出";
 "Members" = "成员";
 "Modify group name" = "修改群组名称";

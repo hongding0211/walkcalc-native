@@ -146,7 +146,6 @@ struct LoginView: View {
                   let identityToken = String(data: tokenData, encoding: .utf8) else {
                 currentAppleNonce = nil
                 isAppleAuthorizationInFlight = false
-                store.urgentAlert = StoreAlert(title: L("Login failed"), message: L("Try again later."))
                 return
             }
             let authorizationCode = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
@@ -171,7 +170,6 @@ struct LoginView: View {
             if (error as? ASAuthorizationError)?.code == .canceled {
                 return
             }
-            store.urgentAlert = StoreAlert(title: L("Login failed"), message: L("Try again later."))
         }
     }
 }
@@ -190,10 +188,10 @@ private struct LoginScreen: View {
         GeometryReader { proxy in
             let layout = LoginLayout(size: proxy.size)
             let markScale = layout.scale * 1.08
-            let buttonWidth = layout.value(246)
-            let buttonHeight = layout.value(42)
-            let buttonCornerRadius = layout.value(12)
-            let buttonX = layout.x(72)
+            let buttonWidth = layout.value(318)
+            let buttonHeight = layout.value(40)
+            let buttonCornerRadius = buttonHeight / 2
+            let buttonX = layout.x(36)
 
             ZStack(alignment: .topLeading) {
                 loginBackground
@@ -210,7 +208,7 @@ private struct LoginScreen: View {
                     .lineLimit(1)
                     .offset(x: layout.x(42), y: layout.y(412))
 
-                Text(L("Login to continue"))
+                Text(L("Sign in to continue"))
                     .font(.custom("PingFangSC-Medium", size: layout.value(15)))
                     .foregroundStyle(secondaryText)
                     .frame(width: layout.value(260), alignment: .leading)
@@ -222,31 +220,30 @@ private struct LoginScreen: View {
                         if isSigningIn {
                             ProgressView()
                                 .controlSize(.small)
-                                .tint(buttonForeground)
+                                .tint(secondaryButtonForeground)
                         }
-                        Text(L("Login"))
+                        Text(L("Sign in"))
                     }
-                    .font(.system(size: layout.value(15), weight: .semibold))
-                    .foregroundStyle(buttonForeground)
+                    .font(.system(size: layout.value(14.5), weight: .semibold))
+                    .foregroundStyle(secondaryButtonForeground)
                     .frame(width: buttonWidth, height: buttonHeight)
-                    .background(buttonBackground, in: RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous))
+                    .background(secondaryButtonBackground, in: RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(isInteractionDisabled)
-                .offset(x: buttonX, y: layout.y(712))
+                .offset(x: buttonX, y: layout.y(716))
 
-                SignInWithAppleButton(.continue, onRequest: onAppleRequest, onCompletion: onAppleCompletion)
-                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                NativeSignInWithAppleButton(
+                    style: colorScheme == .dark ? .white : .black,
+                    cornerRadius: buttonCornerRadius,
+                    onRequest: onAppleRequest,
+                    onCompletion: onAppleCompletion
+                )
                     .frame(width: buttonWidth, height: buttonHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous))
+                    .id(colorScheme == .dark ? "apple-sign-in-dark" : "apple-sign-in-light")
                     .disabled(isInteractionDisabled)
-                    .offset(x: buttonX, y: layout.y(658))
+                    .offset(x: buttonX, y: layout.y(664))
 
-                Link(L("Privacy Policy"), destination: privacyURL)
-                    .font(.custom("PingFangSC-Medium", size: layout.value(13)))
-                    .foregroundStyle(secondaryText)
-                    .frame(width: buttonWidth, height: layout.value(32))
-                    .offset(x: buttonX, y: layout.y(762))
             }
         }
         .ignoresSafeArea()
@@ -264,16 +261,87 @@ private struct LoginScreen: View {
         colorScheme == .dark ? Color(UIColor(hex: 0x8F8F8A)) : Color(UIColor(hex: 0xA9A9A9))
     }
 
-    private var buttonBackground: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0xF4F4F0)) : Color(UIColor(hex: 0x050505))
+    private var secondaryButtonBackground: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0x303338)) : Color(UIColor(hex: 0xE4E5E7))
     }
 
-    private var buttonForeground: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0x050505)) : .white
+    private var secondaryButtonForeground: Color {
+        colorScheme == .dark ? Color(UIColor(hex: 0xF5F5F2)) : Color(UIColor(hex: 0x1E1E1E))
     }
 
     private var isInteractionDisabled: Bool {
         isSigningIn || isAppleAuthorizationInFlight
+    }
+}
+
+private struct NativeSignInWithAppleButton: UIViewRepresentable {
+    let style: ASAuthorizationAppleIDButton.Style
+    let cornerRadius: CGFloat
+    let onRequest: (ASAuthorizationAppleIDRequest) -> Void
+    let onCompletion: (Result<ASAuthorization, Error>) -> Void
+
+    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
+        let button = ASAuthorizationAppleIDButton(type: .signIn, style: style)
+        button.cornerRadius = cornerRadius
+        button.addTarget(context.coordinator, action: #selector(Coordinator.performRequest), for: .touchUpInside)
+        context.coordinator.button = button
+        return button
+    }
+
+    func updateUIView(_ button: ASAuthorizationAppleIDButton, context: Context) {
+        button.cornerRadius = cornerRadius
+        context.coordinator.onRequest = onRequest
+        context.coordinator.onCompletion = onCompletion
+        context.coordinator.button = button
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onRequest: onRequest, onCompletion: onCompletion)
+    }
+
+    final class Coordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+        var onRequest: (ASAuthorizationAppleIDRequest) -> Void
+        var onCompletion: (Result<ASAuthorization, Error>) -> Void
+        weak var button: ASAuthorizationAppleIDButton?
+
+        init(
+            onRequest: @escaping (ASAuthorizationAppleIDRequest) -> Void,
+            onCompletion: @escaping (Result<ASAuthorization, Error>) -> Void
+        ) {
+            self.onRequest = onRequest
+            self.onCompletion = onCompletion
+        }
+
+        @objc func performRequest() {
+            let request = ASAuthorizationAppleIDProvider().createRequest()
+            onRequest(request)
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+
+        func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+            onCompletion(.success(authorization))
+        }
+
+        func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+            onCompletion(.failure(error))
+        }
+
+        func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+            guard let window = button?.window else {
+                let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                if let keyWindow = scenes.flatMap(\.windows).first(where: \.isKeyWindow) {
+                    return keyWindow
+                }
+                if let scene = scenes.first {
+                    return UIWindow(windowScene: scene)
+                }
+                fatalError("Missing window scene for Sign in with Apple presentation.")
+            }
+            return window
+        }
     }
 }
 
