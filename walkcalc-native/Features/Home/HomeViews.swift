@@ -192,6 +192,7 @@ private struct LoginScreen: View {
             let buttonHeight = layout.value(40)
             let buttonCornerRadius = buttonHeight / 2
             let buttonX = layout.x(36)
+            let buttonGroupY = layout.y(664)
 
             ZStack(alignment: .topLeading) {
                 loginBackground
@@ -215,35 +216,44 @@ private struct LoginScreen: View {
                     .lineLimit(1)
                     .offset(x: layout.x(42), y: layout.y(446))
 
-                Button(action: onLogin) {
-                    HStack(spacing: layout.value(8)) {
-                        if isSigningIn {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(secondaryButtonForeground)
-                        }
-                        Text(L("Sign in"))
-                    }
-                    .font(.system(size: layout.value(14.5), weight: .semibold))
-                    .foregroundStyle(secondaryButtonForeground)
-                    .frame(width: buttonWidth, height: buttonHeight)
-                    .background(secondaryButtonBackground, in: RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(isInteractionDisabled)
-                .offset(x: buttonX, y: layout.y(716))
-
-                NativeSignInWithAppleButton(
-                    style: colorScheme == .dark ? .white : .black,
-                    cornerRadius: buttonCornerRadius,
-                    onRequest: onAppleRequest,
-                    onCompletion: onAppleCompletion
-                )
+                VStack(spacing: layout.value(12)) {
+                    NativeSignInWithAppleButton(
+                        style: colorScheme == .dark ? .white : .black,
+                        cornerRadius: buttonCornerRadius,
+                        onRequest: onAppleRequest,
+                        onCompletion: onAppleCompletion
+                    )
                     .frame(width: buttonWidth, height: buttonHeight)
                     .id(colorScheme == .dark ? "apple-sign-in-dark" : "apple-sign-in-light")
                     .disabled(isInteractionDisabled)
-                    .offset(x: buttonX, y: layout.y(664))
 
+                    Button(action: onLogin) {
+                        HStack(spacing: layout.value(8)) {
+                            if isSigningIn {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(secondaryButtonForeground)
+                            }
+                            Text(L("Sign in"))
+                        }
+                        .font(.system(size: layout.value(14.5), weight: .semibold))
+                        .foregroundStyle(secondaryButtonForeground)
+                        .frame(width: buttonWidth, height: buttonHeight)
+                        .background(secondaryButtonBackground, in: RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isInteractionDisabled)
+
+                    Link(destination: privacyURL) {
+                        Text(L("Privacy Policy"))
+                    }
+                    .font(.custom("PingFangSC-Medium", size: layout.value(11.5)))
+                    .foregroundStyle(secondaryText)
+                    .frame(width: buttonWidth, height: layout.value(28))
+                    .padding(.top, layout.value(16))
+                }
+                .frame(width: buttonWidth)
+                .offset(x: buttonX, y: buttonGroupY)
             }
         }
         .ignoresSafeArea()
