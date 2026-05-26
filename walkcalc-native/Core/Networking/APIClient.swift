@@ -11,6 +11,8 @@ enum HTTPMethod: String {
 }
 
 struct APIClient: Sendable {
+    private static let ssoSource = "walkcalc"
+
     #if DEBUG
     var baseURL = URL(string: ProcessInfo.processInfo.environment["WALKCALC_API_BASE_URL"] ?? "http://127.0.0.1:3500")!
     var webBaseURL = URL(string: ProcessInfo.processInfo.environment["HONG97_WEB_BASE_URL"] ?? "http://localhost:3000")!
@@ -28,8 +30,7 @@ struct APIClient: Sendable {
         var components = URLComponents(url: webBaseURL.appendingPathComponent("sso/login"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "redirect", value: redirect),
-            URLQueryItem(name: "hideNavbar", value: "1"),
-            URLQueryItem(name: "source", value: "walkcalc")
+            URLQueryItem(name: "source", value: Self.ssoSource)
         ]
         return components.url!
     }
@@ -41,8 +42,7 @@ struct APIClient: Sendable {
     func profileURL() -> URL {
         var components = URLComponents(url: webBaseURL.appendingPathComponent("sso/profile"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
-            URLQueryItem(name: "hideNavbar", value: "1"),
-            URLQueryItem(name: "deleteCompletion", value: "message")
+            URLQueryItem(name: "source", value: Self.ssoSource)
         ]
         return components.url!
     }
