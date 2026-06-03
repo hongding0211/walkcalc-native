@@ -25,6 +25,11 @@ struct walkcalc_nativeApp: App {
         if ProcessInfo.processInfo.arguments.contains("--verify-ledger-migration") {
             LedgerMigrationVerification.assertAllCasesPass()
         }
+        if ProcessInfo.processInfo.arguments.contains("--verify-ledger-repository") {
+            Task {
+                await LedgerRepositoryVerification.assertAllCasesPass()
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("--verify-api-contract") {
             LedgerAPIContractVerification.assertAllCasesPass()
         }

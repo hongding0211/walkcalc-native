@@ -93,6 +93,7 @@ final class WalkcalcStore: ObservableObject {
     @Published private var loadingRecordKeys: Set<String> = []
 
     let api = APIClient()
+    private lazy var ledgerRepository = LedgerRepository(remoteSource: RemoteLedgerDataSource(api: api))
     private let groupPageSize = 20
     private let recordPageSize = 10
     private var groupsPage = 0
@@ -533,27 +534,25 @@ final class WalkcalcStore: ObservableObject {
             return .success
         }
         let query = normalizedQuery(search)
-        do {
-            async let groupsResponse = api.groups(page: 1, pageSize: groupPageSize, search: optionalQuery(query), token: token)
-            async let summaryResponse = api.homeSummary(token: token)
-            let (response, summary) = try await (groupsResponse, summaryResponse)
-            applyRefreshedToken(response)
-            applyRefreshedToken(summary)
-            if summary.success, let total = summary.data {
+        let result = await ledgerRepository.home(
+            page: 1,
+            pageSize: groupPageSize,
+            search: optionalQuery(query),
+            context: remoteLedgerContext(token: token)
+        )
+        switch result {
+        case .success(let snapshot):
+            applyRefreshedToken(snapshot.refreshedToken)
+            if let total = snapshot.totalBalanceMinor {
                 totalBalanceMinor = total
             }
-            if response.success {
-                groupSearchQuery = query
-                groups = mergedGroupSummaries(response.data ?? [])
-                groupsPage = response.pagination?.page ?? 1
-                groupTotal = response.pagination?.total ?? groups.count
-                return .success
-            } else {
-                let authFailure = recordFailure(operation: "refreshHome.groups", intent: .backgroundRefresh, disposition: .silent, response: response)
-                return authFailure ? .unrecoverableAuthFailure : .recoverableFailure
-            }
-        } catch {
-            let authFailure = recordFailure(operation: "refreshHome", intent: .backgroundRefresh, disposition: .silent, error: error)
+            groupSearchQuery = query
+            groups = mergedGroupSummaries(snapshot.groups)
+            groupsPage = snapshot.groupPagination?.page ?? 1
+            groupTotal = snapshot.groupPagination?.total ?? groups.count
+            return .success
+        case .failure(let failure):
+            let authFailure = recordFailure(operation: "refreshHome", intent: .backgroundRefresh, disposition: .silent, failure: failure)
             return authFailure ? .unrecoverableAuthFailure : .recoverableFailure
         }
     }
@@ -564,18 +563,20 @@ final class WalkcalcStore: ObservableObject {
         guard let token, canLoadMoreGroups, !isLoadingMoreGroups else { return }
         isLoadingMoreGroups = true
         defer { isLoadingMoreGroups = false }
-        do {
-            let response = try await api.groups(page: groupsPage + 1, pageSize: groupPageSize, search: optionalQuery(groupSearchQuery), token: token)
-            applyRefreshedToken(response)
-            if response.success {
-                appendGroups(response.data ?? [])
-                groupsPage = response.pagination?.page ?? groupsPage + 1
-                groupTotal = response.pagination?.total ?? groupTotal
-            } else {
-                recordFailure(operation: "loadMoreGroups", intent: .pagination, disposition: .silent, response: response)
-            }
-        } catch {
-            recordFailure(operation: "loadMoreGroups", intent: .pagination, disposition: .silent, error: error)
+        let result = await ledgerRepository.groups(
+            page: groupsPage + 1,
+            pageSize: groupPageSize,
+            search: optionalQuery(groupSearchQuery),
+            context: remoteLedgerContext(token: token)
+        )
+        switch result {
+        case .success(let page):
+            applyRefreshedToken(page.refreshedToken)
+            appendGroups(page.items)
+            groupsPage = page.pagination?.page ?? groupsPage + 1
+            groupTotal = page.pagination?.total ?? groupTotal
+        case .failure(let failure):
+            recordFailure(operation: "loadMoreGroups", intent: .pagination, disposition: .silent, failure: failure)
         }
     }
 
@@ -587,29 +588,19 @@ final class WalkcalcStore: ObservableObject {
         if isFixtureMode { return }
         guard api.ledgerAPIEnabled else { return }
         guard let token else { return }
-        do {
-            async let groupResponse = api.group(code: id, token: token)
-            async let recordsResponse = api.records(groupCode: id, page: 1, pageSize: recordPageSize, token: token)
-            let (groupResult, recordResult) = try await (groupResponse, recordsResponse)
-            applyRefreshedToken(groupResult)
-            applyRefreshedToken(recordResult)
-            if groupResult.success, let group = groupResult.data {
+        let result = await ledgerRepository.groupDetail(groupId: id, recordPageSize: recordPageSize, context: remoteLedgerContext(token: token))
+        switch result {
+        case .success(let snapshot):
+            applyRefreshedToken(snapshot.refreshedToken)
+            if let group = snapshot.group {
                 replaceGroup(group)
                 settlementSuggestionsByGroup[id] = nil
             }
-            if recordResult.success {
-                clearRecordCaches(for: id)
-                recordsByGroup[id] = recordResult.data ?? []
-                recordTotals[id] = recordResult.pagination?.total ?? recordResult.data?.count ?? 0
-            }
-            if !groupResult.success {
-                recordFailure(operation: "refreshGroup.group", intent: .backgroundRefresh, disposition: .silent, response: groupResult)
-            }
-            if !recordResult.success {
-                recordFailure(operation: "refreshGroup.records", intent: .backgroundRefresh, disposition: .silent, response: recordResult)
-            }
-        } catch {
-            recordFailure(operation: "refreshGroup", intent: .backgroundRefresh, disposition: .silent, error: error)
+            clearRecordCaches(for: id)
+            recordsByGroup[id] = snapshot.records
+            recordTotals[id] = snapshot.recordPagination?.total ?? snapshot.records.count
+        case .failure(let failure):
+            recordFailure(operation: "refreshGroup", intent: .backgroundRefresh, disposition: .silent, failure: failure)
         }
     }
 
@@ -617,16 +608,15 @@ final class WalkcalcStore: ObservableObject {
         if isFixtureMode { return }
         guard api.ledgerAPIEnabled else { return }
         guard let token else { return }
-        do {
-            let response = try await api.groupBalances(groupCode: id, token: token)
-            applyRefreshedToken(response)
-            if response.success, let members = response.data {
+        let result = await ledgerRepository.groupBalances(groupId: id, context: remoteLedgerContext(token: token))
+        switch result {
+        case .success(let response):
+            applyRefreshedToken(response.refreshedToken)
+            if let members = response.value {
                 replaceGroupBalances(groupId: id, members: members)
-            } else {
-                recordFailure(operation: "refreshGroupBalances", intent: .secondaryLoad, disposition: .silent, response: response)
             }
-        } catch {
-            recordFailure(operation: "refreshGroupBalances", intent: .secondaryLoad, disposition: .silent, error: error)
+        case .failure(let failure):
+            recordFailure(operation: "refreshGroupBalances", intent: .secondaryLoad, disposition: .silent, failure: failure)
         }
     }
 
@@ -649,24 +639,27 @@ final class WalkcalcStore: ObservableObject {
         loadingRecordKeys.insert(key)
         defer { loadingRecordKeys.remove(key) }
         let page = current.count / recordPageSize + 1
-        do {
-            let response = try await api.records(groupCode: groupId, page: page, pageSize: recordPageSize, recordSearch: recordSearchRequest(for: query), token: token)
-            applyRefreshedToken(response)
-            if response.success {
-                let localMatches = query.isEmpty ? [] : localSearchMatches(groupId: groupId, query: query)
-                if query.isEmpty {
-                    recordsByGroup[groupId] = current + (response.data ?? [])
-                    recordTotals[groupId] = response.pagination?.total ?? total
-                } else {
-                    let merged = mergedRecords(current + (response.data ?? []), with: localMatches)
-                    recordSearchResultsByKey[key] = merged
-                    recordSearchTotalsByKey[key] = max(response.pagination?.total ?? total, merged.count)
-                }
+        let result = await ledgerRepository.records(
+            groupId: groupId,
+            page: page,
+            pageSize: recordPageSize,
+            search: recordSearchRequest(for: query),
+            context: remoteLedgerContext(token: token)
+        )
+        switch result {
+        case .success(let page):
+            applyRefreshedToken(page.refreshedToken)
+            let localMatches = query.isEmpty ? [] : localSearchMatches(groupId: groupId, query: query)
+            if query.isEmpty {
+                recordsByGroup[groupId] = current + page.items
+                recordTotals[groupId] = page.pagination?.total ?? total
             } else {
-                recordFailure(operation: "loadMoreRecords", intent: .pagination, disposition: .silent, response: response)
+                let merged = mergedRecords(current + page.items, with: localMatches)
+                recordSearchResultsByKey[key] = merged
+                recordSearchTotalsByKey[key] = max(page.pagination?.total ?? total, merged.count)
             }
-        } catch {
-            recordFailure(operation: "loadMoreRecords", intent: .pagination, disposition: .silent, error: error)
+        case .failure(let failure):
+            recordFailure(operation: "loadMoreRecords", intent: .pagination, disposition: .silent, failure: failure)
         }
     }
 
@@ -714,18 +707,21 @@ final class WalkcalcStore: ObservableObject {
         guard !loadingRecordKeys.contains(key) else { return }
         loadingRecordKeys.insert(key)
         defer { loadingRecordKeys.remove(key) }
-        do {
-            let response = try await api.records(groupCode: groupId, page: 1, pageSize: recordPageSize, recordSearch: recordSearchRequest(for: query), token: token)
-            applyRefreshedToken(response)
-            if response.success {
-                let merged = mergedRecords(response.data ?? [], with: localSearchMatches(groupId: groupId, query: query))
-                recordSearchResultsByKey[key] = merged
-                recordSearchTotalsByKey[key] = max(response.pagination?.total ?? response.data?.count ?? 0, merged.count)
-            } else {
-                recordFailure(operation: "searchRecords", intent: .secondaryLoad, disposition: .silent, response: response)
-            }
-        } catch {
-            recordFailure(operation: "searchRecords", intent: .secondaryLoad, disposition: .silent, error: error)
+        let result = await ledgerRepository.records(
+            groupId: groupId,
+            page: 1,
+            pageSize: recordPageSize,
+            search: recordSearchRequest(for: query),
+            context: remoteLedgerContext(token: token)
+        )
+        switch result {
+        case .success(let page):
+            applyRefreshedToken(page.refreshedToken)
+            let merged = mergedRecords(page.items, with: localSearchMatches(groupId: groupId, query: query))
+            recordSearchResultsByKey[key] = merged
+            recordSearchTotalsByKey[key] = max(page.pagination?.total ?? page.items.count, merged.count)
+        case .failure(let failure):
+            recordFailure(operation: "searchRecords", intent: .secondaryLoad, disposition: .silent, failure: failure)
         }
     }
 
@@ -763,21 +759,23 @@ final class WalkcalcStore: ObservableObject {
         guard !loadingRecordKeys.contains(key) else { return }
         loadingRecordKeys.insert(key)
         defer { loadingRecordKeys.remove(key) }
-        do {
-            let response = try await api.participantRecords(groupCode: groupId, participantId: memberId, page: 1, pageSize: recordPageSize, token: token)
-            applyRefreshedToken(response)
-            if response.success {
-                if let member = response.data?.member {
-                    replaceMemberProjection(groupId: groupId, member: member)
-                }
-                let records = response.data?.records ?? []
-                memberRecordsByKey[key] = records
-                memberRecordTotalsByKey[key] = response.pagination?.total ?? records.count
-            } else {
-                recordFailure(operation: "refreshMemberRecords", intent: .secondaryLoad, disposition: .silent, response: response)
+        let result = await ledgerRepository.memberRecords(
+            groupId: groupId,
+            memberId: memberId,
+            page: 1,
+            pageSize: recordPageSize,
+            context: remoteLedgerContext(token: token)
+        )
+        switch result {
+        case .success(let snapshot):
+            applyRefreshedToken(snapshot.refreshedToken)
+            if let member = snapshot.member {
+                replaceMemberProjection(groupId: groupId, member: member)
             }
-        } catch {
-            recordFailure(operation: "refreshMemberRecords", intent: .secondaryLoad, disposition: .silent, error: error)
+            memberRecordsByKey[key] = snapshot.records
+            memberRecordTotalsByKey[key] = snapshot.pagination?.total ?? snapshot.records.count
+        case .failure(let failure):
+            recordFailure(operation: "refreshMemberRecords", intent: .secondaryLoad, disposition: .silent, failure: failure)
         }
     }
 
@@ -792,21 +790,24 @@ final class WalkcalcStore: ObservableObject {
         guard current.count < total else { return }
         loadingRecordKeys.insert(key)
         defer { loadingRecordKeys.remove(key) }
-        do {
-            let page = current.count / recordPageSize + 1
-            let response = try await api.participantRecords(groupCode: groupId, participantId: memberId, page: page, pageSize: recordPageSize, token: token)
-            applyRefreshedToken(response)
-            if response.success {
-                if let member = response.data?.member {
-                    replaceMemberProjection(groupId: groupId, member: member)
-                }
-                memberRecordsByKey[key] = current + (response.data?.records ?? [])
-                memberRecordTotalsByKey[key] = response.pagination?.total ?? total
-            } else {
-                recordFailure(operation: "loadMoreMemberRecords", intent: .pagination, disposition: .silent, response: response)
+        let page = current.count / recordPageSize + 1
+        let result = await ledgerRepository.memberRecords(
+            groupId: groupId,
+            memberId: memberId,
+            page: page,
+            pageSize: recordPageSize,
+            context: remoteLedgerContext(token: token)
+        )
+        switch result {
+        case .success(let snapshot):
+            applyRefreshedToken(snapshot.refreshedToken)
+            if let member = snapshot.member {
+                replaceMemberProjection(groupId: groupId, member: member)
             }
-        } catch {
-            recordFailure(operation: "loadMoreMemberRecords", intent: .pagination, disposition: .silent, error: error)
+            memberRecordsByKey[key] = current + snapshot.records
+            memberRecordTotalsByKey[key] = snapshot.pagination?.total ?? total
+        case .failure(let failure):
+            recordFailure(operation: "loadMoreMemberRecords", intent: .pagination, disposition: .silent, failure: failure)
         }
     }
 
@@ -847,27 +848,38 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "createGroup") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
-            let response = try await api.createGroup(name: name, token: token)
-            applyRefreshedToken(response)
-            if response.success, let groupId = response.data, !groupId.isEmpty {
+            let result = await ledgerRepository.createGroup(name: name, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "createGroup", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
+            if let groupId = response.value, !groupId.isEmpty {
                 if !users.isEmpty {
-                    let inviteResponse = try await api.invite(code: groupId, userIds: users.map(\.uuid), token: token)
-                    applyRefreshedToken(inviteResponse)
-                    guard inviteResponse.success else {
-                        return actionFailure(operation: "createGroup.invite", response: inviteResponse)
+                    let inviteResult = await ledgerRepository.invite(code: groupId, userIds: users.map(\.uuid), context: remoteLedgerContext())
+                    guard case .success(let inviteResponse) = inviteResult else {
+                        if case .failure(let failure) = inviteResult {
+                            return actionFailure(operation: "createGroup.invite", failure: failure)
+                        }
+                        return .failure(nil)
                     }
+                    applyRefreshedToken(inviteResponse.refreshedToken)
                 }
                 for tempUser in tempUsers where !tempUser.isEmpty {
-                    let tempUserResponse = try await api.addTempUser(code: groupId, name: tempUser, token: token)
-                    applyRefreshedToken(tempUserResponse)
-                    guard tempUserResponse.success else {
-                        return actionFailure(operation: "createGroup.tempUser", response: tempUserResponse)
+                    let tempUserResult = await ledgerRepository.addTempUser(code: groupId, name: tempUser, context: remoteLedgerContext())
+                    guard case .success(let tempUserResponse) = tempUserResult else {
+                        if case .failure(let failure) = tempUserResult {
+                            return actionFailure(operation: "createGroup.tempUser", failure: failure)
+                        }
+                        return .failure(nil)
                     }
+                    applyRefreshedToken(tempUserResponse.refreshedToken)
                 }
             }
             await refreshHome()
-            return response.success ? .success : actionFailure(operation: "createGroup", response: response)
+            return .success
         }
     }
 
@@ -876,22 +888,18 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func joinGroupWithFeedback(code: String) async -> JoinGroupResult {
-        do {
-            guard api.ledgerAPIEnabled else {
-                return JoinGroupResult(success: false, message: nil)
-            }
-            guard let token else {
-                return JoinGroupResult(success: false, message: L("Login to continue"))
-            }
-            let response = try await api.joinGroup(code: code, token: token)
-            applyRefreshedToken(response)
-            if response.success {
-                await refreshHome()
-            }
-            return JoinGroupResult(success: response.success, message: response.message)
-        } catch {
-            recordFailure(operation: "joinGroup", intent: .userAction, disposition: .local, error: error)
-            return JoinGroupResult(success: false, message: L("Network issues"))
+        guard api.ledgerAPIEnabled else {
+            return JoinGroupResult(success: false, message: nil)
+        }
+        let result = await ledgerRepository.joinGroup(code: code, context: remoteLedgerContext())
+        switch result {
+        case .success(let response):
+            applyRefreshedToken(response.refreshedToken)
+            await refreshHome()
+            return JoinGroupResult(success: true, message: response.message)
+        case .failure(let failure):
+            recordFailure(operation: "joinGroup", intent: .userAction, disposition: .local, failure: failure)
+            return JoinGroupResult(success: false, message: failure.message ?? L("Network issues"))
         }
     }
 
@@ -909,11 +917,16 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "archiveGroup") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
-            let response = try await api.archiveGroup(code: code, token: token)
-            applyRefreshedToken(response)
+            let result = await ledgerRepository.archiveGroup(code: code, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "archiveGroup", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshHome()
-            return response.success ? .success : actionFailure(operation: "archiveGroup", response: response)
+            return .success
         }
     }
 
@@ -929,11 +942,16 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "unarchiveGroup") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
-            let response = try await api.unarchiveGroup(code: code, token: token)
-            applyRefreshedToken(response)
+            let result = await ledgerRepository.unarchiveGroup(code: code, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "unarchiveGroup", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshHome()
-            return response.success ? .success : actionFailure(operation: "unarchiveGroup", response: response)
+            return .success
         }
     }
 
@@ -953,11 +971,16 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "deleteGroup") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
-            let response = try await api.deleteGroup(code: code, token: token)
-            applyRefreshedToken(response)
+            let result = await ledgerRepository.deleteGroup(code: code, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "deleteGroup", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshHome()
-            return response.success ? .success : actionFailure(operation: "deleteGroup", response: response)
+            return .success
         }
     }
 
@@ -974,11 +997,16 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "changeGroupName") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
-            let response = try await api.changeGroupName(code: code, name: name, token: token)
-            applyRefreshedToken(response)
+            let result = await ledgerRepository.changeGroupName(code: code, name: name, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "changeGroupName", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshGroup(code)
-            return response.success ? .success : actionFailure(operation: "changeGroupName", response: response)
+            return .success
         }
     }
 
@@ -999,20 +1027,25 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "addMembers") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
             if !users.isEmpty {
-                let response = try await api.invite(code: groupId, userIds: users.map(\.uuid), token: token)
-                applyRefreshedToken(response)
-                guard response.success else {
-                    return actionFailure(operation: "addMembers.invite", response: response)
+                let result = await ledgerRepository.invite(code: groupId, userIds: users.map(\.uuid), context: remoteLedgerContext())
+                guard case .success(let response) = result else {
+                    if case .failure(let failure) = result {
+                        return actionFailure(operation: "addMembers.invite", failure: failure)
+                    }
+                    return .failure(nil)
                 }
+                applyRefreshedToken(response.refreshedToken)
             }
             for tempUser in tempUsers where !tempUser.isEmpty {
-                let response = try await api.addTempUser(code: groupId, name: tempUser, token: token)
-                applyRefreshedToken(response)
-                guard response.success else {
-                    return actionFailure(operation: "addMembers.tempUser", response: response)
+                let result = await ledgerRepository.addTempUser(code: groupId, name: tempUser, context: remoteLedgerContext())
+                guard case .success(let response) = result else {
+                    if case .failure(let failure) = result {
+                        return actionFailure(operation: "addMembers.tempUser", failure: failure)
+                    }
+                    return .failure(nil)
                 }
+                applyRefreshedToken(response.refreshedToken)
             }
             await refreshGroup(groupId)
             return .success
@@ -1027,13 +1060,14 @@ final class WalkcalcStore: ObservableObject {
                 .map { UserProfile(uuid: "fixture-\($0)", name: $0, avatar: "") }
         }
         guard api.ledgerAPIEnabled else { return [] }
-        guard let token, !name.isEmpty else { return [] }
-        do {
-            let response = try await api.searchUsers(name: name, token: token)
-            applyRefreshedToken(response)
-            return response.data ?? []
-        } catch {
-            recordFailure(operation: "searchUsers", intent: .secondaryLoad, disposition: .silent, error: error)
+        guard !name.isEmpty else { return [] }
+        let result = await ledgerRepository.searchUsers(name: name, context: remoteLedgerContext())
+        switch result {
+        case .success(let response):
+            applyRefreshedToken(response.refreshedToken)
+            return response.value ?? []
+        case .failure(let failure):
+            recordFailure(operation: "searchUsers", intent: .secondaryLoad, disposition: .silent, failure: failure)
             return []
         }
     }
@@ -1066,13 +1100,18 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "addRecord") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return .failure(L("Enter a valid amount with up to 2 decimal places")) }
-            let response = try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, long: long, lat: lat, occurredAt: occurredAt)
-            applyRefreshedToken(response)
+            let result = await ledgerRepository.addRecord(groupId: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, long: long, lat: lat, occurredAt: occurredAt, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "addRecord", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success ? .success : actionFailure(operation: "addRecord", response: response)
+            return .success
         }
     }
 
@@ -1096,13 +1135,18 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "editRecord") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return .failure(L("Enter a valid amount with up to 2 decimal places")) }
-            let response = try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, occurredAt: occurredAt, isSettlement: isSettlement)
-            applyRefreshedToken(response)
+            let result = await ledgerRepository.updateRecord(groupId: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, occurredAt: occurredAt, isSettlement: isSettlement, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "editRecord", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success ? .success : actionFailure(operation: "editRecord", response: response)
+            return .success
         }
     }
 
@@ -1119,12 +1163,17 @@ final class WalkcalcStore: ObservableObject {
         }
         return await withLoadingResult(operation: "deleteRecord") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
-            let response = try await api.dropRecord(groupCode: groupId, recordId: recordId, token: token)
-            applyRefreshedToken(response)
+            let result = await ledgerRepository.deleteRecord(groupId: groupId, recordId: recordId, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "deleteRecord", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success ? .success : actionFailure(operation: "deleteRecord", response: response)
+            return .success
         }
     }
 
@@ -1135,19 +1184,24 @@ final class WalkcalcStore: ObservableObject {
     func resolveSingleWithFeedback(groupId: String, debt: ResolvedDebt) async -> StoreActionResult {
         await withLoadingResult(operation: "resolveSingle") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
-            let response = try await api.addSettlementRecord(
-                groupCode: groupId,
+            let result = await ledgerRepository.addSettlementRecord(
+                groupId: groupId,
                 fromId: debt.from.uuid,
                 toId: debt.to.uuid,
                 amountMinor: debt.amountMinor,
                 note: "resolve",
-                token: token,
+                context: remoteLedgerContext()
             )
-            applyRefreshedToken(response)
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "resolveSingle", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success ? .success : actionFailure(operation: "resolveSingle", response: response)
+            return .success
         }
     }
 
@@ -1158,12 +1212,17 @@ final class WalkcalcStore: ObservableObject {
     func resolveAllWithFeedback(groupId: String, debts: [ResolvedDebt]) async -> StoreActionResult {
         await withLoadingResult(operation: "resolveAll") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
-            guard let token else { return .failure(L("Login to continue")) }
-            let response = try await api.resolveDebts(groupCode: groupId, token: token)
-            applyRefreshedToken(response)
+            let result = await ledgerRepository.resolveDebts(groupId: groupId, context: remoteLedgerContext())
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "resolveAll", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
             await refreshGroup(groupId)
             await refreshHome(search: groupSearchQuery)
-            return response.success ? .success : actionFailure(operation: "resolveAll", response: response)
+            return .success
         }
     }
 
@@ -1231,18 +1290,13 @@ final class WalkcalcStore: ObservableObject {
     func refreshSettlementSuggestion(groupId: String) async {
         if isFixtureMode { return }
         guard let token else { return }
-        do {
-            let response = try await api.settlementSuggestion(groupCode: groupId, token: token)
-            applyRefreshedToken(response)
-            if response.success {
-                settlementSuggestionsByGroup[groupId] = (response.data ?? []).map {
-                    SettlementTransfer(fromId: $0.fromId, toId: $0.toId, amountMinor: $0.amountMinor)
-                }
-            } else {
-                recordFailure(operation: "refreshSettlementSuggestion", intent: .secondaryLoad, disposition: .silent, response: response)
-            }
-        } catch {
-            recordFailure(operation: "refreshSettlementSuggestion", intent: .secondaryLoad, disposition: .silent, error: error)
+        let result = await ledgerRepository.settlementSuggestion(groupId: groupId, context: remoteLedgerContext(token: token))
+        switch result {
+        case .success(let response):
+            applyRefreshedToken(response.refreshedToken)
+            settlementSuggestionsByGroup[groupId] = response.value ?? []
+        case .failure(let failure):
+            recordFailure(operation: "refreshSettlementSuggestion", intent: .secondaryLoad, disposition: .silent, failure: failure)
         }
     }
 
@@ -1375,6 +1429,18 @@ final class WalkcalcStore: ObservableObject {
         UserDefaults.standard.set(refreshedToken, forKey: "walkcalc.token")
     }
 
+    private func applyRefreshedToken(_ refreshedToken: String?) {
+        guard let refreshedToken else {
+            return
+        }
+        token = refreshedToken
+        UserDefaults.standard.set(refreshedToken, forKey: "walkcalc.token")
+    }
+
+    private func remoteLedgerContext(token: String? = nil) -> LedgerSessionContext {
+        LedgerSessionContext.remote(accessToken: token ?? self.token)
+    }
+
     private func handleUnrecoverableAuthFailure(operation: String) {
         networkFeedbackLogger.notice("Auth failure operation=\(operation, privacy: .public)")
         token = nil
@@ -1413,6 +1479,11 @@ final class WalkcalcStore: ObservableObject {
         return .failure(response.messageWithLimitDetail)
     }
 
+    private func actionFailure(operation: String, failure: LedgerOperationFailure) -> StoreActionResult {
+        recordFailure(operation: operation, intent: .userAction, disposition: .local, failure: failure)
+        return .failure(failure.messageWithLimitDetail)
+    }
+
     @discardableResult
     private func recordFailure<T>(operation: String, intent: NetworkOperationIntent, disposition: FeedbackDisposition, response: APIEnvelope<T>) -> Bool {
         if isUnrecoverableAuthFailure(response) {
@@ -1422,6 +1493,17 @@ final class WalkcalcStore: ObservableObject {
         let kind = response.failureKind?.rawValue ?? APIFailureKind.serverEnvelope.rawValue
         let status = response.statusCode ?? 0
         networkFeedbackLogger.info("Network failure operation=\(operation, privacy: .public) intent=\(intent.rawValue, privacy: .public) disposition=\(disposition.rawValue, privacy: .public) kind=\(kind, privacy: .public) status=\(status, privacy: .public)")
+        return false
+    }
+
+    @discardableResult
+    private func recordFailure(operation: String, intent: NetworkOperationIntent, disposition: FeedbackDisposition, failure: LedgerOperationFailure) -> Bool {
+        if failure.kind == .unrecoverableAuth {
+            handleUnrecoverableAuthFailure(operation: operation)
+            return true
+        }
+        let status = failure.statusCode ?? 0
+        networkFeedbackLogger.info("Ledger failure operation=\(operation, privacy: .public) intent=\(intent.rawValue, privacy: .public) disposition=\(disposition.rawValue, privacy: .public) kind=\(String(describing: failure.kind), privacy: .public) status=\(status, privacy: .public)")
         return false
     }
 
@@ -1436,6 +1518,30 @@ final class WalkcalcStore: ObservableObject {
         let status = clientError?.statusCode ?? 0
         networkFeedbackLogger.info("Network failure operation=\(operation, privacy: .public) intent=\(intent.rawValue, privacy: .public) disposition=\(disposition.rawValue, privacy: .public) kind=\(kind, privacy: .public) status=\(status, privacy: .public)")
         return false
+    }
+}
+
+private extension LedgerOperationFailure {
+    var messageWithLimitDetail: String? {
+        guard let message else { return nil }
+        guard let limit = intValue(errorData?["limit"]),
+              let count = intValue(errorData?["nonZeroParticipantCount"]) else {
+            return message
+        }
+        return "\(message) (\(count)/\(limit))"
+    }
+
+    func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.intValue
+        }
+        if let value = value as? String {
+            return Int(value)
+        }
+        return nil
     }
 }
 
