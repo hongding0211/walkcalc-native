@@ -30,6 +30,11 @@ struct walkcalc_nativeApp: App {
                 await LedgerRepositoryVerification.assertAllCasesPass()
             }
         }
+        if ProcessInfo.processInfo.arguments.contains("--verify-swiftdata-ledger") {
+            Task {
+                await SwiftDataLedgerVerification.assertAllCasesPass()
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("--verify-api-contract") {
             LedgerAPIContractVerification.assertAllCasesPass()
         }

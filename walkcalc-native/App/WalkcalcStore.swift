@@ -93,7 +93,10 @@ final class WalkcalcStore: ObservableObject {
     @Published private var loadingRecordKeys: Set<String> = []
 
     let api = APIClient()
-    private lazy var ledgerRepository = LedgerRepository(remoteSource: RemoteLedgerDataSource(api: api))
+    private lazy var ledgerRepository = LedgerRepository(
+        remoteSource: RemoteLedgerDataSource(api: api),
+        localSource: SwiftDataLedgerDataSource.production()
+    )
     private let groupPageSize = 20
     private let recordPageSize = 10
     private var groupsPage = 0
