@@ -25,7 +25,7 @@ enum LedgerRepositoryVerification {
 
         let addTemp = await repository.addTempUser(code: groupId, name: "Guest", context: localContext)
         let guestId = expectSuccess(addTemp, prefix: "add-temp-user").value ?? ""
-        expect(guestId.hasPrefix("local-member-"), equals: true, prefix: "temp-id-prefix")
+        expect(guestId.hasPrefix("lm-"), equals: true, prefix: "temp-id-prefix")
 
         let groupDetail = await repository.groupDetail(groupId: groupId, recordPageSize: 10, context: localContext)
         let group = expectSuccess(groupDetail, prefix: "group-detail").group

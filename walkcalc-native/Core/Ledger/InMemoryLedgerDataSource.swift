@@ -86,7 +86,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
     func createGroup(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let now = Date().timeIntervalSince1970 * 1000
-        let id = "local-group-\(UUID().uuidString)"
+        let id = Self.localGroupId()
         let owner = context.localOwner ?? Member(uuid: "local-user-device", name: "Me", avatar: "", debtMinor: "0", costMinor: "0")
         let group = WalkGroup(
             id: id,
@@ -150,7 +150,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
     func addTempUser(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(.sourceUnavailable()) }
-        let id = "local-member-\(UUID().uuidString)"
+        let id = Self.localMemberId()
         groups[index].tempUsers.append(Member(uuid: id, name: name, avatar: "", debtMinor: "0", costMinor: "0", isTemporary: true))
         groups[index].participantCount = groups[index].allMembers.count
         groups[index].participantPreview = Array(groups[index].allMembers.prefix(4))
@@ -166,7 +166,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         guard group(id: groupId) != nil else { return .failure(.sourceUnavailable()) }
         let now = Date().timeIntervalSince1970 * 1000
         let record = WalkRecord(
-            recordId: "local-record-\(UUID().uuidString)",
+            recordId: Self.localRecordId(),
             who: who,
             paidMinor: paidMinor,
             forWhom: forWhom,
@@ -190,7 +190,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let now = Date().timeIntervalSince1970 * 1000
         let record = WalkRecord(
-            recordId: "local-record-\(UUID().uuidString)",
+            recordId: Self.localRecordId(),
             who: fromId,
             paidMinor: amountMinor,
             forWhom: [toId],
@@ -389,5 +389,21 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
             }
         }
         return result
+    }
+
+    private static func localGroupId() -> String {
+        "l-\(shortIdentifier())"
+    }
+
+    private static func localMemberId() -> String {
+        "lm-\(shortIdentifier())"
+    }
+
+    private static func localRecordId() -> String {
+        "lr-\(shortIdentifier())"
+    }
+
+    private static func shortIdentifier() -> String {
+        String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(7)).lowercased()
     }
 }

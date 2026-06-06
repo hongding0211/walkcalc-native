@@ -165,7 +165,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let modelContext = ModelContext(container)
         let now = currentTimestamp()
         let owner = context.localOwner ?? Member(uuid: "local-user-device", name: "Me", avatar: "", debtMinor: "0", costMinor: "0")
-        let groupId = "local-group-\(UUID().uuidString)"
+        let groupId = Self.localGroupId()
         let group = LocalLedgerGroupModel(id: groupId, name: name, createdAt: now, modifiedAt: now, ownerUserId: owner.uuid)
         let ownerModel = LocalLedgerParticipantModel(
             id: owner.uuid,
@@ -237,7 +237,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         do {
             guard let group = try fetchGroup(code, modelContext) else { return .failure(.sourceUnavailable()) }
             let now = currentTimestamp()
-            let id = "local-member-\(UUID().uuidString)"
+            let id = Self.localMemberId()
             let participant = LocalLedgerParticipantModel(id: id, name: name, isTemporary: true, createdAt: now, modifiedAt: now)
             participant.group = group
             group.participants.append(participant)
@@ -416,7 +416,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
     private func makeRecord(who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, isDebtResolve: Bool, context: LedgerSessionContext) -> LocalLedgerRecordModel {
         let now = currentTimestamp()
         return LocalLedgerRecordModel(
-            id: "local-record-\(UUID().uuidString)",
+            id: Self.localRecordId(),
             who: who,
             paidMinor: paidMinor,
             forWhom: forWhom,
@@ -667,5 +667,21 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
 
     private func currentTimestamp() -> TimeInterval {
         Date().timeIntervalSince1970 * 1000
+    }
+
+    private static func localGroupId() -> String {
+        "l-\(shortIdentifier())"
+    }
+
+    private static func localMemberId() -> String {
+        "lm-\(shortIdentifier())"
+    }
+
+    private static func localRecordId() -> String {
+        "lr-\(shortIdentifier())"
+    }
+
+    private static func shortIdentifier() -> String {
+        String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(7)).lowercased()
     }
 }

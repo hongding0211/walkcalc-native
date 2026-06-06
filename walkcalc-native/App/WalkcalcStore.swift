@@ -544,8 +544,10 @@ final class WalkcalcStore: ObservableObject {
     @discardableResult
     func refreshHome(search: String? = nil) async -> Bool {
         if isFixtureMode { return true }
-        guard let context = homeLedgerContext() else { return false }
-        return await refreshHome(context: context, search: search).succeeded
+        if preferredLedgerSource == .remote, let token {
+            return await refreshCombinedHome(remoteContext: remoteLedgerContext(token: token), search: search).succeeded
+        }
+        return await refreshHome(context: localLedgerContext(), search: search).succeeded
     }
 
     private func bootstrapHomeIfNeeded(token: String) async -> HomeRefreshResult {
@@ -554,7 +556,65 @@ final class WalkcalcStore: ObservableObject {
             resetLedgerState()
             return .success
         }
-        return await refreshHome(context: remoteLedgerContext(token: token))
+        return await refreshCombinedHome(remoteContext: remoteLedgerContext(token: token))
+    }
+
+    private func refreshCombinedHome(remoteContext: LedgerSessionContext, search: String? = nil) async -> HomeRefreshResult {
+        if isFixtureMode { return .success }
+        guard api.ledgerAPIEnabled else {
+            resetLedgerState()
+            return .success
+        }
+        let query = normalizedQuery(search)
+        let remoteResult = await ledgerRepository.home(
+            page: 1,
+            pageSize: groupPageSize,
+            search: optionalQuery(query),
+            context: remoteContext
+        )
+        let localResult = await ledgerRepository.home(
+            page: 1,
+            pageSize: 10_000,
+            search: optionalQuery(query),
+            context: localLedgerContext()
+        )
+
+        switch remoteResult {
+        case .success(let remoteSnapshot):
+            applyRefreshedToken(remoteSnapshot.refreshedToken)
+            trackSource(remoteSnapshot.source, for: remoteSnapshot.groups)
+            var combinedGroups = remoteSnapshot.groups
+            var combinedTotalBalance = remoteSnapshot.totalBalanceMinor ?? "0"
+            var localTotal = 0
+            if case .success(let localSnapshot) = localResult {
+                trackSource(localSnapshot.source, for: localSnapshot.groups)
+                combinedGroups.append(contentsOf: localSnapshot.groups)
+                combinedTotalBalance = Money.add(combinedTotalBalance, localSnapshot.totalBalanceMinor ?? "0")
+                localTotal = localSnapshot.groupPagination?.total ?? localSnapshot.groups.count
+            } else if case .failure(let failure) = localResult {
+                recordFailure(operation: "refreshHome.local", intent: .backgroundRefresh, disposition: .silent, failure: failure)
+            }
+            groupSearchQuery = query
+            totalBalanceMinor = combinedTotalBalance
+            groups = mergedGroupSummaries(combinedGroups.sorted { $0.modifiedAt > $1.modifiedAt })
+            groupsPage = remoteSnapshot.groupPagination?.page ?? 1
+            groupTotal = (remoteSnapshot.groupPagination?.total ?? remoteSnapshot.groups.count) + localTotal
+            return .success
+        case .failure(let failure):
+            let authFailure = recordFailure(operation: "refreshHome", intent: .backgroundRefresh, disposition: .silent, failure: failure)
+            if authFailure {
+                return .unrecoverableAuthFailure
+            }
+            if case .success(let localSnapshot) = localResult {
+                trackSource(localSnapshot.source, for: localSnapshot.groups)
+                groupSearchQuery = query
+                totalBalanceMinor = localSnapshot.totalBalanceMinor ?? "0"
+                groups = mergedGroupSummaries(localSnapshot.groups)
+                groupsPage = 1
+                groupTotal = localSnapshot.groupPagination?.total ?? localSnapshot.groups.count
+            }
+            return .recoverableFailure
+        }
     }
 
     private func refreshHome(context: LedgerSessionContext, search: String? = nil) async -> HomeRefreshResult {
@@ -592,6 +652,9 @@ final class WalkcalcStore: ObservableObject {
         if isFixtureMode { return }
         guard api.ledgerAPIEnabled else { return }
         guard let context = homeLedgerContext(), canLoadMoreGroups, !isLoadingMoreGroups else { return }
+        if context.preferredSource == .local, token != nil {
+            return
+        }
         isLoadingMoreGroups = true
         defer { isLoadingMoreGroups = false }
         let result = await ledgerRepository.groups(
@@ -606,7 +669,12 @@ final class WalkcalcStore: ObservableObject {
             trackSource(page.source, for: page.items)
             appendGroups(page.items)
             groupsPage = page.pagination?.page ?? groupsPage + 1
-            groupTotal = page.pagination?.total ?? groupTotal
+            if context.preferredSource == .remote {
+                let localTotal = groups.filter { isLocalLedgerGroup($0.id) }.count
+                groupTotal = (page.pagination?.total ?? groupTotal) + localTotal
+            } else {
+                groupTotal = page.pagination?.total ?? groupTotal
+            }
         case .failure(let failure):
             recordFailure(operation: "loadMoreGroups", intent: .pagination, disposition: .silent, failure: failure)
         }
@@ -919,7 +987,7 @@ final class WalkcalcStore: ObservableObject {
                     trackSource(tempUserResponse.source, forGroupId: groupId)
                 }
             }
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -968,7 +1036,7 @@ final class WalkcalcStore: ObservableObject {
             }
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: code)
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -995,7 +1063,7 @@ final class WalkcalcStore: ObservableObject {
             }
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: code)
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -1029,7 +1097,7 @@ final class WalkcalcStore: ObservableObject {
             clearRecordCaches(for: code)
             recordsByGroup[code] = nil
             recordTotals[code] = nil
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -1169,7 +1237,7 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
             await refreshGroup(groupId)
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -1206,7 +1274,7 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
             await refreshGroup(groupId)
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -1235,7 +1303,7 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
             await refreshGroup(groupId)
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -1265,7 +1333,7 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
             await refreshGroup(groupId)
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -1288,7 +1356,7 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
             await refreshGroup(groupId)
-            _ = await refreshHome(context: context, search: groupSearchQuery)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -1530,7 +1598,7 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func context(for groupId: String) -> LedgerSessionContext {
-        if sourceMetadata(for: groupId)?.source == .local || groupId.hasPrefix("local-") {
+        if sourceMetadata(for: groupId)?.source == .local || Self.isLocalIdentifier(groupId) {
             return localLedgerContext()
         }
         return remoteLedgerContext()
@@ -1541,7 +1609,7 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func isLocalLedgerGroup(_ groupId: String) -> Bool {
-        sourceMetadata(for: groupId)?.source == .local || groupId.hasPrefix("local-")
+        sourceMetadata(for: groupId)?.source == .local || Self.isLocalIdentifier(groupId)
     }
 
     private func homeLedgerContext() -> LedgerSessionContext? {
@@ -1550,6 +1618,10 @@ final class WalkcalcStore: ObservableObject {
         }
         guard let token else { return nil }
         return remoteLedgerContext(token: token)
+    }
+
+    private static func isLocalIdentifier(_ id: String) -> Bool {
+        id.hasPrefix("local-") || id.hasPrefix("l-")
     }
 
     private func createGroupLedgerContext() -> LedgerSessionContext {

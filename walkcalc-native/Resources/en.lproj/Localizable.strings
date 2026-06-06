@@ -56,6 +56,12 @@
 "Login to continue" = "Sign in to continue";
 "Sign in" = "Sign in";
 "Sign in to continue" = "Sign in to continue";
+"Sign in required" = "Sign in required";
+"Join group requires sign-in." = "Join group requires sign-in.";
+"Type" = "Type";
+"Type Local" = "Type Local";
+"Local" = "Local";
+"Local groups stay available after logout." = "Local groups stay available after logout.";
 "Logout" = "Logout";
 "Members" = "Members";
 "Modify group name" = "Modify group name";

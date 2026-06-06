@@ -80,6 +80,7 @@ struct CreateGroupSheet: View {
     @State private var tempUsers: [String] = []
     @State private var actionMessage: String?
     @State private var isSubmitting = false
+    @State private var isShowingSignIn = false
 
     private var members: [Member] {
         var result: [Member] = []
@@ -125,26 +126,39 @@ struct CreateGroupSheet: View {
                     }
                 }
 
-                NavigationLink {
-                    AddMemberSearchView(existingMemberIds: Set(members.map(\.uuid))) { users in
-                        for user in users where !selectedUsers.contains(user) {
-                            selectedUsers.append(user)
-                        }
-                        return .success
-                    }
-                } label: {
-                    HStack {
-                        Text(L("Add member"))
-                        Spacer()
-                        if isCreatingLocalGroup {
-                            Text(L("Login required"))
-                                .font(.footnote)
+                if isCreatingLocalGroup {
+                    Button {
+                        isShowingSignIn = true
+                    } label: {
+                        HStack {
+                            Text(L("Add member"))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(L("Sign in required"))
+                                .font(.subheadline)
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .foregroundStyle(isCreatingLocalGroup ? SoftLedgerTheme.secondaryInk : .primary)
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink {
+                        AddMemberSearchView(existingMemberIds: Set(members.map(\.uuid))) { users in
+                            for user in users where !selectedUsers.contains(user) {
+                                selectedUsers.append(user)
+                            }
+                            return .success
+                        }
+                    } label: {
+                        Text(L("Add member"))
+                            .foregroundStyle(.primary)
+                    }
                 }
-                .disabled(isCreatingLocalGroup)
 
                 NavigationLink {
                     AddTemporaryMemberView(existingNames: Set(tempUsers)) { names in
@@ -188,6 +202,11 @@ struct CreateGroupSheet: View {
                 .disabled(!canCreate)
                 .accessibilityLabel(L("Create"))
             }
+        }
+        .sheet(isPresented: $isShowingSignIn) {
+            SignInSheet { isShowingSignIn = false }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -450,6 +469,7 @@ struct SettingsSheet: View {
     let onDone: () -> Void
     @State private var confirmLogout = false
     @State private var showingProfile = false
+    @State private var showingSignIn = false
     @State private var displayedTheme = AppTheme.load()
 
     var body: some View {
@@ -496,6 +516,23 @@ struct SettingsSheet: View {
                         }
                         Spacer()
                     }
+
+                    Button {
+                        showingSignIn = true
+                    } label: {
+                        HStack {
+                            Text(L("Sign in"))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
@@ -580,6 +617,11 @@ struct SettingsSheet: View {
         }) {
             SSOProfileView(url: store.api.profileURL(), token: store.token)
                 .immersiveWebSheet()
+        }
+        .sheet(isPresented: $showingSignIn) {
+            SignInSheet { showingSignIn = false }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 }
@@ -862,9 +904,9 @@ struct GroupSettingsSheet: View {
 
                 if isLocalGroup {
                     HStack {
-                        Text(L("Source"))
+                        Text(L("Type"))
                         Spacer()
-                        Text(L("On this device"))
+                        Text(L("Local"))
                             .foregroundStyle(SoftLedgerTheme.secondaryInk)
                     }
                 }
@@ -892,28 +934,21 @@ struct GroupSettingsSheet: View {
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section(L("Members")) {
-                NavigationLink {
-                    AddMemberSearchView(existingMemberIds: Set(currentGroup.allMembers.map(\.uuid)), showsSubmitProgress: true) { users in
-                        actionMessage = nil
-                        let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
-                        if !result.success {
-                            actionMessage = result.message
+                if !isLocalGroup {
+                    NavigationLink {
+                        AddMemberSearchView(existingMemberIds: Set(currentGroup.allMembers.map(\.uuid)), showsSubmitProgress: true) { users in
+                            actionMessage = nil
+                            let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
+                            if !result.success {
+                                actionMessage = result.message
+                            }
+                            return result
                         }
-                        return result
-                    }
-                } label: {
-                    HStack {
+                    } label: {
                         Text(L("Add member"))
-                        Spacer()
-                        if isLocalGroup {
-                            Text(L("Login required"))
-                                .font(.footnote)
-                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        }
+                            .foregroundStyle(.primary)
                     }
-                    .foregroundStyle(isLocalGroup ? SoftLedgerTheme.secondaryInk : .primary)
                 }
-                .disabled(isLocalGroup)
 
                 NavigationLink {
                     AddTemporaryMemberView(existingNames: Set(currentGroup.tempUsers.map(\.name)), showsSubmitProgress: true) { values in
@@ -1245,31 +1280,24 @@ struct PeopleSetupSheet: View {
     var body: some View {
         Form {
             Section {
-                NavigationLink {
-                    AddMemberSearchView(existingMemberIds: Set(group.allMembers.map(\.uuid)), showsSubmitProgress: true) { users in
-                        actionMessage = nil
-                        let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
-                        if result.success {
-                            dismiss()
-                            onDone()
-                        } else if let message = result.message {
-                            actionMessage = message
+                if !isLocalGroup {
+                    NavigationLink {
+                        AddMemberSearchView(existingMemberIds: Set(group.allMembers.map(\.uuid)), showsSubmitProgress: true) { users in
+                            actionMessage = nil
+                            let result = await store.addMembersWithFeedback(groupId: group.id, users: users, tempUsers: [])
+                            if result.success {
+                                dismiss()
+                                onDone()
+                            } else if let message = result.message {
+                                actionMessage = message
+                            }
+                            return result
                         }
-                        return result
-                    }
-                } label: {
-                    HStack {
+                    } label: {
                         Text(L("Add member"))
-                        Spacer()
-                        if isLocalGroup {
-                            Text(L("Login required"))
-                                .font(.footnote)
-                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        }
+                            .foregroundStyle(.primary)
                     }
-                    .foregroundStyle(isLocalGroup ? SoftLedgerTheme.secondaryInk : .primary)
                 }
-                .disabled(isLocalGroup)
 
                 NavigationLink {
                     AddTemporaryMemberView(existingNames: Set(group.tempUsers.map(\.name)), showsSubmitProgress: true) { values in

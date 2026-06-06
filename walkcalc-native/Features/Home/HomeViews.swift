@@ -13,6 +13,7 @@ enum HomeSheet: Identifiable {
     case settings
     case archivedGroups
     case about
+    case signIn
 
     var id: String {
         switch self {
@@ -21,6 +22,7 @@ enum HomeSheet: Identifiable {
         case .settings: "settings"
         case .archivedGroups: "archivedGroups"
         case .about: "about"
+        case .signIn: "signIn"
         }
     }
 }
@@ -171,6 +173,22 @@ struct LoginView: View {
                 return
             }
         }
+    }
+}
+
+struct SignInSheet: View {
+    @EnvironmentObject private var store: WalkcalcStore
+    @Environment(\.dismiss) private var dismiss
+
+    let onDone: () -> Void
+
+    var body: some View {
+        LoginView()
+            .onChange(of: store.isLoggedIn) { _, isLoggedIn in
+                guard isLoggedIn else { return }
+                dismiss()
+                onDone()
+            }
     }
 }
 
@@ -456,6 +474,7 @@ struct RootHomeView: View {
     @State private var archiveBlockedCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
     @State private var pendingGroupAction: HomeGroupPendingAction?
+    @State private var isShowingJoinSignInPrompt = false
 
     private static func initialPath() -> [Route] {
         #if DEBUG
@@ -467,13 +486,24 @@ struct RootHomeView: View {
     }
 
     private var activeGroups: [WalkGroup] {
-        guard let user = store.user else { return store.groups }
-        return store.groups.filter { !$0.archivedUsers.contains(user.uuid) }
+        store.groups.filter { group in
+            archiveIdentityIds.isDisjoint(with: Set(group.archivedUsers))
+        }
     }
 
     private var archivedGroups: [WalkGroup] {
-        guard let user = store.user else { return [] }
-        return store.groups.filter { $0.archivedUsers.contains(user.uuid) }
+        store.groups.filter { group in
+            !archiveIdentityIds.isDisjoint(with: Set(group.archivedUsers))
+        }
+    }
+
+    private var archiveIdentityIds: Set<String> {
+        var ids = Set<String>()
+        ids.insert(store.localOwner.uuid)
+        if let userId = store.user?.uuid {
+            ids.insert(userId)
+        }
+        return ids
     }
 
     private var isBalanceAnimationEnabled: Bool {
@@ -500,7 +530,7 @@ struct RootHomeView: View {
                         } else if activeGroups.isEmpty {
                             GroupsEmptyState(
                                 onCreateGroup: { activeSheet = .create },
-                                onJoinGroup: store.isLoggedIn ? { activeSheet = .join } : nil
+                                onJoinGroup: { requestJoinGroup() }
                             )
                         } else {
                             HomeBalanceCard(isAnimationEnabled: isBalanceAnimationEnabled)
@@ -567,11 +597,10 @@ struct RootHomeView: View {
                         }
 
                         Button {
-                            activeSheet = .join
+                            requestJoinGroup()
                         } label: {
                             Label(L("Join group"), systemImage: "person.2.badge.plus")
                         }
-                        .disabled(!store.isLoggedIn)
                     } label: {
                         Image(systemName: "plus")
                             .foregroundStyle(.primary)
@@ -638,7 +667,19 @@ struct RootHomeView: View {
             case .about:
                 AboutSheet()
                     .presentationDetents([.medium])
+            case .signIn:
+                SignInSheet { activeSheet = nil }
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
             }
+        }
+        .alert(L("Sign in required"), isPresented: $isShowingJoinSignInPrompt) {
+            Button(L("Cancel"), role: .cancel) {}
+            Button(L("Sign in")) {
+                activeSheet = .signIn
+            }
+        } message: {
+            Text(L("Join group requires sign-in."))
         }
         .alert(L("Archive group?"), isPresented: Binding(get: { archiveCandidate != nil }, set: { if !$0 { archiveCandidate = nil } })) {
             Button(L("Cancel"), role: .cancel) {}
@@ -706,6 +747,14 @@ struct RootHomeView: View {
         pendingGroupAction = .delete(group.id)
         _ = await store.deleteGroupWithFeedback(group.id)
         pendingGroupAction = nil
+    }
+
+    private func requestJoinGroup() {
+        if store.isLoggedIn {
+            activeSheet = .join
+        } else {
+            isShowingJoinSignInPrompt = true
+        }
     }
 }
 

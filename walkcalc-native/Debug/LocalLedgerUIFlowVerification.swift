@@ -45,7 +45,7 @@ enum LocalLedgerUIFlowVerification {
         expect(await store.createGroupWithFeedback(name: "Local UI Trip", users: [], tempUsers: ["Guest"]).success, equals: true, prefix: "local-ui-create")
         expect(store.groups.count, equals: 1, prefix: "local-ui-home-count")
         let groupId = store.groups.first?.id ?? ""
-        expect(groupId.hasPrefix("local-group-"), equals: true, prefix: "local-ui-group-id")
+        expect(groupId.hasPrefix("l-"), equals: true, prefix: "local-ui-group-id")
         expect(store.sourceMetadata(for: groupId)?.source, equals: Optional(.local), prefix: "local-ui-source-metadata")
 
         await store.refreshGroup(groupId)

@@ -15,10 +15,10 @@ enum SwiftDataLedgerVerification {
         let context = LedgerSessionContext.local(owner: owner)
 
         let groupId = expectSuccess(await repository.createGroup(name: "Local Trip", context: context), prefix: "swiftdata-create-group").value ?? ""
-        expect(groupId.hasPrefix("local-group-"), equals: true, prefix: "swiftdata-group-id-prefix")
+        expect(groupId.hasPrefix("l-"), equals: true, prefix: "swiftdata-group-id-prefix")
 
         let guestId = expectSuccess(await repository.addTempUser(code: groupId, name: "Guest", context: context), prefix: "swiftdata-add-temp").value ?? ""
-        expect(guestId.hasPrefix("local-member-"), equals: true, prefix: "swiftdata-temp-id-prefix")
+        expect(guestId.hasPrefix("lm-"), equals: true, prefix: "swiftdata-temp-id-prefix")
 
         let home = expectSuccess(await repository.home(page: 1, pageSize: 1, search: "trip", context: context), prefix: "swiftdata-home")
         expect(home.groups.count, equals: 1, prefix: "swiftdata-home-search-count")
