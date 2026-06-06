@@ -462,6 +462,7 @@ private struct AddTemporaryMemberView: View {
 struct SettingsSheet: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @ScaledMetric(relativeTo: .body) private var accountAvatarSize = 32
     @ScaledMetric(relativeTo: .body) private var accountRowSpacing = 12
 
@@ -552,6 +553,26 @@ struct SettingsSheet: View {
                     Text(L("Archived groups"))
                         .foregroundStyle(.primary)
                 }
+            }
+            .listRowBackground(SoftLedgerTheme.formPaper)
+
+            Section {
+                Button {
+                    openURL(store.api.privacyPolicyURL())
+                } label: {
+                    HStack {
+                        Text(L("Privacy Policy"))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 

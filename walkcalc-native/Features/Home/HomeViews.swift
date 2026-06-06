@@ -114,7 +114,6 @@ struct LoginView: View {
         LoginScreen(
             isSigningIn: store.isSigningIn,
             isAppleAuthorizationInFlight: isAppleAuthorizationInFlight,
-            privacyURL: store.api.privacyPolicyURL(),
             onLogin: {
                 showingSSO = true
             },
@@ -197,7 +196,6 @@ private struct LoginScreen: View {
 
     let isSigningIn: Bool
     let isAppleAuthorizationInFlight: Bool
-    let privacyURL: URL
     let onLogin: () -> Void
     let onAppleRequest: (ASAuthorizationAppleIDRequest) -> Void
     let onAppleCompletion: (Result<ASAuthorization, Error>) -> Void
@@ -261,14 +259,6 @@ private struct LoginScreen: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isInteractionDisabled)
-
-                    Link(destination: privacyURL) {
-                        Text(L("Privacy Policy"))
-                    }
-                    .font(.custom("PingFangSC-Medium", size: layout.value(11.5)))
-                    .foregroundStyle(secondaryText)
-                    .frame(width: buttonWidth, height: layout.value(28))
-                    .padding(.top, layout.value(16))
                 }
                 .frame(width: buttonWidth)
                 .offset(x: buttonX, y: buttonGroupY)
