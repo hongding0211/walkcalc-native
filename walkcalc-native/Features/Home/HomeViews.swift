@@ -37,7 +37,7 @@ struct ContentView: View {
             case .authenticated:
                 RootHomeView()
             case .loginRequired:
-                LoginView()
+                RootHomeView()
             }
         }
         .task {
@@ -500,7 +500,7 @@ struct RootHomeView: View {
                         } else if activeGroups.isEmpty {
                             GroupsEmptyState(
                                 onCreateGroup: { activeSheet = .create },
-                                onJoinGroup: { activeSheet = .join }
+                                onJoinGroup: store.isLoggedIn ? { activeSheet = .join } : nil
                             )
                         } else {
                             HomeBalanceCard(isAnimationEnabled: isBalanceAnimationEnabled)
@@ -571,6 +571,7 @@ struct RootHomeView: View {
                         } label: {
                             Label(L("Join group"), systemImage: "person.2.badge.plus")
                         }
+                        .disabled(!store.isLoggedIn)
                     } label: {
                         Image(systemName: "plus")
                             .foregroundStyle(.primary)
@@ -949,7 +950,7 @@ private struct GroupSummaryRow: View {
 
 private struct GroupsEmptyState: View {
     let onCreateGroup: () -> Void
-    let onJoinGroup: () -> Void
+    let onJoinGroup: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 18) {
@@ -982,13 +983,15 @@ private struct GroupsEmptyState: View {
                 .buttonStyle(.glass)
                 .controlSize(.regular)
 
-                Button {
-                    onJoinGroup()
-                } label: {
-                    Label(L("Join group"), systemImage: "person.2.badge.plus")
+                if let onJoinGroup {
+                    Button {
+                        onJoinGroup()
+                    } label: {
+                        Label(L("Join group"), systemImage: "person.2.badge.plus")
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.regular)
                 }
-                .buttonStyle(.glass)
-                .controlSize(.regular)
             }
         }
         .frame(maxWidth: .infinity)

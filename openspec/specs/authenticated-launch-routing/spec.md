@@ -20,21 +20,22 @@ The system SHALL represent launch-time saved-session validation as a distinct re
 - **THEN** the resolving surface does not expose a usable login button
 - **AND** it does not tell the user they must log in before that has been determined
 
-### Requirement: Login Appears Only After Authentication Is Known To Be Required
-The system SHALL route to login only after determining that no usable saved session is available.
+### Requirement: Account Login Is Not The Signed-Out Startup Surface
+The system SHALL route signed-out startup to local home rather than blocking startup on account login.
 
 #### Scenario: No saved token exists
 - **WHEN** startup finds no saved authentication token
-- **THEN** the system routes to the login screen
+- **THEN** the system routes to the existing Groups home in local mode
 - **AND** it does not wait for authenticated home data loading
+- **AND** the user can create local groups without signing in
 
 #### Scenario: Saved token is rejected
 - **WHEN** startup validates a saved token and the token is unusable
 - **THEN** the system clears the unusable authentication state
-- **AND** routes to the login screen
+- **AND** routes to the existing Groups home in local mode
 
 #### Scenario: Explicit login starts
-- **WHEN** the user is on the login screen and starts SSO sign-in
+- **WHEN** the user explicitly starts an SSO sign-in flow
 - **THEN** sign-in progress remains local to the login flow
 - **AND** the startup resolving surface is not reused for that explicit login action
 
@@ -67,7 +68,7 @@ The system SHALL keep the launch/splash-style resolving surface visible for save
 #### Scenario: First-screen bootstrap detects unrecoverable auth loss
 - **WHEN** a required first-screen home request fails because authentication cannot be refreshed or recovered
 - **THEN** the system clears unusable authentication state
-- **AND** it routes to the login screen
+- **AND** it routes to the existing Groups home in local mode
 - **AND** it does not route to authenticated home content with stale or empty protected data
 
 ### Requirement: Startup Routing Reaches A Terminal State

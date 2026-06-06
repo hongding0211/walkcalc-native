@@ -91,17 +91,24 @@ The native app SHALL expose local-versus-remote state only where it changes avai
 - **THEN** it uses the existing Groups page structure
 - **AND** it does not require the user to choose a separate local app section before creating or editing source-agnostic ledger data
 
-### Requirement: Login-first launch behavior is unchanged in this change
-The native app SHALL NOT remove or bypass the current login-first startup route as part of this local UI flow change.
+### Requirement: Unauthenticated launch enters local Groups home
+The native app SHALL route unauthenticated startup to the existing Groups home using the local ledger source.
 
-#### Scenario: Startup route remains unchanged
+#### Scenario: Startup without token shows local empty state
 - **WHEN** the app launches without an authenticated token during this change
-- **THEN** the existing startup/login routing behavior remains in place
-- **AND** any App Review launch-route change is deferred to a later specification
+- **THEN** the store selects a local ledger context
+- **AND** the app shows the existing Groups home structure
+- **AND** an empty local ledger appears as the existing no-groups empty state
 
-#### Scenario: Local UI support can be verified independently of launch routing
-- **WHEN** local UI/store verification runs
-- **THEN** it can exercise local source-backed home, group, and record flows without requiring the launch route to be changed in this proposal
+#### Scenario: Authenticated startup remains remote
+- **WHEN** the app launches with a valid authenticated token
+- **THEN** the store selects the remote ledger context
+- **AND** existing account-backed home loading behavior is preserved
+
+#### Scenario: Logout returns to local home
+- **WHEN** the user logs out or an unrecoverable authentication failure clears the token
+- **THEN** the app returns to the Groups home in local mode
+- **AND** no login screen blocks local group creation
 
 ### Requirement: Verification covers local UI parity and remote regression
 The implementation SHALL verify that local-backed UI flows work through existing surfaces and that remote-backed behavior is not regressed.

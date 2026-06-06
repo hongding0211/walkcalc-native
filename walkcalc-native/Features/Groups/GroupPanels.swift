@@ -95,6 +95,10 @@ struct CreateGroupSheet: View {
         !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSubmitting
     }
 
+    private var isCreatingLocalGroup: Bool {
+        store.preferredLedgerSource == .local
+    }
+
     var body: some View {
         Form {
             Section(L("Group")) {
@@ -129,9 +133,18 @@ struct CreateGroupSheet: View {
                         return .success
                     }
                 } label: {
-                    Text(L("Add member"))
-                        .foregroundStyle(.primary)
+                    HStack {
+                        Text(L("Add member"))
+                        Spacer()
+                        if isCreatingLocalGroup {
+                            Text(L("Login required"))
+                                .font(.footnote)
+                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        }
+                    }
+                    .foregroundStyle(isCreatingLocalGroup ? SoftLedgerTheme.secondaryInk : .primary)
                 }
+                .disabled(isCreatingLocalGroup)
 
                 NavigationLink {
                     AddTemporaryMemberView(existingNames: Set(tempUsers)) { names in
@@ -442,30 +455,48 @@ struct SettingsSheet: View {
     var body: some View {
         Form {
             Section(L("Account")) {
-                HStack(spacing: accountRowSpacing) {
-                    SoftLedgerAvatar(user: store.user, size: accountAvatarSize)
-                    Text(store.user?.name ?? "")
-                        .font(.body)
-                        .foregroundStyle(SoftLedgerTheme.ink)
-                    Spacer()
-                }
-
-                Button {
-                    showingProfile = true
-                } label: {
-                    HStack {
-                        Text(L("Edit profile"))
-                            .foregroundStyle(.primary)
+                if let user = store.user {
+                    HStack(spacing: accountRowSpacing) {
+                        SoftLedgerAvatar(user: user, size: accountAvatarSize)
+                        Text(user.name)
+                            .font(.body)
+                            .foregroundStyle(SoftLedgerTheme.ink)
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                            .accessibilityHidden(true)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+
+                    Button {
+                        showingProfile = true
+                    } label: {
+                        HStack {
+                            Text(L("Edit profile"))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    HStack(spacing: accountRowSpacing) {
+                        Image(systemName: "internaldrive")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .frame(width: accountAvatarSize, height: accountAvatarSize)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L("On this device"))
+                                .font(.body)
+                                .foregroundStyle(SoftLedgerTheme.ink)
+                            Text(L("Local groups are stored on this device."))
+                                .font(.footnote)
+                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        }
+                        Spacer()
+                    }
                 }
-                .buttonStyle(.plain)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
@@ -487,12 +518,14 @@ struct SettingsSheet: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            Section {
-                Button(L("Log out"), role: .destructive) {
-                    confirmLogout = true
+            if store.isLoggedIn {
+                Section {
+                    Button(L("Log out"), role: .destructive) {
+                        confirmLogout = true
+                    }
                 }
+                .listRowBackground(SoftLedgerTheme.formPaper)
             }
-            .listRowBackground(SoftLedgerTheme.formPaper)
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
@@ -795,6 +828,10 @@ struct GroupSettingsSheet: View {
         pendingAction != nil
     }
 
+    private var isLocalGroup: Bool {
+        store.isLocalLedgerGroup(currentGroup.id)
+    }
+
     private var currentUserOwnerFallback: Member? {
         guard currentGroup.isOwner, currentGroup.ownerUserId == nil, let user = store.user else { return nil }
         return Member(uuid: user.uuid, name: user.name, avatar: user.avatar, debtMinor: "0", costMinor: "0")
@@ -821,6 +858,15 @@ struct GroupSettingsSheet: View {
                         .font(.body.monospaced())
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         .textSelection(.enabled)
+                }
+
+                if isLocalGroup {
+                    HStack {
+                        Text(L("Source"))
+                        Spacer()
+                        Text(L("On this device"))
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    }
                 }
 
                 if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
@@ -856,9 +902,18 @@ struct GroupSettingsSheet: View {
                         return result
                     }
                 } label: {
-                    Text(L("Add member"))
-                        .foregroundStyle(.primary)
+                    HStack {
+                        Text(L("Add member"))
+                        Spacer()
+                        if isLocalGroup {
+                            Text(L("Login required"))
+                                .font(.footnote)
+                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        }
+                    }
+                    .foregroundStyle(isLocalGroup ? SoftLedgerTheme.secondaryInk : .primary)
                 }
+                .disabled(isLocalGroup)
 
                 NavigationLink {
                     AddTemporaryMemberView(existingNames: Set(currentGroup.tempUsers.map(\.name)), showsSubmitProgress: true) { values in
@@ -1183,6 +1238,10 @@ struct PeopleSetupSheet: View {
     let onDone: () -> Void
     @State private var actionMessage: String?
 
+    private var isLocalGroup: Bool {
+        store.isLocalLedgerGroup(group.id)
+    }
+
     var body: some View {
         Form {
             Section {
@@ -1199,9 +1258,18 @@ struct PeopleSetupSheet: View {
                         return result
                     }
                 } label: {
-                    Text(L("Add member"))
-                        .foregroundStyle(.primary)
+                    HStack {
+                        Text(L("Add member"))
+                        Spacer()
+                        if isLocalGroup {
+                            Text(L("Login required"))
+                                .font(.footnote)
+                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        }
+                    }
+                    .foregroundStyle(isLocalGroup ? SoftLedgerTheme.secondaryInk : .primary)
                 }
+                .disabled(isLocalGroup)
 
                 NavigationLink {
                     AddTemporaryMemberView(existingNames: Set(group.tempUsers.map(\.name)), showsSubmitProgress: true) { values in

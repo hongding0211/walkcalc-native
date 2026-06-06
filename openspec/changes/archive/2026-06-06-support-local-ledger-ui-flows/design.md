@@ -17,11 +17,10 @@ This change should avoid building a parallel "local mode UI". The UI should most
 - Keep local and remote CRUD behavior aligned at the UI level: create, rename, archive, unarchive, delete, add temporary members, add/edit/delete records, search, balances, and settlement flows.
 - Keep source-specific decisions in `WalkcalcStore` and repository context construction, not in individual panels where avoidable.
 - Add enough source awareness for capability gating and user clarity without turning the app into two separate modes.
-- Preserve current login-first startup behavior for this step.
+- Let unauthenticated startup enter the existing Groups home in local mode.
 
 **Non-Goals:**
 
-- Remove the login page, bypass startup auth, or implement the App Review launch change.
 - Implement upload/merge/sync from local data to an account.
 - Implement joining remote shared groups while signed out.
 - Implement registered-user search or real-account invitation for local-only groups.
@@ -54,10 +53,10 @@ This change should avoid building a parallel "local mode UI". The UI should most
 
    Rationale: the user task is splitting expenses, not managing storage modes. Capability differences should appear only at decision points.
 
-6. **Do not change launch routing in this proposal.**
-   The app may still present the current login page on cold start. The local UI work should be implemented behind existing app navigation or debug/temporary entry points as needed, with launch bypass handled in a later change.
+6. **Route unauthenticated startup to local home.**
+   When no account token is available, startup should select the local ledger source and present the existing Groups home instead of the login screen. Authenticated startup should continue to select the remote source and preserve current account-backed behavior.
 
-   Rationale: this keeps the third step focused and makes review easier. The App Review fix can then be a smaller route change once the local flows are already complete.
+   Rationale: local ledger support is now complete enough to be the signed-out first-run experience, and this avoids blocking account-independent expense splitting behind authentication.
 
 ## Proposed Shape
 
@@ -133,7 +132,7 @@ Add temporary member    -> source for group, local allowed
 - [Risk] Local and remote groups shown together could confuse archive totals and home balance. -> Mitigation: keep local and remote snapshots explicit and verify totals/source caches separately.
 - [Risk] Mutations may refresh the wrong source after a write. -> Mitigation: route follow-up `refreshHome` and `refreshGroup` through the same source context used for the mutation.
 - [Risk] Existing sheets may expose registered-user search for local groups. -> Mitigation: add capability checks at the store boundary and hide/disable remote-only rows in the people flows where needed.
-- [Risk] Login-first startup makes the local UI hard to reach manually. -> Mitigation: this is acceptable for this scoped change, but debug verification and any temporary internal navigation should prove local flows before the later launch-routing change.
+- [Risk] Signed-out users may still see remote-only entry points such as join-by-code. -> Mitigation: keep join and registered invite/search gated or disabled when no account token is available, while leaving local create and temporary-member flows available.
 - [Risk] Current store caches are keyed only by group ID. -> Mitigation: local IDs use `local-` prefixes, and source metadata should be tracked to avoid collisions with remote group codes.
 
 ## Verification Strategy
