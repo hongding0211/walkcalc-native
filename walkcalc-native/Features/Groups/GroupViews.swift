@@ -408,6 +408,7 @@ private struct GroupSummaryCard: View {
                     AnimatedBalanceAmountText(
                         amountMinor: myBalance,
                         style: .exact,
+                        currencyCode: group.currencyCode,
                         isAnimationEnabled: isAnimationEnabled
                     )
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
@@ -468,7 +469,7 @@ private struct GroupBalancesSection: View {
                         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
                 } else {
                     ForEach(visibleBalances) { member in
-                        BalancePreviewRow(member: member, recordCount: recordCount(for: member)) {
+                        BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode) {
                             onSelect(member)
                         }
                         if member.id != visibleBalances.last?.id {
@@ -529,6 +530,7 @@ struct BalancePreviewRow: View {
 
     let member: Member
     let recordCount: Int
+    let currencyCode: String
     let action: () -> Void
 
     var body: some View {
@@ -550,7 +552,7 @@ struct BalancePreviewRow: View {
 
                 Spacer()
 
-                Text(signedMoney(member.debtMinor))
+                Text(signedMoney(member.debtMinor, currencyCode: currencyCode))
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                     .foregroundStyle(moneyColor(member.debtMinor))
                     .lineLimit(1)
@@ -715,7 +717,7 @@ struct ExpenseRow: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: trailingSpacing) {
-                    Text("¥\(Money.compactDisplay(record.paidMinor))")
+                    Text(CurrencyCatalog.formatted(record.paidMinor, currencyCode: group.currencyCode))
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
@@ -751,7 +753,7 @@ struct ExpenseRow: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(recordTitle(record)), \(L("Paid by %@").replacingOccurrences(of: "%@", with: payerName)), ¥\(Money.compactDisplay(record.paidMinor)), \(fullCreatedAt)")
+        .accessibilityLabel("\(recordTitle(record)), \(L("Paid by %@").replacingOccurrences(of: "%@", with: payerName)), \(CurrencyCatalog.formatted(record.paidMinor, currencyCode: group.currencyCode)), \(fullCreatedAt)")
     }
 }
 

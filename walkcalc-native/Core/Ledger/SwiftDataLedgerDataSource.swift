@@ -160,13 +160,13 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func createGroup(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+    func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let modelContext = ModelContext(container)
         let now = currentTimestamp()
         let owner = context.localOwner ?? Member(uuid: "local-user-device", name: "Me", avatar: "", debtMinor: "0", costMinor: "0")
         let groupId = Self.localGroupId()
-        let group = LocalLedgerGroupModel(id: groupId, name: name, createdAt: now, modifiedAt: now, ownerUserId: owner.uuid)
+        let group = LocalLedgerGroupModel(id: groupId, name: name, currencyCode: CurrencyCatalog.normalizedCode(currencyCode), createdAt: now, modifiedAt: now, ownerUserId: owner.uuid)
         let ownerModel = LocalLedgerParticipantModel(
             id: owner.uuid,
             name: owner.name,
@@ -224,6 +224,12 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
     func changeGroupName(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await updateGroup(code, context: context) { group in
             group.name = name
+        }
+    }
+
+    func changeGroupCurrency(code: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        await updateGroup(code, context: context) { group in
+            group.currencyCode = CurrencyCatalog.normalizedCode(currencyCode)
         }
     }
 
@@ -491,6 +497,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         return WalkGroup(
             id: group.id,
             name: group.name,
+            currencyCode: CurrencyCatalog.normalizedCode(group.currencyCode),
             createdAt: group.createdAt,
             modifiedAt: group.modifiedAt,
             membersInfo: regular,

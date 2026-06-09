@@ -955,7 +955,7 @@ final class WalkcalcStore: ObservableObject {
             guard context.preferredSource != .local || users.isEmpty else {
                 return .failure(L("Login to continue"))
             }
-            let result = await ledgerRepository.createGroup(name: name, context: context)
+            let result = await ledgerRepository.createGroup(name: name, currencyCode: CurrencyCatalog.defaultCurrencyCode(), context: context)
             guard case .success(let response) = result else {
                 if case .failure(let failure) = result {
                     return actionFailure(operation: "createGroup", failure: failure)
@@ -1120,6 +1120,31 @@ final class WalkcalcStore: ObservableObject {
             guard case .success(let response) = result else {
                 if case .failure(let failure) = result {
                     return actionFailure(operation: "changeGroupName", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
+            trackSource(response.source, forGroupId: code)
+            await refreshGroup(code)
+            return .success
+        }
+    }
+
+    func changeGroupCurrencyWithFeedback(_ code: String, currencyCode: String) async -> StoreActionResult {
+        let normalized = CurrencyCatalog.normalizedCode(currencyCode)
+        if isFixtureMode {
+            guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(nil) }
+            groups[index].currencyCode = normalized
+            groups[index].modifiedAt = Date().timeIntervalSince1970 * 1000
+            return .success
+        }
+        return await withLoadingResult(operation: "changeGroupCurrency") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            let context = context(for: code)
+            let result = await ledgerRepository.changeGroupCurrency(code: code, currencyCode: normalized, context: context)
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "changeGroupCurrency", failure: failure)
                 }
                 return .failure(nil)
             }

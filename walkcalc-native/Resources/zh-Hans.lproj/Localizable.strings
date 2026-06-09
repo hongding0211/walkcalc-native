@@ -193,3 +193,6 @@
 "people" = "人";
 "You owe" = "你欠别人";
 "members" = "成员";
+"Currency" = "货币";
+"No currencies" = "没有匹配的货币";
+"Search currencies" = "搜索货币";

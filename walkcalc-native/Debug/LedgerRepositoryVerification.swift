@@ -19,7 +19,7 @@ enum LedgerRepositoryVerification {
         let localContext = LedgerSessionContext.local(owner: owner)
         let remoteContext = LedgerSessionContext.remote(accessToken: nil)
 
-        let createGroup = await repository.createGroup(name: "Local Trip", context: localContext)
+        let createGroup = await repository.createGroup(name: "Local Trip", currencyCode: "CNY", context: localContext)
         let groupId = expectSuccess(createGroup, prefix: "create-group").value ?? ""
         expect(groupId.isEmpty, equals: false, prefix: "created-group-id")
 
@@ -97,7 +97,7 @@ enum LedgerRepositoryVerification {
         _ = expectSuccess(await repository.groupBalances(groupId: "AB12", context: context), prefix: "remote-balances")
         _ = expectSuccess(await repository.records(groupId: "AB12", page: 1, pageSize: 10, search: .noteOrCategoryName(query: "Dinner"), context: context), prefix: "remote-record-search")
         _ = expectSuccess(await repository.memberRecords(groupId: "AB12", memberId: "user-1", page: 1, pageSize: 10, context: context), prefix: "remote-member-records")
-        _ = expectSuccess(await repository.createGroup(name: "New Group", context: context), prefix: "remote-create-group")
+        _ = expectSuccess(await repository.createGroup(name: "New Group", currencyCode: "CNY", context: context), prefix: "remote-create-group")
         _ = expectSuccess(await repository.invite(code: "AB12", userIds: ["user-2"], context: context), prefix: "remote-invite")
         _ = expectSuccess(await repository.addTempUser(code: "AB12", name: "Guest", context: context), prefix: "remote-add-temp")
         _ = expectSuccess(await repository.changeGroupName(code: "AB12", name: "Renamed", context: context), prefix: "remote-rename")

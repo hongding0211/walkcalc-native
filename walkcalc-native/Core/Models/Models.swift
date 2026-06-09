@@ -61,6 +61,7 @@ struct Member: Identifiable, Hashable {
 struct WalkGroup: Identifiable, Hashable {
     var id: String
     var name: String
+    var currencyCode: String = CurrencyCatalog.defaultCurrencyCode()
     var createdAt: TimeInterval
     var modifiedAt: TimeInterval
     var membersInfo: [Member]

@@ -131,12 +131,13 @@ protocol LedgerDataSource {
     func memberRecords(groupId: String, memberId: String, page: Int, pageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMemberRecordSnapshot>
     func settlementSuggestion(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>>
 
-    func createGroup(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
+    func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func joinGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func archiveGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func unarchiveGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func deleteGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func changeGroupName(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
+    func changeGroupCurrency(code: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func invite(code: String, userIds: [String], context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[String]>>
     func addTempUser(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func searchUsers(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[UserProfile]>>
@@ -250,9 +251,9 @@ struct RemoteLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func createGroup(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+    func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await envelopeMutation(context: context) { token in
-            try await api.createGroup(name: name, token: token)
+            try await api.createGroup(name: name, currencyCode: currencyCode, token: token)
         }
     }
 
@@ -283,6 +284,12 @@ struct RemoteLedgerDataSource: LedgerDataSource {
     func changeGroupName(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await envelopeMutation(context: context) { token in
             try await api.changeGroupName(code: code, name: name, token: token)
+        }
+    }
+
+    func changeGroupCurrency(code: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        await envelopeMutation(context: context) { token in
+            try await api.changeGroupCurrency(code: code, currencyCode: currencyCode, token: token)
         }
     }
 
@@ -430,8 +437,8 @@ final class LedgerRepository {
         await source(for: context).settlementSuggestion(groupId: groupId, context: context)
     }
 
-    func createGroup(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
-        await source(for: context).createGroup(name: name, context: context)
+    func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        await source(for: context).createGroup(name: name, currencyCode: currencyCode, context: context)
     }
 
     func joinGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
@@ -452,6 +459,10 @@ final class LedgerRepository {
 
     func changeGroupName(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await source(for: context).changeGroupName(code: code, name: name, context: context)
+    }
+
+    func changeGroupCurrency(code: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        await source(for: context).changeGroupCurrency(code: code, currencyCode: currencyCode, context: context)
     }
 
     func invite(code: String, userIds: [String], context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[String]>> {

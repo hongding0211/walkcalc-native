@@ -907,6 +907,10 @@ struct GroupSettingsSheet: View {
         return Member(uuid: user.uuid, name: user.name, avatar: user.avatar, debtMinor: "0", costMinor: "0")
     }
 
+    private var currentCurrency: CurrencyInfo {
+        CurrencyCatalog.currencyInfo(for: currentGroup.currencyCode)
+    }
+
     var body: some View {
         Form {
             Section(L("Group")) {
@@ -928,6 +932,30 @@ struct GroupSettingsSheet: View {
                         .font(.body.monospaced())
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         .textSelection(.enabled)
+                }
+
+                if currentGroup.isOwner {
+                    NavigationLink {
+                        CurrencySelectionView(group: currentGroup)
+                    } label: {
+                        HStack {
+                            Text(L("Currency"))
+                            Spacer()
+                            Text(currentCurrency.code)
+                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
+                } else {
+                    HStack {
+                        Text(L("Currency"))
+                        Spacer()
+                        Text(currentCurrency.code)
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
 
                 if isLocalGroup {
@@ -1206,6 +1234,175 @@ private enum GroupSettingsPendingAction {
     case rename
     case archive
     case delete
+}
+
+private struct CurrencySelectionView: View {
+    @EnvironmentObject private var store: WalkcalcStore
+    @Environment(\.dismiss) private var dismiss
+
+    let group: WalkGroup
+
+    @State private var query = ""
+    @State private var savingCode: String?
+    @State private var message: String?
+
+    private var currentGroup: WalkGroup {
+        store.group(id: group.id) ?? group
+    }
+
+    private var currencies: [CurrencyInfo] {
+        CurrencyCatalog.currencies.filter { CurrencyCatalog.matches($0, query: query) }
+    }
+
+    private var groupedCurrencies: [(key: String, values: [CurrencyInfo])] {
+        let grouped = Dictionary(grouping: currencies) { currency in
+            String(currency.name.prefix(1)).uppercased()
+        }
+        return grouped.keys.sorted().map { key in
+            (key, grouped[key]?.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending } ?? [])
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let message {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(SoftLedgerTheme.negative)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+            }
+
+            if groupedCurrencies.isEmpty {
+                ContentUnavailableView.search(text: query)
+            } else {
+                CurrencyIndexedTableView(
+                    sections: groupedCurrencies,
+                    selectedCode: CurrencyCatalog.normalizedCode(currentGroup.currencyCode),
+                    savingCode: savingCode,
+                    isEnabled: savingCode == nil,
+                    onSelect: { currency in
+                        Task { await select(currency) }
+                    }
+                )
+            }
+        }
+        .background(SoftLedgerTheme.canvas)
+        .navigationTitle(L("Currency"))
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: L("Search currencies"))
+    }
+
+    private func select(_ currency: CurrencyInfo) async {
+        guard savingCode == nil else { return }
+        guard currentGroup.isOwner else { return }
+        if CurrencyCatalog.normalizedCode(currentGroup.currencyCode) == currency.code {
+            dismiss()
+            return
+        }
+        message = nil
+        savingCode = currency.code
+        let result = await store.changeGroupCurrencyWithFeedback(group.id, currencyCode: currency.code)
+        savingCode = nil
+        if result.success {
+            dismiss()
+        } else {
+            message = result.message
+        }
+    }
+}
+
+private struct CurrencyIndexedTableView: UIViewRepresentable {
+    let sections: [(key: String, values: [CurrencyInfo])]
+    let selectedCode: String
+    let savingCode: String?
+    let isEnabled: Bool
+    let onSelect: (CurrencyInfo) -> Void
+
+    func makeUIView(context: Context) -> UITableView {
+        let tableView = UITableView(frame: .zero, style: .plain)
+        tableView.dataSource = context.coordinator
+        tableView.delegate = context.coordinator
+        tableView.backgroundColor = .clear
+        tableView.sectionIndexBackgroundColor = .clear
+        tableView.sectionIndexTrackingBackgroundColor = .clear
+        tableView.sectionIndexColor = UIColor(SoftLedgerTheme.secondaryInk)
+        tableView.separatorInset = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
+        tableView.keyboardDismissMode = .onDrag
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: Coordinator.reuseIdentifier)
+        return tableView
+    }
+
+    func updateUIView(_ tableView: UITableView, context: Context) {
+        context.coordinator.parent = self
+        tableView.reloadData()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
+        static let reuseIdentifier = "CurrencyCell"
+
+        var parent: CurrencyIndexedTableView
+
+        init(parent: CurrencyIndexedTableView) {
+            self.parent = parent
+        }
+
+        func numberOfSections(in tableView: UITableView) -> Int {
+            parent.sections.count
+        }
+
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+            parent.sections[section].values.count
+        }
+
+        func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+            parent.sections[section].key
+        }
+
+        func sectionIndexTitles(for tableView: UITableView) -> [String]? {
+            parent.sections.map(\.key)
+        }
+
+        func tableView(_ tableView: UITableView, sectionForSectionIndexTitle title: String, at index: Int) -> Int {
+            index
+        }
+
+        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            let cell = tableView.dequeueReusableCell(withIdentifier: Self.reuseIdentifier, for: indexPath)
+            let currency = parent.sections[indexPath.section].values[indexPath.row]
+            var content = UIListContentConfiguration.subtitleCell()
+            content.text = currency.primaryListText
+            content.secondaryText = currency.code
+            content.textProperties.font = .preferredFont(forTextStyle: .body)
+            content.secondaryTextProperties.font = .preferredFont(forTextStyle: .subheadline)
+            content.secondaryTextProperties.color = .secondaryLabel
+            content.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 14)
+            cell.contentConfiguration = content
+            cell.backgroundColor = .clear
+            cell.selectionStyle = parent.isEnabled ? .default : .none
+            if parent.savingCode == currency.code {
+                let progress = UIActivityIndicatorView(style: .medium)
+                progress.startAnimating()
+                cell.accessoryView = progress
+                cell.accessoryType = .none
+            } else {
+                cell.accessoryView = nil
+                cell.accessoryType = parent.selectedCode == currency.code ? .checkmark : .none
+            }
+            return cell
+        }
+
+        func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+            tableView.deselectRow(at: indexPath, animated: true)
+            guard parent.isEnabled else { return }
+            parent.onSelect(parent.sections[indexPath.section].values[indexPath.row])
+        }
+    }
 }
 
 private struct GroupMembersView: View {
@@ -1650,7 +1847,7 @@ struct RecordEditorView: View {
         Form {
             Section {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("¥")
+                    Text(CurrencyCatalog.symbol(for: group?.currencyCode))
                         .font(.system(size: 40, weight: .semibold, design: .rounded))
                         .foregroundStyle(SoftLedgerTheme.ink)
                     TextField("0.00", text: $amount)
@@ -2232,7 +2429,7 @@ private struct BalancesRootView: View {
             format: L("%@ should pay %@ %@"),
             debt.from.name,
             debt.to.name,
-            "¥\(Money.display(debt.amountMinor))"
+            CurrencyCatalog.formatted(debt.amountMinor, currencyCode: group.currencyCode, style: .exact)
         )
     }
 
@@ -2253,7 +2450,7 @@ private struct BalancesRootView: View {
 
                         LazyVStack(spacing: 0) {
                             ForEach(members) { member in
-                                BalancePreviewRow(member: member, recordCount: recordCount(for: member)) {
+                                BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode) {
                                     onSelect(member)
                                 }
                                 if member.id != members.last?.id {
@@ -2276,7 +2473,8 @@ private struct BalancesRootView: View {
                         SettlementPlanSection(
                             debts: debts,
                             resolvingDebtID: resolvingDebtID,
-                            isDisabled: isResolving
+                            isDisabled: isResolving,
+                            currencyCode: group.currencyCode
                         ) { debt in
                             pendingResolveMode = .single
                             pendingResolveDebts = [debt]
@@ -2395,6 +2593,7 @@ private struct SettlementPlanSection: View {
     let debts: [ResolvedDebt]
     let resolvingDebtID: UUID?
     let isDisabled: Bool
+    let currencyCode: String
     let onResolve: (ResolvedDebt) -> Void
 
     var body: some View {
@@ -2405,7 +2604,7 @@ private struct SettlementPlanSection: View {
 
             LazyVStack(spacing: cardSpacing) {
                 ForEach(debts) { debt in
-                    SettlementPlanRow(debt: debt, isResolving: resolvingDebtID == debt.id) {
+                    SettlementPlanRow(debt: debt, currencyCode: currencyCode, isResolving: resolvingDebtID == debt.id) {
                         onResolve(debt)
                     }
                     .disabled(isDisabled)
@@ -2433,6 +2632,7 @@ private struct SettlementPlanRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
 
     let debt: ResolvedDebt
+    let currencyCode: String
     let isResolving: Bool
     let onResolve: () -> Void
 
@@ -2442,7 +2642,7 @@ private struct SettlementPlanRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(debt.from.name) \(L("pays")) \(debt.to.name), ¥\(Money.display(debt.amountMinor))")
+        .accessibilityLabel("\(debt.from.name) \(L("pays")) \(debt.to.name), \(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currencyCode, style: .exact))")
         .accessibilityHint(L("Resolve this transfer"))
     }
 
@@ -2474,7 +2674,7 @@ private struct SettlementPlanRow: View {
             Spacer(minLength: rowSpacing)
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text("¥\(Money.compactDisplay(debt.amountMinor))")
+                Text(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currencyCode))
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.ink)
                     .lineLimit(1)
@@ -2593,7 +2793,7 @@ private struct MemberBalanceDetailView: View {
             format: L("%@ should pay %@ %@"),
             debt.from.name,
             debt.to.name,
-            "¥\(Money.display(debt.amountMinor))"
+            CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currentGroup.currencyCode, style: .exact)
         )
     }
 
@@ -2608,7 +2808,7 @@ private struct MemberBalanceDetailView: View {
                             Text(L("Balance with %@").replacingOccurrences(of: "%@", with: currentMember.name))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                            Text(signedMoney(currentMember.debtMinor, style: .exact))
+                            Text(signedMoney(currentMember.debtMinor, style: .exact, currencyCode: currentGroup.currencyCode))
                                 .font(.system(size: balanceFontSize, weight: .semibold, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(balanceTextColor)
@@ -2634,7 +2834,8 @@ private struct MemberBalanceDetailView: View {
                         SettlementPlanSection(
                             debts: memberDebts,
                             resolvingDebtID: resolvingDebtID,
-                            isDisabled: resolvingDebtID != nil
+                            isDisabled: resolvingDebtID != nil,
+                            currencyCode: currentGroup.currencyCode
                         ) { debt in
                             pendingResolveDebt = debt
                             showsResolveConfirmation = true

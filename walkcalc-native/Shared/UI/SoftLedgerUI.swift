@@ -177,6 +177,7 @@ struct AnimatedBalanceAmountText: View {
 
     let amountMinor: MoneyMinor
     var style: MoneyDisplayStyle = .exact
+    var currencyCode: String? = nil
     var isAnimationEnabled = true
 
     @State private var displayedAmountMinor: MoneyMinor?
@@ -193,7 +194,7 @@ struct AnimatedBalanceAmountText: View {
     }
 
     var body: some View {
-        Text(signedMoney(resolvedAmountMinor, style: style))
+        Text(signedMoney(resolvedAmountMinor, style: style, currencyCode: currencyCode))
             .foregroundStyle(SoftLedgerTheme.ink)
             .contentTransition(.numericText(value: transitionValue))
             .scaleEffect(isPulsing ? 1.018 : 1, anchor: .leading)
@@ -654,14 +655,11 @@ enum MoneyDisplayStyle {
     }
 }
 
-func signedMoney(_ value: MoneyMinor?, style: MoneyDisplayStyle = .compact) -> String {
+func signedMoney(_ value: MoneyMinor?, style: MoneyDisplayStyle = .compact, currencyCode: String? = nil) -> String {
     if Money.isZero(value) {
-        return "¥\(style.string(value))"
+        return CurrencyCatalog.formatted(value, currencyCode: currencyCode, style: style)
     }
-    if Money.isNegative(value) {
-        return "-¥\(style.string(Money.negate(value ?? "0")))"
-    }
-    return "+¥\(style.string(value))"
+    return CurrencyCatalog.formatted(value, currencyCode: currencyCode, style: style, signed: true)
 }
 
 func moneyColor(_ value: MoneyMinor?) -> Color {

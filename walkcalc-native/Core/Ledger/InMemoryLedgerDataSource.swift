@@ -83,7 +83,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         return .success(mutation(settlementSuggestions(for: group), source: .local(id: groupId)))
     }
 
-    func createGroup(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+    func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let now = Date().timeIntervalSince1970 * 1000
         let id = Self.localGroupId()
@@ -91,6 +91,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         let group = WalkGroup(
             id: id,
             name: name,
+            currencyCode: CurrencyCatalog.normalizedCode(currencyCode),
             createdAt: now,
             modifiedAt: now,
             membersInfo: [owner],
@@ -141,6 +142,14 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         groups[index].name = name
         groups[index].modifiedAt = Date().timeIntervalSince1970 * 1000
         return .success(mutation(name, source: .local(id: code)))
+    }
+
+    func changeGroupCurrency(code: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
+        guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(.sourceUnavailable()) }
+        groups[index].currencyCode = CurrencyCatalog.normalizedCode(currencyCode)
+        groups[index].modifiedAt = Date().timeIntervalSince1970 * 1000
+        return .success(mutation(groups[index].currencyCode, source: .local(id: code)))
     }
 
     func invite(code: String, userIds: [String], context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[String]>> {

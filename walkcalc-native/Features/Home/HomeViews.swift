@@ -947,7 +947,7 @@ private struct GroupSummaryRow: View {
 
             Spacer()
 
-            Text(signedMoney(myBalance))
+            Text(signedMoney(myBalance, currencyCode: group.currencyCode))
                 .font(.subheadline.monospacedDigit().weight(.semibold))
                 .foregroundStyle(balanceTextColor)
                 .lineLimit(1)
@@ -982,7 +982,7 @@ private struct GroupSummaryRow: View {
                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(group.name), \(signedMoney(myBalance))")
+        .accessibilityLabel("\(group.name), \(signedMoney(myBalance, currencyCode: group.currencyCode))")
         .accessibilityHint(L("Opens group details"))
     }
 }

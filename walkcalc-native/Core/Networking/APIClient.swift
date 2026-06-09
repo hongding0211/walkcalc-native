@@ -143,8 +143,8 @@ struct APIClient: Sendable {
         }
     }
 
-    func createGroup(name: String, token: String) async throws -> APIEnvelope<String> {
-        try await request(.post, path: "/walkcalc/groups", token: token, body: ["name": name]) { raw in
+    func createGroup(name: String, currencyCode: String, token: String) async throws -> APIEnvelope<String> {
+        try await request(.post, path: "/walkcalc/groups", token: token, body: ["name": name, "currencyCode": currencyCode]) { raw in
             dictPayload(raw)["code"] as? String ?? ""
         }
     }
@@ -176,6 +176,12 @@ struct APIClient: Sendable {
     func changeGroupName(code: String, name: String, token: String) async throws -> APIEnvelope<String> {
         try await request(.patch, path: "/walkcalc/groups/\(code)/name", token: token, body: ["name": name]) { raw in
             dictPayload(raw)["name"] as? String ?? name
+        }
+    }
+
+    func changeGroupCurrency(code: String, currencyCode: String, token: String) async throws -> APIEnvelope<String> {
+        try await request(.patch, path: "/walkcalc/groups/\(code)/currency", token: token, body: ["currencyCode": currencyCode]) { raw in
+            dictPayload(raw)["currencyCode"] as? String ?? currencyCode
         }
     }
 
@@ -598,6 +604,7 @@ private func mapGroup(_ raw: Any?) -> WalkGroup {
     return WalkGroup(
         id: dict["code"] as? String ?? "",
         name: dict["name"] as? String ?? "",
+        currencyCode: CurrencyCatalog.normalizedCode(dict["currencyCode"] as? String),
         createdAt: timeInterval(dict["createdAt"]),
         modifiedAt: timeInterval(dict["modifiedAt"]),
         membersInfo: members,

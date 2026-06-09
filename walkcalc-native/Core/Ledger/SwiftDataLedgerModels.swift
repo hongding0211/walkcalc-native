@@ -5,6 +5,7 @@ import SwiftData
 final class LocalLedgerGroupModel {
     @Attribute(.unique) var id: String
     var name: String
+    var currencyCode: String?
     var createdAt: TimeInterval
     var modifiedAt: TimeInterval
     var ownerUserId: String
@@ -22,6 +23,7 @@ final class LocalLedgerGroupModel {
     init(
         id: String,
         name: String,
+        currencyCode: String? = nil,
         createdAt: TimeInterval,
         modifiedAt: TimeInterval,
         ownerUserId: String,
@@ -32,6 +34,7 @@ final class LocalLedgerGroupModel {
     ) {
         self.id = id
         self.name = name
+        self.currencyCode = currencyCode
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
         self.ownerUserId = ownerUserId

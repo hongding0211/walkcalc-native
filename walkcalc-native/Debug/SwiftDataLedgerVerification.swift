@@ -14,7 +14,7 @@ enum SwiftDataLedgerVerification {
         let repository = LedgerRepository(remoteSource: InMemoryLedgerDataSource(), localSource: source)
         let context = LedgerSessionContext.local(owner: owner)
 
-        let groupId = expectSuccess(await repository.createGroup(name: "Local Trip", context: context), prefix: "swiftdata-create-group").value ?? ""
+        let groupId = expectSuccess(await repository.createGroup(name: "Local Trip", currencyCode: "CNY", context: context), prefix: "swiftdata-create-group").value ?? ""
         expect(groupId.hasPrefix("l-"), equals: true, prefix: "swiftdata-group-id-prefix")
 
         let guestId = expectSuccess(await repository.addTempUser(code: groupId, name: "Guest", context: context), prefix: "swiftdata-add-temp").value ?? ""
@@ -110,7 +110,7 @@ enum SwiftDataLedgerVerification {
         do {
             let firstSource = try SwiftDataLedgerDataSource.temporaryPersistentStore(url: storeURL)
             let firstRepository = LedgerRepository(remoteSource: InMemoryLedgerDataSource(), localSource: firstSource)
-            let groupId = expectSuccess(await firstRepository.createGroup(name: "Persisted Trip", context: context), prefix: "swiftdata-persist-create").value ?? ""
+            let groupId = expectSuccess(await firstRepository.createGroup(name: "Persisted Trip", currencyCode: "CNY", context: context), prefix: "swiftdata-persist-create").value ?? ""
             let guestId = expectSuccess(await firstRepository.addTempUser(code: groupId, name: "Guest", context: context), prefix: "swiftdata-persist-temp").value ?? ""
             _ = expectSuccess(await firstRepository.addRecord(groupId: groupId, who: owner.uuid, paidMinor: "900", forWhom: [owner.uuid, guestId], type: "food", text: "Train", long: "", lat: "", occurredAt: 1_710_000_000_000, context: context), prefix: "swiftdata-persist-record")
         } catch {
