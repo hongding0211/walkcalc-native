@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		F10AA3872FAF8ECE004952A8 /* walkcalc-native.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "walkcalc-native.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F20AA1002FC75E00004952A8 /* WalkCalc Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "WalkCalc Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +17,22 @@
 			path = "walkcalc-native";
 			sourceTree = "<group>";
 		};
+		F20AA1012FC75E00004952A8 /* walkcalc-watch */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "walkcalc-watch";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		F10AA3842FAF8ECE004952A8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F20AA1032FC75E00004952A8 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +46,7 @@
 			isa = PBXGroup;
 			children = (
 				F10AA3892FAF8ECE004952A8 /* walkcalc-native */,
+				F20AA1012FC75E00004952A8 /* walkcalc-watch */,
 				F10AA3882FAF8ECE004952A8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +55,7 @@
 			isa = PBXGroup;
 			children = (
 				F10AA3872FAF8ECE004952A8 /* walkcalc-native.app */,
+				F20AA1002FC75E00004952A8 /* WalkCalc Watch.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +85,28 @@
 			productReference = F10AA3872FAF8ECE004952A8 /* walkcalc-native.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F20AA1052FC75E00004952A8 /* WalkCalc Watch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F20AA1062FC75E00004952A8 /* Build configuration list for PBXNativeTarget "WalkCalc Watch" */;
+			buildPhases = (
+				F20AA1022FC75E00004952A8 /* Sources */,
+				F20AA1032FC75E00004952A8 /* Frameworks */,
+				F20AA1042FC75E00004952A8 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				F20AA1012FC75E00004952A8 /* walkcalc-watch */,
+			);
+			name = "WalkCalc Watch";
+			packageProductDependencies = (
+			);
+			productName = "WalkCalc Watch";
+			productReference = F20AA1002FC75E00004952A8 /* WalkCalc Watch.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -81,6 +118,9 @@
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					F10AA3862FAF8ECE004952A8 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
+					F20AA1052FC75E00004952A8 = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
 				};
@@ -101,6 +141,7 @@
 			projectRoot = "";
 			targets = (
 				F10AA3862FAF8ECE004952A8 /* walkcalc-native */,
+				F20AA1052FC75E00004952A8 /* WalkCalc Watch */,
 			);
 		};
 /* End PBXProject section */
@@ -113,10 +154,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F20AA1042FC75E00004952A8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		F10AA3832FAF8ECE004952A8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F20AA1022FC75E00004952A8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -307,6 +362,70 @@
 			};
 			name = Release;
 		};
+		F20AA1072FC75E00004952A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_TEAM = Q46TPB6WXW;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = WalkCalc;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = ltd.hong97.walkcalc;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ltd.hong97.walkcalc.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Debug;
+		};
+		F20AA1082FC75E00004952A8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_TEAM = Q46TPB6WXW;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = WalkCalc;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = ltd.hong97.walkcalc;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ltd.hong97.walkcalc.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -324,6 +443,15 @@
 			buildConfigurations = (
 				F10AA3932FAF8ECF004952A8 /* Debug */,
 				F10AA3942FAF8ECF004952A8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F20AA1062FC75E00004952A8 /* Build configuration list for PBXNativeTarget "WalkCalc Watch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F20AA1072FC75E00004952A8 /* Debug */,
+				F20AA1082FC75E00004952A8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
