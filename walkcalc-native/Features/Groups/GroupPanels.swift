@@ -51,7 +51,14 @@ struct GroupSheetView: View {
 
         case .balances(let member):
             if let group {
-                BalancesWorkspace(group: group, initialMember: member)
+                BalancesWorkspace(group: group, initialMember: member, showsRoot: member == nil)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+
+        case .myBalance(let member):
+            if let group {
+                BalancesWorkspace(group: group, initialMember: member, showsRoot: false)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
@@ -2134,6 +2141,7 @@ struct BalancesWorkspace: View {
     @Environment(\.dismiss) private var dismiss
     let group: WalkGroup
     let initialMember: Member?
+    let showsRoot: Bool
     @State private var path: [Member] = []
 
     private var currentGroup: WalkGroup {
@@ -2141,19 +2149,25 @@ struct BalancesWorkspace: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            BalancesRootView(group: currentGroup, onResolveSucceeded: {
-                dismiss()
-            }) { member in
-                path.append(member)
+        if showsRoot {
+            NavigationStack(path: $path) {
+                BalancesRootView(group: currentGroup, onResolveSucceeded: {
+                    dismiss()
+                }) { member in
+                    path.append(member)
+                }
+                .navigationDestination(for: Member.self) { member in
+                    MemberBalanceDetailView(group: currentGroup, member: member, showsRecordTotal: false)
+                }
             }
-            .navigationDestination(for: Member.self) { member in
-                MemberBalanceDetailView(group: currentGroup, member: member)
+            .onAppear {
+                if let initialMember, path.isEmpty {
+                    path = [initialMember]
+                }
             }
-        }
-        .onAppear {
-            if let initialMember, path.isEmpty {
-                path = [initialMember]
+        } else if let initialMember {
+            NavigationStack {
+                MemberBalanceDetailView(group: currentGroup, member: initialMember, showsRecordTotal: false)
             }
         }
     }
@@ -2459,14 +2473,22 @@ private struct SettlementPlanRow: View {
 
             Spacer(minLength: rowSpacing)
 
-            Text("¥\(Money.compactDisplay(debt.amountMinor))")
-                .font(.subheadline.monospacedDigit().weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .allowsTightening(true)
-                .frame(minWidth: amountMinWidth, alignment: .trailing)
-                .layoutPriority(3)
+            VStack(alignment: .trailing, spacing: 3) {
+                Text("¥\(Money.compactDisplay(debt.amountMinor))")
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .allowsTightening(true)
+
+                Text(L("Tap to resolve"))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            .frame(minWidth: amountMinWidth, alignment: .trailing)
+            .layoutPriority(3)
 
             if isResolving {
                 ProgressView()
@@ -2530,8 +2552,13 @@ private struct MemberBalanceDetailView: View {
 
     let group: WalkGroup
     let member: Member
+    let showsRecordTotal: Bool
     @State private var selectedRecord: WalkRecord?
     @State private var deleteCandidate: WalkRecord?
+    @State private var showsResolveConfirmation = false
+    @State private var pendingResolveDebt: ResolvedDebt?
+    @State private var resolvingDebtID: UUID?
+    @State private var resolveMessage: String?
 
     private var currentGroup: WalkGroup {
         store.group(id: group.id) ?? group
@@ -2553,6 +2580,23 @@ private struct MemberBalanceDetailView: View {
         Money.isZero(currentMember.debtMinor) ? SoftLedgerTheme.ink : moneyColor(currentMember.debtMinor)
     }
 
+    private var memberDebts: [ResolvedDebt] {
+        guard !Money.isZero(currentMember.debtMinor) else { return [] }
+        return store.resolvedDebts(for: currentGroup).filter { debt in
+            debt.from.uuid == currentMember.uuid || debt.to.uuid == currentMember.uuid
+        }
+    }
+
+    private var resolveConfirmationMessage: String {
+        guard let debt = pendingResolveDebt else { return "" }
+        return String(
+            format: L("%@ should pay %@ %@"),
+            debt.from.name,
+            debt.to.name,
+            "¥\(Money.display(debt.amountMinor))"
+        )
+    }
+
     var body: some View {
         ZStack {
             SoftLedgerBackground()
@@ -2571,16 +2615,36 @@ private struct MemberBalanceDetailView: View {
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.82)
                         }
-                        Spacer()
-                        Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(recordTotal)"))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(SoftLedgerTheme.mutedInk)
+                        if showsRecordTotal {
+                            Spacer()
+                            Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(recordTotal)"))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(SoftLedgerTheme.mutedInk)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(summaryPadding)
                     .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+                    }
+
+                    if !memberDebts.isEmpty {
+                        SettlementPlanSection(
+                            debts: memberDebts,
+                            resolvingDebtID: resolvingDebtID,
+                            isDisabled: resolvingDebtID != nil
+                        ) { debt in
+                            pendingResolveDebt = debt
+                            showsResolveConfirmation = true
+                        }
+                    }
+
+                    if let resolveMessage {
+                        Text(resolveMessage)
+                            .font(.footnote)
+                            .foregroundStyle(SoftLedgerTheme.negative)
                     }
 
                     VStack(alignment: .leading, spacing: sectionSpacing) {
@@ -2652,6 +2716,7 @@ private struct MemberBalanceDetailView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {
             await store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
+            await store.refreshSettlementSuggestion(groupId: group.id)
         }
         .navigationDestination(item: $selectedRecord) { record in
             RecordEditorView(groupId: group.id, record: record) {
@@ -2665,6 +2730,35 @@ private struct MemberBalanceDetailView: View {
                 selectedRecord = nil
             }
         }
+        .alert(L("Resolve transfer?"), isPresented: $showsResolveConfirmation) {
+            Button(L("Cancel"), role: .cancel) {}
+            Button(L("Resolve")) {
+                guard let debt = pendingResolveDebt else { return }
+                pendingResolveDebt = nil
+                Task { await resolve(debt: debt) }
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(pendingResolveDebt == nil || resolvingDebtID != nil)
+        } message: {
+            if !resolveConfirmationMessage.isEmpty {
+                Text(resolveConfirmationMessage)
+            }
+        }
+    }
+
+    private func resolve(debt: ResolvedDebt) async {
+        guard resolvingDebtID == nil else { return }
+        resolveMessage = nil
+        resolvingDebtID = debt.id
+
+        let result = await store.resolveSingleWithFeedback(groupId: group.id, debt: debt)
+        if result.success {
+            await store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
+            await store.refreshSettlementSuggestion(groupId: group.id)
+        } else {
+            resolveMessage = result.message
+        }
+        resolvingDebtID = nil
     }
 
     private var memberLoadMoreFooter: some View {

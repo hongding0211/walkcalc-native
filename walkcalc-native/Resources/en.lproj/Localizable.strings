@@ -166,6 +166,7 @@
 "Searching records..." = "Searching records...";
 "Selected" = "Selected";
 "Settle with %@" = "Settle with %@";
+"Settled" = "Settled";
 "Only groups with zero balances can be archived." = "Only groups with zero balances can be archived.";
 "Settle all balances before archiving this group." = "Settle all balances before archiving this group.";
 "Unresolved balances will be automatically resolved to zero before this group is deleted." = "Unresolved balances will be automatically resolved to zero before this group is deleted.";
@@ -173,6 +174,7 @@
 "Split" = "Split";
 "Stay" = "Stay";
 "Suggested settlement" = "Suggested settlement";
+"Tap to resolve" = "Tap to resolve";
 "Temporary members" = "Temporary members";
 "Temporary members can participate in expenses without an account." = "Temporary members can participate in expenses without an account.";
 "Ticket" = "Ticket";
@@ -184,8 +186,10 @@
 "Vacation" = "Vacation";
 "View all" = "View all";
 "View details" = "View details";
+"Owed to you" = "Owed to you";
 "paid" = "paid";
 "paid for" = "paid for";
 "pays" = "pays";
 "people" = "people";
+"You owe" = "You owe";
 "members" = "members";

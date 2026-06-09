@@ -5,6 +5,7 @@ enum GroupSheet: Identifiable {
     case editExpense(WalkRecord)
     case groupSettings
     case balances(Member?)
+    case myBalance(Member)
     case peopleSetup
 
     var id: String {
@@ -13,6 +14,7 @@ enum GroupSheet: Identifiable {
         case .editExpense(let record): "editExpense-\(record.recordId)"
         case .groupSettings: "groupSettings"
         case .balances(let member): "balances-\(member?.id ?? "root")"
+        case .myBalance(let member): "myBalance-\(member.id)"
         case .peopleSetup: "peopleSetup"
         }
     }
@@ -21,7 +23,7 @@ enum GroupSheet: Identifiable {
 private extension GroupSheet {
     var keepsTopBalanceVisible: Bool {
         switch self {
-        case .balances:
+        case .balances, .myBalance:
             return true
         case .newExpense, .editExpense, .groupSettings, .peopleSetup:
             return false
@@ -86,7 +88,9 @@ struct GroupView: View {
                                 activeSheet = .peopleSetup
                             }
                         } else {
-                            GroupSummaryCard(group: group, isAnimationEnabled: isBalanceAnimationEnabled)
+                            GroupSummaryCard(group: group, isAnimationEnabled: isBalanceAnimationEnabled) { member in
+                                activeSheet = .myBalance(member)
+                            }
                             GroupBalancesSection(group: group) { selectedMember in
                                 activeSheet = .balances(selectedMember)
                             }
@@ -366,6 +370,7 @@ private struct GroupSummaryCard: View {
     @EnvironmentObject private var store: WalkcalcStore
     let group: WalkGroup
     let isAnimationEnabled: Bool
+    let onOpenBalance: (Member) -> Void
 
     private var myBalance: MoneyMinor {
         if group.hasCurrentUserBalanceSummary {
@@ -374,24 +379,59 @@ private struct GroupSummaryCard: View {
         return group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? group.currentUserBalanceMinor
     }
 
+    private var currentMember: Member? {
+        guard let userId = store.user?.uuid else { return nil }
+        return group.allMembers.first { $0.uuid == userId }
+    }
+
+    private var balanceStateText: String {
+        switch Money.compare(myBalance, "0") {
+        case .orderedDescending:
+            return L("Owed to you")
+        case .orderedAscending:
+            return L("You owe")
+        case .orderedSame:
+            return L("Settled")
+        }
+    }
+
     var body: some View {
-        SoftLedgerCard(usesGlass: true) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L("My balance"))
-                    .font(.subheadline.weight(.semibold))
+        Button {
+            guard let currentMember else { return }
+            onOpenBalance(currentMember)
+        } label: {
+            SoftLedgerCard(usesGlass: true) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("My balance"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    AnimatedBalanceAmountText(
+                        amountMinor: myBalance,
+                        style: .exact,
+                        isAnimationEnabled: isAnimationEnabled
+                    )
+                        .font(.system(size: 42, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+
+                    HStack(spacing: 6) {
+                        Text(balanceStateText)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+                            .accessibilityHidden(true)
+                    }
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                AnimatedBalanceAmountText(
-                    amountMinor: myBalance,
-                    style: .exact,
-                    isAnimationEnabled: isAnimationEnabled
-                )
-                    .font(.system(size: 42, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                }
             }
         }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .disabled(currentMember == nil)
         .accessibilityElement(children: .combine)
+        .accessibilityHint(L("View details"))
     }
 }
 

@@ -166,6 +166,7 @@
 "Searching records..." = "正在搜索记录...";
 "Selected" = "已选择";
 "Settle with %@" = "结清给 %@";
+"Settled" = "已结清";
 "Only groups with zero balances can be archived." = "只有余额全部为 0 的群组才能归档。";
 "Settle all balances before archiving this group." = "请先结清所有余额，再归档这个群组。";
 "Unresolved balances will be automatically resolved to zero before this group is deleted." = "删除前，未结清的账单会被自动结清并清零。";
@@ -173,6 +174,7 @@
 "Split" = "分摊";
 "Stay" = "住宿";
 "Suggested settlement" = "建议结清";
+"Tap to resolve" = "点击结清";
 "Temporary members" = "临时成员";
 "Temporary members can participate in expenses without an account." = "临时成员无需账号，也可以参与分账。";
 "Ticket" = "票务";
@@ -184,8 +186,10 @@
 "Vacation" = "旅行";
 "View all" = "查看全部";
 "View details" = "查看详情";
+"Owed to you" = "别人欠你";
 "paid" = "付款";
 "paid for" = "为";
 "pays" = "支付给";
 "people" = "人";
+"You owe" = "你欠别人";
 "members" = "成员";
