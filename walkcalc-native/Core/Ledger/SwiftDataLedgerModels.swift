@@ -77,6 +77,7 @@ final class LocalLedgerParticipantModel {
     var costMinor: MoneyMinor
     var recordCount: Int
     var isTemporary: Bool
+    var isActive: Bool = true
     var createdAt: TimeInterval
     var modifiedAt: TimeInterval
     var remoteIdentifier: String?
@@ -92,6 +93,7 @@ final class LocalLedgerParticipantModel {
         costMinor: MoneyMinor = "0",
         recordCount: Int = 0,
         isTemporary: Bool,
+        isActive: Bool = true,
         createdAt: TimeInterval,
         modifiedAt: TimeInterval,
         remoteIdentifier: String? = nil,
@@ -105,6 +107,7 @@ final class LocalLedgerParticipantModel {
         self.costMinor = costMinor
         self.recordCount = recordCount
         self.isTemporary = isTemporary
+        self.isActive = isActive
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
         self.remoteIdentifier = remoteIdentifier

@@ -76,10 +76,15 @@ struct WalkGroup: Identifiable, Hashable {
     var currentUserRecordCount: Int = 0
     var participantCount: Int = 0
     var participantPreview: [Member] = []
+    var historicalMembers: [Member] = []
     var serverHasUnresolvedBalance: Bool?
 
     var allMembers: [Member] {
         membersInfo + tempUsers
+    }
+
+    var recordMembers: [Member] {
+        allMembers + historicalMembers
     }
 
     var ownerMember: Member? {
@@ -159,10 +164,23 @@ struct RecordSearchCondition: Encodable, Hashable {
 }
 
 struct ResolvedDebt: Identifiable, Hashable {
-    var id = UUID()
     var from: Member
     var to: Member
     var amountMinor: MoneyMinor
+
+    var id: String {
+        "\(from.uuid)->\(to.uuid):\(amountMinor)"
+    }
+}
+
+enum BalancePresentation {
+    static func personalDebts(_ debts: [ResolvedDebt], participantID: String?) -> [ResolvedDebt] {
+        guard let participantID, !participantID.isEmpty else { return [] }
+        return debts.filter { debt in
+            debt.from.uuid == participantID || debt.to.uuid == participantID
+        }
+    }
+
 }
 
 struct SettlementTransfer: Hashable {
@@ -177,8 +195,9 @@ struct MemberRecordPage {
 }
 
 enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
+    case mono = "black"
     case blue
-    case black
+    case pink
     case yellow
     case green
 
@@ -201,23 +220,15 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 
     var systemControlTintUIColor: UIColor {
-        self == .black ? UIColor(hex: 0x18181B) : accentUIColor
+        accentUIColor
     }
 
     var alertContainerTintUIColor: UIColor {
-        guard self == .black else { return accentUIColor }
-
-        return UIColor { traitCollection in
-            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? 0xFFFFFF : 0x18181B)
-        }
+        accentUIColor
     }
 
     var alertButtonTintUIColor: UIColor {
-        guard self == .black else { return accentUIColor }
-
-        return UIColor { traitCollection in
-            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? 0x18181B : 0xFFFFFF)
-        }
+        accentUIColor
     }
 
     func applySystemControlTint() {
@@ -228,14 +239,6 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
 
     var accentSoft: Color {
         palette.accentSoft.color
-    }
-
-    var previewAccent: Color {
-        Color(hex: palette.previewAccent)
-    }
-
-    var previewSoftAccent: Color {
-        Color(hex: palette.previewSoftAccent)
     }
 
     static func load(from defaults: UserDefaults = .standard) -> AppTheme {

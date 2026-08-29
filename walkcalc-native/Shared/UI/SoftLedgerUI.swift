@@ -656,10 +656,7 @@ enum MoneyDisplayStyle {
 }
 
 func signedMoney(_ value: MoneyMinor?, style: MoneyDisplayStyle = .compact, currencyCode: String? = nil) -> String {
-    if Money.isZero(value) {
-        return CurrencyCatalog.formatted(value, currencyCode: currencyCode, style: style)
-    }
-    return CurrencyCatalog.formatted(value, currencyCode: currencyCode, style: style, signed: true)
+    CurrencyCatalog.formatted(value, currencyCode: currencyCode, style: style)
 }
 
 func moneyColor(_ value: MoneyMinor?) -> Color {

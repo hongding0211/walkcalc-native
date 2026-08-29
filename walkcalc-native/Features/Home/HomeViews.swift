@@ -458,6 +458,8 @@ private struct LoginBrandMark: View {
 
 struct RootHomeView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @EnvironmentObject private var pushNavigation: PushNavigationCoordinator
+    @Environment(\.scenePhase) private var scenePhase
     @State private var path: [Route] = Self.initialPath()
     @State private var activeSheet: HomeSheet?
     @State private var archiveCandidate: WalkGroup?
@@ -531,7 +533,10 @@ struct RootHomeView: View {
 
                             LazyVStack(spacing: 16) {
                                 ForEach(activeGroups) { group in
-                                    NavigationLink(value: Route.group(group.id)) {
+                                    Button {
+                                        store.preloadGroupContent(group.id)
+                                        path.append(.group(group.id))
+                                    } label: {
                                         GroupSummaryRow(group: group, isPending: pendingGroupAction?.groupID == group.id)
                                     }
                                     .buttonStyle(.plain)
@@ -630,7 +635,11 @@ struct RootHomeView: View {
             switch sheet {
             case .create:
                 NavigationStack {
-                    CreateGroupSheet { activeSheet = nil }
+                    CreateGroupSheet { groupId in
+                        activeSheet = nil
+                        store.preloadGroupContent(groupId)
+                        path = [.group(groupId)]
+                    }
                 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
@@ -713,6 +722,23 @@ struct RootHomeView: View {
         }
         .task {
             await store.refreshHome()
+        }
+        .task(id: pushNavigation.pendingRequest?.id) {
+            guard let request = pushNavigation.pendingRequest else { return }
+            activeSheet = nil
+            path = [.group(request.groupId)]
+            await store.refreshGroupContent(request.groupId)
+            pushNavigation.consume(request)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active,
+                  let route = path.last,
+                  case .group(let groupId) = route else {
+                return
+            }
+            Task {
+                await store.refreshGroupContent(groupId)
+            }
         }
     }
 
@@ -858,39 +884,445 @@ private struct HomeBalanceCard: View {
 
     let isAnimationEnabled: Bool
 
-    private var scopeText: String {
-        let count = max(store.groupTotal, store.groups.count)
-        if count == 1 {
-            return L("Across 1 group")
+    private var balances: [CurrencyBalanceSummary] {
+        let availableBalances = store.totalBalancesByCurrency.isEmpty
+            ? [CurrencyBalanceSummary(
+                currencyCode: CurrencyCatalog.defaultCurrencyCode(),
+                totalBalanceMinor: store.totalBalanceMinor
+            )]
+            : store.totalBalancesByCurrency
+        let nonZeroBalances = availableBalances.filter {
+            Money.compare($0.totalBalanceMinor, "0") != .orderedSame
         }
-        return L("Across %@ groups").replacingOccurrences(of: "%@", with: "\(count)")
+        return nonZeroBalances.isEmpty ? Array(availableBalances.prefix(1)) : nonZeroBalances
+    }
+
+    private func scopeCount(for currencyCode: String) -> Int {
+        let loadedCount = store.groups.filter {
+            let identityIds = Set([store.localOwner.uuid, store.user?.uuid].compactMap { $0 })
+            return identityIds.isDisjoint(with: Set($0.archivedUsers))
+                && CurrencyCatalog.normalizedCode($0.currencyCode) == currencyCode
+        }.count
+        return loadedCount > 0 ? loadedCount : max(store.groupTotal, store.groups.count)
     }
 
     var body: some View {
         SoftLedgerCard(usesGlass: true) {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L("Total balance"))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    AnimatedBalanceAmountText(
-                        amountMinor: store.totalBalanceMinor,
-                        style: .exact,
-                        isAnimationEnabled: isAnimationEnabled
-                    )
-                        .font(.system(size: 42, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                }
+            CurrencyBalanceCarousel(
+                balances: balances,
+                isAnimationEnabled: isAnimationEnabled,
+                scopeCount: scopeCount
+            )
+        }
+    }
+}
 
-                Text(scopeText)
-                    .font(.caption.weight(.semibold))
+private struct CurrencyBalanceCarousel: View {
+    private enum Direction: Int {
+        case previous = -1
+        case next = 1
+    }
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @ScaledMetric(relativeTo: .largeTitle) private var amountPageHeight = 52
+
+    let balances: [CurrencyBalanceSummary]
+    let isAnimationEnabled: Bool
+    let scopeCount: (String) -> Int
+
+    @State private var selection = 0
+    @State private var dragOffset: CGFloat = 0
+    @State private var isSettling = false
+    @State private var hasUserInteracted = false
+    @State private var settleTask: Task<Void, Never>?
+
+    private var selectedBalance: CurrencyBalanceSummary {
+        balances[safe: selection] ?? balances[0]
+    }
+
+    private var selectedScopeCount: Int {
+        scopeCount(selectedBalance.currencyCode)
+    }
+
+    private var autoPlayID: String {
+        let identities = balances.map { "\($0.currencyCode):\($0.totalBalanceMinor)" }.joined(separator: "|")
+        return "\(identities)-\(hasUserInteracted)-\(isAnimationEnabled)-\(scenePhase == .active)"
+    }
+
+    private var allowsNumericAnimation: Bool {
+        isAnimationEnabled && !isSettling && dragOffset == 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L("Total balance"))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    .lineLimit(1)
+
+                HStack(alignment: .center, spacing: 12) {
+                    amountViewport
+
+                    if balances.count > 1 {
+                        CurrencyPageIndicator(
+                            pageCount: balances.count,
+                            selection: selection
+                        )
+                        .offset(x: 6)
+                    }
+                }
+            }
+
+            AnimatedGroupScopeText(groupCount: selectedScopeCount)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(balances.count > 1 ? "\(selection + 1) / \(balances.count)" : "")
+        .accessibilityAdjustableAction { direction in
+            guard balances.count > 1 else { return }
+            stopAutoPlay()
+            switch direction {
+            case .increment:
+                settle(.next, pageHeight: amountPageHeight)
+            case .decrement:
+                settle(.previous, pageHeight: amountPageHeight)
+            @unknown default:
+                break
             }
         }
-        .accessibilityElement(children: .combine)
+        .task(id: autoPlayID) {
+            guard balances.count > 1,
+                  !hasUserInteracted,
+                  isAnimationEnabled,
+                  scenePhase == .active else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled,
+                      !hasUserInteracted,
+                      !isSettling,
+                      isAnimationEnabled,
+                      scenePhase == .active else { return }
+                settle(.next, pageHeight: amountPageHeight)
+            }
+        }
+        .onChange(of: balances.map(\.currencyCode)) { oldCodes, newCodes in
+            guard oldCodes != newCodes else { return }
+            let selectedCode = oldCodes[safe: selection]
+            selection = selectedCode.flatMap { newCodes.firstIndex(of: $0) } ?? 0
+            dragOffset = 0
+            isSettling = false
+            settleTask?.cancel()
+        }
+        .onDisappear {
+            settleTask?.cancel()
+        }
+    }
+
+    private var amountViewport: some View {
+        GeometryReader { geometry in
+            let height = max(geometry.size.height, 1)
+            if balances.count > 1 {
+                ZStack {
+                    balancePage(balance(at: .previous))
+                        .modifier(CurrencyCylinderRollEffect(
+                            position: (-height + dragOffset) / height,
+                            travelHeight: height,
+                            reduceMotion: reduceMotion
+                        ))
+
+                    balancePage(selectedBalance)
+                        .modifier(CurrencyCylinderRollEffect(
+                            position: dragOffset / height,
+                            travelHeight: height,
+                            reduceMotion: reduceMotion
+                        ))
+
+                    balancePage(balance(at: .next))
+                        .modifier(CurrencyCylinderRollEffect(
+                            position: (height + dragOffset) / height,
+                            travelHeight: height,
+                            reduceMotion: reduceMotion
+                        ))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .contentShape(Rectangle())
+                .highPriorityGesture(dragGesture(pageHeight: height))
+            } else {
+                balancePage(selectedBalance)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(height: amountPageHeight)
+    }
+
+    private func balancePage(_ balance: CurrencyBalanceSummary) -> some View {
+        AnimatedBalanceAmountText(
+            amountMinor: balance.totalBalanceMinor,
+            style: .exact,
+            currencyCode: balance.currencyCode,
+            isAnimationEnabled: allowsNumericAnimation
+        )
+            .font(.system(size: 42, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .id(balance.currencyCode)
+    }
+
+    private func balance(at direction: Direction) -> CurrencyBalanceSummary {
+        guard balances.count > 1 else { return selectedBalance }
+        let index = (selection + direction.rawValue + balances.count) % balances.count
+        return balances[index]
+    }
+
+    private func dragGesture(pageHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard balances.count > 1,
+                      !isSettling,
+                      abs(value.translation.height) > abs(value.translation.width) else { return }
+                stopAutoPlay()
+                dragOffset = interactiveDragOffset(value.translation.height, pageHeight: pageHeight)
+            }
+            .onEnded { value in
+                guard balances.count > 1, !isSettling else { return }
+                let projectedOffset = value.predictedEndTranslation.height
+                let threshold = pageHeight * 0.24
+                if projectedOffset <= -threshold {
+                    settle(.next, pageHeight: pageHeight)
+                } else if projectedOffset >= threshold {
+                    settle(.previous, pageHeight: pageHeight)
+                } else {
+                    withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
+                        dragOffset = 0
+                    }
+                }
+            }
+    }
+
+    private func stopAutoPlay() {
+        if !hasUserInteracted {
+            hasUserInteracted = true
+        }
+    }
+
+    private func interactiveDragOffset(_ translation: CGFloat, pageHeight: CGFloat) -> CGFloat {
+        let direction: CGFloat = translation < 0 ? -1 : 1
+        let distance = abs(translation)
+        let linearLimit = pageHeight * 0.56
+        guard distance > linearLimit else { return translation }
+        let resistedDistance = linearLimit + (distance - linearLimit) * 0.24
+        return direction * min(resistedDistance, pageHeight * 0.8)
+    }
+
+    private func settle(_ direction: Direction, pageHeight: CGFloat) {
+        guard balances.count > 1, !isSettling else { return }
+        settleTask?.cancel()
+
+        if reduceMotion {
+            selection = (selection + direction.rawValue + balances.count) % balances.count
+            dragOffset = 0
+            return
+        }
+
+        isSettling = true
+        let targetOffset = direction == .next ? -pageHeight : pageHeight
+        withAnimation(.spring(duration: 0.46, bounce: 0.08)) {
+            dragOffset = targetOffset
+        }
+
+        settleTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(460))
+            guard !Task.isCancelled else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                selection = (selection + direction.rawValue + balances.count) % balances.count
+                dragOffset = 0
+                isSettling = false
+            }
+        }
+    }
+
+    private var accessibilityLabel: String {
+        "\(L("Total balance")), \(signedMoney(selectedBalance.totalBalanceMinor, style: .exact, currencyCode: selectedBalance.currencyCode)), \(groupScopeText(selectedScopeCount))"
+    }
+}
+
+private struct AnimatedGroupScopeText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let groupCount: Int
+
+    @State private var displayedCount: Int?
+    @State private var isPulsing = false
+    @State private var transitionTask: Task<Void, Never>?
+
+    private var resolvedCount: Int {
+        displayedCount ?? groupCount
+    }
+
+    var body: some View {
+        Text(groupScopeText(resolvedCount))
+            .contentTransition(.numericText(value: Double(resolvedCount)))
+            .scaleEffect(isPulsing ? 1.018 : 1, anchor: .leading)
+            .offset(y: isPulsing ? -1 : 0)
+            .onAppear {
+                displayedCount = groupCount
+            }
+            .onChange(of: groupCount) { _, newCount in
+                animateCount(to: newCount)
+            }
+            .onDisappear {
+                transitionTask?.cancel()
+            }
+    }
+
+    private func animateCount(to newCount: Int) {
+        transitionTask?.cancel()
+
+        guard !reduceMotion else {
+            displayedCount = newCount
+            isPulsing = false
+            return
+        }
+
+        transitionTask = Task { @MainActor in
+            // Currency selection is committed without animation after the page
+            // settles, so start this numeric transition on the next run-loop turn.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+
+            withAnimation(.snappy(duration: 0.34)) {
+                displayedCount = newCount
+                isPulsing = true
+            }
+
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            withAnimation(.smooth(duration: 0.22)) {
+                isPulsing = false
+            }
+        }
+    }
+}
+
+private func groupScopeText(_ count: Int) -> String {
+    if count == 1 {
+        return L("Across 1 group")
+    }
+    return L("Across %@ groups").replacingOccurrences(of: "%@", with: "\(count)")
+}
+
+private struct CurrencyPageIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let pageCount: Int
+    let selection: Int
+
+    @State private var displayedPosition = 0
+    @State private var transitionTask: Task<Void, Never>?
+
+    private var visibleCount: Int {
+        min(pageCount, 3)
+    }
+
+    private var position: Int {
+        if visibleCount <= 1 {
+            return 0
+        }
+        if pageCount == 2 {
+            return min(max(selection, 0), 1)
+        }
+        if selection <= 0 {
+            return 0
+        }
+        if selection >= pageCount - 1 {
+            return 2
+        }
+        return 1
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ForEach(0..<visibleCount, id: \.self) { index in
+                Circle()
+                    .fill(SoftLedgerTheme.ink)
+                    .frame(width: 5, height: 5)
+                    .opacity(index == displayedPosition ? 0.72 : 0.18)
+            }
+        }
+        .onAppear {
+            displayedPosition = position
+        }
+        .onChange(of: position) { _, newPosition in
+            transition(to: newPosition)
+        }
+        .onDisappear {
+            transitionTask?.cancel()
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func transition(to newPosition: Int) {
+        transitionTask?.cancel()
+
+        guard !reduceMotion else {
+            displayedPosition = newPosition
+            return
+        }
+
+        transitionTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.24)) {
+                displayedPosition = newPosition
+            }
+        }
+    }
+}
+
+private struct CurrencyCylinderRollEffect: ViewModifier {
+    let position: CGFloat
+    let travelHeight: CGFloat
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        let direction: CGFloat = position < 0 ? -1 : 1
+        let absolutePosition = abs(position)
+        let progress = min(absolutePosition, 1)
+        let overflow = max(absolutePosition - 1, 0)
+        let angle = progress * .pi * 0.38
+        let cylinderRadius = travelHeight * 0.78
+        let arcOffset = sin(angle) * cylinderRadius
+        let verticalOffset = direction * (arcOffset + overflow * travelHeight * 0.78)
+        let depthScale = reduceMotion ? 1 : 1 - (1 - cos(angle)) * 0.34
+        let blurRadius = reduceMotion ? 0 : pow(progress, 1.4) * 3.2
+
+        content
+            .rotation3DEffect(
+                .degrees(reduceMotion ? 0 : -Double(direction * progress) * 68),
+                axis: (x: 1, y: 0, z: 0),
+                anchor: .center,
+                perspective: 0.68
+            )
+            .scaleEffect(depthScale)
+            .blur(radius: blurRadius)
+            .opacity(max(0.16, 1 - Double(pow(progress, 1.2)) * 0.84))
+            .offset(y: reduceMotion ? position * travelHeight : verticalOffset)
+    }
+}
+
+private extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 

@@ -81,8 +81,9 @@ struct CreateGroupSheet: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
 
-    let onDone: () -> Void
+    let onCreated: (String) -> Void
     @State private var groupName = ""
+    @State private var selectedCurrencyCode = CurrencyCatalog.defaultCurrencyCode()
     @State private var selectedUsers: [UserProfile] = []
     @State private var tempUsers: [String] = []
     @State private var actionMessage: String?
@@ -113,6 +114,20 @@ struct CreateGroupSheet: View {
                 TextField(L("Name"), text: $groupName)
                     .textInputAutocapitalization(.words)
                     .softLedgerAccentTint()
+
+                NavigationLink {
+                    CurrencySelectionView(selectedCode: selectedCurrencyCode) { currency in
+                        selectedCurrencyCode = currency.code
+                        return .success
+                    }
+                } label: {
+                    HStack {
+                        Text(L("Currency"))
+                        Spacer()
+                        Text(selectedCurrencyCode)
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    }
+                }
 
                 if let actionMessage {
                     Text(actionMessage)
@@ -190,7 +205,6 @@ struct CreateGroupSheet: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button(role: .cancel) {
                     dismiss()
-                    onDone()
                 } label: {
                     Image(systemName: "xmark")
                 }
@@ -222,10 +236,18 @@ struct CreateGroupSheet: View {
         let name = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
         actionMessage = nil
         isSubmitting = true
-        let result = await store.createGroupWithFeedback(name: name, users: selectedUsers, tempUsers: tempUsers)
-        if result.success {
+        let result = await store.createGroupWithFeedback(
+            name: name,
+            users: selectedUsers,
+            tempUsers: tempUsers,
+            currencyCode: selectedCurrencyCode
+        )
+        if result.success, let groupId = result.createdGroupId {
             dismiss()
-            onDone()
+            onCreated(groupId)
+        } else if result.success {
+            isSubmitting = false
+            actionMessage = L("Try again later.")
         } else {
             isSubmitting = false
             actionMessage = result.message
@@ -686,15 +708,12 @@ private struct ThemePreviewSwatch: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            HStack(spacing: 0) {
-                theme.previewSoftAccent
-                theme.previewAccent
-            }
-            .clipShape(Circle())
-            .overlay {
-                Circle().stroke(SoftLedgerTheme.rule.opacity(0.72), lineWidth: 1)
-            }
-            .frame(width: 26, height: 26)
+            Circle()
+                .fill(theme.accent)
+                .overlay {
+                    Circle().stroke(SoftLedgerTheme.rule.opacity(0.72), lineWidth: 1)
+                }
+                .frame(width: 26, height: 26)
 
             if isSelected {
                 Circle()
@@ -716,7 +735,7 @@ private struct ThemePreviewSwatch: View {
     }
 
     private var checkmarkColor: Color {
-        if theme == .black, colorScheme == .dark {
+        if theme == .mono, colorScheme == .dark {
             return Color.black
         }
         return Color.white
@@ -967,6 +986,10 @@ struct GroupSettingsSheet: View {
                     }
                 }
 
+            }
+            .listRowBackground(SoftLedgerTheme.formPaper)
+
+            Section(L("Members")) {
                 if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
                     GroupOwnerSummaryRow(owner: owner)
                 }
@@ -981,15 +1004,6 @@ struct GroupSettingsSheet: View {
                     }
                 }
 
-                if let actionMessage {
-                    Text(actionMessage)
-                        .font(.footnote)
-                        .foregroundStyle(SoftLedgerTheme.negative)
-                }
-            }
-            .listRowBackground(SoftLedgerTheme.formPaper)
-
-            Section(L("Members")) {
                 if !isLocalGroup {
                     NavigationLink {
                         AddMemberSearchView(existingMemberIds: Set(currentGroup.allMembers.map(\.uuid)), showsSubmitProgress: true) { users in
@@ -1019,10 +1033,16 @@ struct GroupSettingsSheet: View {
                     Text(L("Add temporary member"))
                         .foregroundStyle(.primary)
                 }
+
+                if let actionMessage {
+                    Text(actionMessage)
+                        .font(.footnote)
+                        .foregroundStyle(SoftLedgerTheme.negative)
+                }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            Section(L("Management")) {
+            Section {
                 Button {
                     if currentGroup.shouldBlockArchive {
                         isShowingArchiveBlockedAlert = true
@@ -1240,14 +1260,36 @@ private struct CurrencySelectionView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
 
-    let group: WalkGroup
+    let group: WalkGroup?
+    let initialSelectedCode: String?
+    let selectionAction: ((CurrencyInfo) async -> StoreActionResult)?
 
     @State private var query = ""
     @State private var savingCode: String?
     @State private var message: String?
 
-    private var currentGroup: WalkGroup {
-        store.group(id: group.id) ?? group
+    init(group: WalkGroup) {
+        self.group = group
+        self.initialSelectedCode = nil
+        self.selectionAction = nil
+    }
+
+    init(
+        selectedCode: String,
+        onSelect: @escaping (CurrencyInfo) async -> StoreActionResult
+    ) {
+        self.group = nil
+        self.initialSelectedCode = selectedCode
+        self.selectionAction = onSelect
+    }
+
+    private var currentGroup: WalkGroup? {
+        guard let group else { return nil }
+        return store.group(id: group.id) ?? group
+    }
+
+    private var selectedCode: String {
+        CurrencyCatalog.normalizedCode(currentGroup?.currencyCode ?? initialSelectedCode)
     }
 
     private var currencies: [CurrencyInfo] {
@@ -1279,7 +1321,7 @@ private struct CurrencySelectionView: View {
             } else {
                 CurrencyIndexedTableView(
                     sections: groupedCurrencies,
-                    selectedCode: CurrencyCatalog.normalizedCode(currentGroup.currencyCode),
+                    selectedCode: selectedCode,
                     savingCode: savingCode,
                     isEnabled: savingCode == nil,
                     onSelect: { currency in
@@ -1296,14 +1338,21 @@ private struct CurrencySelectionView: View {
 
     private func select(_ currency: CurrencyInfo) async {
         guard savingCode == nil else { return }
-        guard currentGroup.isOwner else { return }
-        if CurrencyCatalog.normalizedCode(currentGroup.currencyCode) == currency.code {
+        guard currentGroup?.isOwner ?? (selectionAction != nil) else { return }
+        if selectedCode == currency.code {
             dismiss()
             return
         }
         message = nil
         savingCode = currency.code
-        let result = await store.changeGroupCurrencyWithFeedback(group.id, currencyCode: currency.code)
+        let result: StoreActionResult
+        if let currentGroup {
+            result = await store.changeGroupCurrencyWithFeedback(currentGroup.id, currencyCode: currency.code)
+        } else if let selectionAction {
+            result = await selectionAction(currency)
+        } else {
+            result = .failure(nil)
+        }
         savingCode = nil
         if result.success {
             dismiss()
@@ -1409,6 +1458,10 @@ private struct GroupMembersView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalInset = 12
     @ScaledMetric(relativeTo: .caption) private var rowVerticalInset = 6
+    @State private var removalCandidate: Member?
+    @State private var blockedMember: Member?
+    @State private var isRemoving = false
+    @State private var removalMessage: String?
 
     let group: WalkGroup
 
@@ -1425,6 +1478,9 @@ private struct GroupMembersView: View {
             Section(L("Members")) {
                 ForEach(currentGroup.membersInfo) { member in
                     GroupMemberInfoRow(member: member, isGroupOwner: member.uuid == ownerUserId)
+                        .memberRemovalSwipe(enabled: canOfferRemoval(for: member)) {
+                            prepareRemoval(of: member)
+                        }
                 }
             }
             .listRowInsets(rowInsets)
@@ -1437,6 +1493,9 @@ private struct GroupMembersView: View {
                 } else {
                     ForEach(currentGroup.tempUsers) { member in
                         GroupMemberInfoRow(member: member)
+                            .memberRemovalSwipe(enabled: canOfferRemoval(for: member)) {
+                                prepareRemoval(of: member)
+                            }
                     }
                 }
             }
@@ -1449,10 +1508,80 @@ private struct GroupMembersView: View {
         .navigationTitle(L("Members"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .alert(L("Remove member?"), isPresented: Binding(
+            get: { removalCandidate != nil },
+            set: { if !$0 { removalCandidate = nil } }
+        )) {
+            Button(L("Cancel"), role: .cancel) { removalCandidate = nil }
+            Button(L("Remove"), role: .destructive) {
+                guard let member = removalCandidate else { return }
+                removalCandidate = nil
+                Task { await remove(member) }
+            }
+        } message: {
+            if let member = removalCandidate {
+                Text(L("Remove %@ from this group?").replacingOccurrences(of: "%@", with: member.name))
+            }
+        }
+        .alert(L("Member cannot be removed"), isPresented: Binding(
+            get: { blockedMember != nil },
+            set: { if !$0 { blockedMember = nil } }
+        )) {
+            Button(L("OK"), role: .cancel) { blockedMember = nil }
+        } message: {
+            Text(L("Settle this member's balance before removing them."))
+        }
+        .alert(L("Unable to remove member"), isPresented: Binding(
+            get: { removalMessage != nil },
+            set: { if !$0 { removalMessage = nil } }
+        )) {
+            Button(L("OK"), role: .cancel) { removalMessage = nil }
+        } message: {
+            Text(removalMessage ?? "")
+        }
     }
 
     private var rowInsets: EdgeInsets {
         EdgeInsets(top: rowVerticalInset, leading: rowHorizontalInset, bottom: rowVerticalInset, trailing: rowHorizontalInset)
+    }
+
+    private func canOfferRemoval(for member: Member) -> Bool {
+        currentGroup.isOwner && member.uuid != ownerUserId && !isRemoving
+    }
+
+    private func prepareRemoval(of member: Member) {
+        if store.canRemoveMember(member, from: currentGroup) {
+            removalCandidate = member
+        } else {
+            blockedMember = member
+        }
+    }
+
+    @MainActor
+    private func remove(_ member: Member) async {
+        guard !isRemoving else { return }
+        isRemoving = true
+        let result = await store.removeMemberWithFeedback(groupId: group.id, member: member)
+        isRemoving = false
+        if !result.success {
+            removalMessage = result.message ?? L("Unable to remove member")
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func memberRemovalSwipe(enabled: Bool, action: @escaping () -> Void) -> some View {
+        if enabled {
+            swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive, action: action) {
+                    Label(L("Remove"), systemImage: "person.crop.circle.badge.minus")
+                }
+                .accessibilityHint(L("Removes this member after confirmation"))
+            }
+        } else {
+            self
+        }
     }
 }
 
@@ -1825,7 +1954,13 @@ struct RecordEditorView: View {
     }
 
     private var members: [Member] {
-        group?.allMembers ?? []
+        guard let group else { return [] }
+        return allowsMutation ? group.allMembers : group.recordMembers
+    }
+
+    private var currentParticipantID: String? {
+        guard let group else { return store.user?.uuid }
+        return store.currentParticipantID(for: group)
     }
 
     private var title: String {
@@ -1839,8 +1974,14 @@ struct RecordEditorView: View {
             && !splitMembers.isEmpty
     }
 
+    private var allowsMutation: Bool {
+        guard let record else { return true }
+        guard let group else { return false }
+        return store.canMutateRecord(record, in: group)
+    }
+
     private var showsEditActions: Bool {
-        record == nil || hasEditIntent
+        allowsMutation && (record == nil || hasEditIntent)
     }
 
     var body: some View {
@@ -1861,12 +2002,23 @@ struct RecordEditorView: View {
                 }
                 .padding(.vertical, 10)
             }
+            .disabled(!allowsMutation)
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section {
-                PaidByInlineEditor(members: members, selection: $paidBy, onEdit: beginEditing)
+                PaidByInlineEditor(
+                    members: members,
+                    currentParticipantID: currentParticipantID,
+                    selection: $paidBy,
+                    onEdit: beginEditing
+                )
 
-                SplitInlineEditor(members: members, selection: $splitMembers, onEdit: beginEditing)
+                SplitInlineEditor(
+                    members: members,
+                    currentParticipantID: currentParticipantID,
+                    selection: $splitMembers,
+                    onEdit: beginEditing
+                )
                 CategoryInlineEditor(selection: $categoryId, onEdit: beginEditing)
 
                 DatePicker(L("Date"), selection: $date)
@@ -1885,9 +2037,21 @@ struct RecordEditorView: View {
                         .foregroundStyle(SoftLedgerTheme.negative)
                 }
             }
+            .disabled(!allowsMutation)
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            if record != nil {
+            if record != nil && !allowsMutation {
+                Section {
+                    Label(L("Read only"), systemImage: "lock.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                } footer: {
+                    Text(L("This expense includes a removed member and can no longer be edited."))
+                }
+                .listRowBackground(SoftLedgerTheme.formPaper)
+            }
+
+            if record != nil && allowsMutation {
                 Section {
                     Button(L("Delete expense"), role: .destructive) {
                         deleteCandidate = record
@@ -1952,7 +2116,7 @@ struct RecordEditorView: View {
     }
 
     private func beginEditing() {
-        guard record != nil else { return }
+        guard record != nil, allowsMutation else { return }
         hasEditIntent = true
     }
 
@@ -2041,6 +2205,7 @@ private struct PaidByInlineEditor: View {
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
 
     let members: [Member]
+    let currentParticipantID: String?
     @Binding var selection: String
     let onEdit: () -> Void
 
@@ -2059,7 +2224,7 @@ private struct PaidByInlineEditor: View {
                     VStack(spacing: textSpacing) {
                         SelectableSplitAvatar(member: member, isSelected: isMemberSelected, avatarSize: avatarSize)
 
-                        Text(member.name)
+                        Text(displayName(for: member))
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(isMemberSelected ? SoftLedgerTheme.ink : SoftLedgerTheme.secondaryInk.opacity(0.74))
                             .lineLimit(1)
@@ -2070,11 +2235,15 @@ private struct PaidByInlineEditor: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(L("Paid by")) \(member.name)")
+                .accessibilityLabel("\(L("Paid by")) \(displayName(for: member))")
                 .accessibilityAddTraits(isMemberSelected ? .isSelected : [])
             }
         }
         .padding(.vertical, verticalPadding)
+    }
+
+    private func displayName(for member: Member) -> String {
+        member.uuid == currentParticipantID ? L("You") : member.name
     }
 }
 
@@ -2095,6 +2264,7 @@ private struct SplitInlineEditor: View {
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
 
     let members: [Member]
+    let currentParticipantID: String?
     @Binding var selection: Set<String>
     let onEdit: () -> Void
 
@@ -2127,7 +2297,7 @@ private struct SplitInlineEditor: View {
                     VStack(spacing: textSpacing) {
                         SelectableSplitAvatar(member: member, isSelected: isMemberSelected, avatarSize: avatarSize)
 
-                        Text(member.name)
+                        Text(displayName(for: member))
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(isMemberSelected ? SoftLedgerTheme.ink : SoftLedgerTheme.secondaryInk.opacity(0.74))
                             .lineLimit(1)
@@ -2138,7 +2308,7 @@ private struct SplitInlineEditor: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(L("Split")) \(member.name)")
+                .accessibilityLabel("\(L("Split")) \(displayName(for: member))")
                 .accessibilityAddTraits(isMemberSelected ? .isSelected : [])
             }
         }
@@ -2151,6 +2321,10 @@ private struct SplitInlineEditor: View {
         } else {
             selection.insert(member.uuid)
         }
+    }
+
+    private func displayName(for member: Member) -> String {
+        member.uuid == currentParticipantID ? L("You") : member.name
     }
 }
 
@@ -2376,7 +2550,7 @@ private struct BalancesRootView: View {
     @State private var pendingResolveMode = ResolveMode.all
     @State private var pendingResolveDebts: [ResolvedDebt] = []
     @State private var resolvingMode: ResolveMode?
-    @State private var resolvingDebtID: UUID?
+    @State private var resolvingDebtID: ResolvedDebt.ID?
     @State private var resolveMessage: String?
     @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
@@ -2393,7 +2567,7 @@ private struct BalancesRootView: View {
     let onSelect: (Member) -> Void
 
     private var members: [Member] {
-        group.allMembers
+        store.balancesInServerOrder(for: group)
     }
 
     private var debts: [ResolvedDebt] {
@@ -2425,11 +2599,19 @@ private struct BalancesRootView: View {
               let debt = pendingResolveDebts.first else {
             return ""
         }
+        let amount = CurrencyCatalog.formatted(debt.amountMinor, currencyCode: group.currencyCode, style: .exact)
+        let currentParticipantID = store.currentParticipantID(for: group)
+        if debt.from.uuid == currentParticipantID {
+            return String(format: L("You should pay %@ %@"), debt.to.name, amount)
+        }
+        if debt.to.uuid == currentParticipantID {
+            return String(format: L("%@ should pay you %@"), debt.from.name, amount)
+        }
         return String(
             format: L("%@ should pay %@ %@"),
             debt.from.name,
             debt.to.name,
-            CurrencyCatalog.formatted(debt.amountMinor, currencyCode: group.currencyCode, style: .exact)
+            amount
         )
     }
 
@@ -2443,6 +2625,26 @@ private struct BalancesRootView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
+                    if let resolveMessage {
+                        Text(resolveMessage)
+                            .font(.footnote)
+                            .foregroundStyle(SoftLedgerTheme.negative)
+                    }
+
+                    if !debts.isEmpty {
+                        SettlementPlanSection(
+                            debts: debts,
+                            resolvingDebtID: resolvingDebtID,
+                            isDisabled: isResolving,
+                            currentParticipantID: store.currentParticipantID(for: group),
+                            currencyCode: group.currencyCode
+                        ) { debt in
+                            pendingResolveMode = .single
+                            pendingResolveDebts = [debt]
+                            showsResolveConfirmation = true
+                        }
+                    }
+
                     VStack(alignment: .leading, spacing: sectionSpacing) {
                         Text(L("All balances"))
                             .font(.headline.weight(.semibold))
@@ -2467,25 +2669,6 @@ private struct BalancesRootView: View {
                             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                         }
-                    }
-
-                    if !debts.isEmpty {
-                        SettlementPlanSection(
-                            debts: debts,
-                            resolvingDebtID: resolvingDebtID,
-                            isDisabled: isResolving,
-                            currencyCode: group.currencyCode
-                        ) { debt in
-                            pendingResolveMode = .single
-                            pendingResolveDebts = [debt]
-                            showsResolveConfirmation = true
-                        }
-                    }
-
-                    if let resolveMessage {
-                        Text(resolveMessage)
-                            .font(.footnote)
-                            .foregroundStyle(SoftLedgerTheme.negative)
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
@@ -2518,8 +2701,9 @@ private struct BalancesRootView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task(id: group.id) {
-            await store.refreshGroupBalances(group.id)
-            await store.refreshSettlementSuggestion(groupId: group.id)
+            async let balancesRefresh: Void = store.refreshGroupBalances(group.id)
+            async let settlementRefresh: Void = store.refreshSettlementSuggestion(groupId: group.id)
+            _ = await (balancesRefresh, settlementRefresh)
         }
         .alert(resolveConfirmationTitle, isPresented: $showsResolveConfirmation) {
             Button(L("Cancel"), role: .cancel) {}
@@ -2591,8 +2775,9 @@ private struct SettlementPlanSection: View {
     @ScaledMetric(relativeTo: .subheadline) private var cardSpacing = 10
 
     let debts: [ResolvedDebt]
-    let resolvingDebtID: UUID?
+    let resolvingDebtID: ResolvedDebt.ID?
     let isDisabled: Bool
+    let currentParticipantID: String?
     let currencyCode: String
     let onResolve: (ResolvedDebt) -> Void
 
@@ -2604,7 +2789,12 @@ private struct SettlementPlanSection: View {
 
             LazyVStack(spacing: cardSpacing) {
                 ForEach(debts) { debt in
-                    SettlementPlanRow(debt: debt, currencyCode: currencyCode, isResolving: resolvingDebtID == debt.id) {
+                    SettlementPlanRow(
+                        debt: debt,
+                        currentParticipantID: currentParticipantID,
+                        currencyCode: currencyCode,
+                        isResolving: resolvingDebtID == debt.id
+                    ) {
                         onResolve(debt)
                     }
                     .disabled(isDisabled)
@@ -2632,6 +2822,7 @@ private struct SettlementPlanRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
 
     let debt: ResolvedDebt
+    let currentParticipantID: String?
     let currencyCode: String
     let isResolving: Bool
     let onResolve: () -> Void
@@ -2642,7 +2833,7 @@ private struct SettlementPlanRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(debt.from.name) \(L("pays")) \(debt.to.name), \(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currencyCode, style: .exact))")
+        .accessibilityLabel("\(transferTitle), \(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currencyCode, style: .exact))")
         .accessibilityHint(L("Resolve this transfer"))
     }
 
@@ -2651,7 +2842,7 @@ private struct SettlementPlanRow: View {
             payerAvatar
 
             VStack(alignment: .leading, spacing: textSpacing) {
-                Text("\(debt.from.name) \(L("pays")) \(debt.to.name)")
+                Text(transferTitle)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.ink)
                     .lineLimit(1)
@@ -2662,7 +2853,7 @@ private struct SettlementPlanRow: View {
                     SoftLedgerAvatar(member: debt.to, size: receiverAvatarSize)
                         .accessibilityHidden(true)
 
-                    Text(L("Settle with %@").replacingOccurrences(of: "%@", with: debt.to.name))
+                    Text(L("Settle with %@").replacingOccurrences(of: "%@", with: counterpartyName))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         .lineLimit(1)
@@ -2713,6 +2904,20 @@ private struct SettlementPlanRow: View {
         }
     }
 
+    private var transferTitle: String {
+        if debt.from.uuid == currentParticipantID {
+            return L("You pay %@").replacingOccurrences(of: "%@", with: debt.to.name)
+        }
+        if debt.to.uuid == currentParticipantID {
+            return L("%@ pays you").replacingOccurrences(of: "%@", with: debt.from.name)
+        }
+        return "\(debt.from.name) \(L("pays")) \(debt.to.name)"
+    }
+
+    private var counterpartyName: String {
+        debt.from.uuid == currentParticipantID ? debt.to.name : debt.from.name
+    }
+
     private var payerAvatar: some View {
         ZStack(alignment: .bottomTrailing) {
             SoftLedgerAvatar(member: debt.from, size: avatarSize)
@@ -2757,7 +2962,7 @@ private struct MemberBalanceDetailView: View {
     @State private var deleteCandidate: WalkRecord?
     @State private var showsResolveConfirmation = false
     @State private var pendingResolveDebt: ResolvedDebt?
-    @State private var resolvingDebtID: UUID?
+    @State private var resolvingDebtID: ResolvedDebt.ID?
     @State private var resolveMessage: String?
 
     private var currentGroup: WalkGroup {
@@ -2789,11 +2994,19 @@ private struct MemberBalanceDetailView: View {
 
     private var resolveConfirmationMessage: String {
         guard let debt = pendingResolveDebt else { return "" }
+        let amount = CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currentGroup.currencyCode, style: .exact)
+        let currentParticipantID = store.currentParticipantID(for: currentGroup)
+        if debt.from.uuid == currentParticipantID {
+            return String(format: L("You should pay %@ %@"), debt.to.name, amount)
+        }
+        if debt.to.uuid == currentParticipantID {
+            return String(format: L("%@ should pay you %@"), debt.from.name, amount)
+        }
         return String(
             format: L("%@ should pay %@ %@"),
             debt.from.name,
             debt.to.name,
-            CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currentGroup.currencyCode, style: .exact)
+            amount
         )
     }
 
@@ -2835,6 +3048,7 @@ private struct MemberBalanceDetailView: View {
                             debts: memberDebts,
                             resolvingDebtID: resolvingDebtID,
                             isDisabled: resolvingDebtID != nil,
+                            currentParticipantID: store.currentParticipantID(for: currentGroup),
                             currencyCode: currentGroup.currencyCode
                         ) { debt in
                             pendingResolveDebt = debt
@@ -2868,9 +3082,13 @@ private struct MemberBalanceDetailView: View {
                         } else {
                             LazyVStack(spacing: 0) {
                                 ForEach(records) { record in
-                                    ExpenseRow(record: record, group: currentGroup, onDelete: {
-                                        deleteCandidate = record
-                                    }) {
+                                    ExpenseRow(
+                                        record: record,
+                                        group: currentGroup,
+                                        onDelete: store.canMutateRecord(record, in: currentGroup) ? {
+                                            deleteCandidate = record
+                                        } : nil
+                                    ) {
                                         selectedRecord = record
                                     }
                                     if record.id != records.last?.id {
@@ -2916,8 +3134,9 @@ private struct MemberBalanceDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {
-            await store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
-            await store.refreshSettlementSuggestion(groupId: group.id)
+            async let recordsRefresh: Void = store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
+            async let settlementRefresh: Void = store.refreshSettlementSuggestion(groupId: group.id)
+            _ = await (recordsRefresh, settlementRefresh)
         }
         .navigationDestination(item: $selectedRecord) { record in
             RecordEditorView(groupId: group.id, record: record) {

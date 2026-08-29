@@ -5,6 +5,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
 
     private var groups: [WalkGroup]
     private var recordsByGroup: [String: [WalkRecord]]
+    private var removedMembersByGroup: [String: [Member]] = [:]
 
     init(groups: [WalkGroup] = [], recordsByGroup: [String: [WalkRecord]] = [:]) {
         self.groups = groups
@@ -20,6 +21,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
             groups: slice.items,
             groupPagination: Pagination(page: page, size: pageSize, total: filtered.count),
             totalBalanceMinor: totalBalance(ownerId: context.localOwner?.uuid),
+            currencyBalances: currencyBalances(ownerId: context.localOwner?.uuid),
             source: .local(),
             refreshedToken: nil
         ))
@@ -159,11 +161,36 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
     func addTempUser(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(.sourceUnavailable()) }
-        let id = Self.localMemberId()
-        groups[index].tempUsers.append(Member(uuid: id, name: name, avatar: "", debtMinor: "0", costMinor: "0", isTemporary: true))
+        let restored = removedMembersByGroup[code]?.first { $0.isTemporary && $0.name == name }
+        let id = restored?.uuid ?? Self.localMemberId()
+        if let restored {
+            groups[index].tempUsers.append(restored)
+            groups[index].historicalMembers.removeAll { $0.uuid == restored.uuid }
+            removedMembersByGroup[code]?.removeAll { $0.uuid == restored.uuid }
+        } else {
+            groups[index].tempUsers.append(Member(uuid: id, name: name, avatar: "", debtMinor: "0", costMinor: "0", isTemporary: true))
+        }
+        recomputeBalances(groupId: code)
         groups[index].participantCount = groups[index].allMembers.count
         groups[index].participantPreview = Array(groups[index].allMembers.prefix(4))
         return .success(mutation(id, source: .local(id: code)))
+    }
+
+    func removeMember(code: String, participantId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        guard isAvailable(context),
+              let index = groups.firstIndex(where: { $0.id == code }),
+              groups[index].isOwner,
+              participantId != groups[index].ownerUserId,
+              let member = groups[index].allMembers.first(where: { $0.uuid == participantId }),
+              Money.isZero(member.debtMinor) else {
+            return .failure(.sourceUnavailable())
+        }
+        removedMembersByGroup[code, default: []].append(member)
+        groups[index].historicalMembers.append(member)
+        groups[index].membersInfo.removeAll { $0.uuid == participantId }
+        groups[index].tempUsers.removeAll { $0.uuid == participantId }
+        recomputeBalances(groupId: code)
+        return .success(mutation(participantId, source: .local(id: code)))
     }
 
     func searchUsers(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[UserProfile]>> {
@@ -172,7 +199,9 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
 
     func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
-        guard group(id: groupId) != nil else { return .failure(.sourceUnavailable()) }
+        guard let group = group(id: groupId) else { return .failure(.sourceUnavailable()) }
+        let memberIds = Set(group.allMembers.map(\.uuid))
+        guard memberIds.contains(who), forWhom.allSatisfy(memberIds.contains) else { return .failure(.sourceUnavailable()) }
         let now = Date().timeIntervalSince1970 * 1000
         let record = WalkRecord(
             recordId: Self.localRecordId(),
@@ -222,6 +251,9 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
     func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let index = recordsByGroup[groupId]?.firstIndex(where: { $0.recordId == recordId }) else { return .failure(.sourceUnavailable()) }
+        guard let group = group(id: groupId), recordCanMutate(recordsByGroup[groupId]![index], in: group) else { return .failure(.sourceUnavailable()) }
+        let memberIds = Set(group.allMembers.map(\.uuid))
+        guard memberIds.contains(who), forWhom.allSatisfy(memberIds.contains) else { return .failure(.sourceUnavailable()) }
         recordsByGroup[groupId]?[index].who = who
         recordsByGroup[groupId]?[index].paidMinor = paidMinor
         recordsByGroup[groupId]?[index].forWhom = forWhom
@@ -236,9 +268,17 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
 
     func deleteRecord(groupId: String, recordId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
+        guard let group = group(id: groupId),
+              let record = recordsByGroup[groupId]?.first(where: { $0.recordId == recordId }),
+              recordCanMutate(record, in: group) else { return .failure(.sourceUnavailable()) }
         recordsByGroup[groupId]?.removeAll { $0.recordId == recordId }
         recomputeBalances(groupId: groupId)
         return .success(mutation(recordId, source: .local(id: groupId)))
+    }
+
+    private func recordCanMutate(_ record: WalkRecord, in group: WalkGroup) -> Bool {
+        let memberIds = Set(group.allMembers.map(\.uuid))
+        return memberIds.contains(record.who) && record.forWhom.allSatisfy(memberIds.contains)
     }
 
     func resolveDebts(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
@@ -295,6 +335,22 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         return groups.reduce("0") { total, group in
             let balance = group.allMembers.first { $0.uuid == ownerId }?.debtMinor ?? "0"
             return Money.add(total, balance)
+        }
+    }
+
+    private func currencyBalances(ownerId: String?) -> [CurrencyBalanceSummary] {
+        guard let ownerId else { return [] }
+        let totals = groups.reduce(into: [String: MoneyMinor]()) { result, group in
+            guard !group.archivedUsers.contains(ownerId) else { return }
+            let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
+            let balance = group.allMembers.first { $0.uuid == ownerId }?.debtMinor ?? "0"
+            result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance)
+        }
+        return totals.keys.sorted().map { currencyCode in
+            CurrencyBalanceSummary(
+                currencyCode: currencyCode,
+                totalBalanceMinor: totals[currencyCode] ?? "0"
+            )
         }
     }
 

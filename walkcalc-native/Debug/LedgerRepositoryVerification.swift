@@ -91,7 +91,10 @@ enum LedgerRepositoryVerification {
         let repository = LedgerRepository(remoteSource: RemoteLedgerDataSource(api: api))
         let context = LedgerSessionContext.remote(accessToken: "valid-token")
 
-        _ = expectSuccess(await repository.home(page: 1, pageSize: 20, search: nil, context: context), prefix: "remote-home")
+        let home = expectSuccess(await repository.home(page: 1, pageSize: 20, search: nil, context: context), prefix: "remote-home")
+        expect(home.currencyBalances.count, equals: 2, prefix: "remote-home-currency-count")
+        expect(home.currencyBalances.first { $0.currencyCode == "CNY" }?.totalBalanceMinor, equals: Optional("1000"), prefix: "remote-home-cny-balance")
+        expect(home.currencyBalances.first { $0.currencyCode == "USD" }?.totalBalanceMinor, equals: Optional("-250"), prefix: "remote-home-usd-balance")
         _ = expectSuccess(await repository.groups(page: 2, pageSize: 20, search: "trip", context: context), prefix: "remote-groups")
         _ = expectSuccess(await repository.groupDetail(groupId: "AB12", recordPageSize: 10, context: context), prefix: "remote-group-detail")
         _ = expectSuccess(await repository.groupBalances(groupId: "AB12", context: context), prefix: "remote-balances")
@@ -283,7 +286,13 @@ private final class MockLedgerURLProtocol: URLProtocol {
         case ("POST", "/api/auth/refreshToken"):
             return (200, envelope(["accessToken": "refreshed-token", "refreshToken": "next-refresh"]))
         case ("GET", "/api/walkcalc/home/summary"):
-            return (200, envelope("10.00"))
+            return (200, envelope([
+                "totalBalance": "7.50",
+                "balances": [
+                    ["currencyCode": "CNY", "totalBalance": "10.00"],
+                    ["currencyCode": "USD", "totalBalance": "-2.50"]
+                ]
+            ]))
         case ("GET", "/api/walkcalc/groups/my"):
             return (200, pagedEnvelope([groupPayload(code: "AB12")], page: Int(query["page"] ?? "1") ?? 1, pageSize: Int(query["pageSize"] ?? "20") ?? 20, total: 2))
         case ("GET", "/api/walkcalc/groups/AB12"):

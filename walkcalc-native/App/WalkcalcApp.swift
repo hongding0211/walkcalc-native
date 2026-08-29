@@ -11,6 +11,7 @@ import SwiftUI
 struct walkcalc_nativeApp: App {
     @UIApplicationDelegateAdaptor(WalkcalcAppDelegate.self) private var appDelegate
     @StateObject private var store = WalkcalcStore()
+    @StateObject private var pushNavigation = PushNavigationCoordinator.shared
 
     init() {
         AppTheme.defaultTheme.applySystemControlTint()
@@ -21,6 +22,9 @@ struct walkcalc_nativeApp: App {
         }
         if ProcessInfo.processInfo.arguments.contains("--verify-money-display") {
             MoneyDisplayVerification.assertAllCasesPass()
+        }
+        if ProcessInfo.processInfo.arguments.contains("--verify-balance-presentation") {
+            BalancePresentationVerification.assertAllCasesPass()
         }
         if ProcessInfo.processInfo.arguments.contains("--verify-ledger-migration") {
             LedgerMigrationVerification.assertAllCasesPass()
@@ -70,6 +74,7 @@ struct walkcalc_nativeApp: App {
                     .environmentObject(store)
                 #endif
             }
+            .environmentObject(pushNavigation)
             .environment(\.softLedgerAppTheme, store.selectedTheme)
             .softLedgerUIKitTint(store.selectedTheme)
         }

@@ -15,13 +15,18 @@ struct JoinGroupResult {
 struct StoreActionResult {
     let success: Bool
     let message: String?
+    let createdGroupId: String?
 
     static var success: StoreActionResult {
-        StoreActionResult(success: true, message: nil)
+        StoreActionResult(success: true, message: nil, createdGroupId: nil)
+    }
+
+    static func success(createdGroupId: String) -> StoreActionResult {
+        StoreActionResult(success: true, message: nil, createdGroupId: createdGroupId)
     }
 
     static func failure(_ message: String?) -> StoreActionResult {
-        StoreActionResult(success: false, message: message)
+        StoreActionResult(success: false, message: message, createdGroupId: nil)
     }
 }
 
@@ -77,6 +82,7 @@ final class WalkcalcStore: ObservableObject {
     @Published var recordsByGroup: [String: [WalkRecord]] = [:]
     @Published var recordTotals: [String: Int] = [:]
     @Published var totalBalanceMinor: MoneyMinor = "0"
+    @Published private(set) var totalBalancesByCurrency: [CurrencyBalanceSummary] = []
     @Published private(set) var groupTotal = 0
     @Published private(set) var isLoadingMoreGroups = false
     @Published var isBootstrapping = true
@@ -90,6 +96,7 @@ final class WalkcalcStore: ObservableObject {
     @Published private var memberRecordsByKey: [String: [WalkRecord]] = [:]
     @Published private var memberRecordTotalsByKey: [String: Int] = [:]
     @Published private var settlementSuggestionsByGroup: [String: [SettlementTransfer]] = [:]
+    private var groupContentRefreshTasks: [String: Task<Void, Never>] = [:]
     @Published private var loadingRecordKeys: Set<String> = []
     @Published private(set) var preferredLedgerSource: LedgerSourceKind = .remote
     @Published private var groupSourceById: [String: LedgerSourceMetadata] = [:]
@@ -344,6 +351,7 @@ final class WalkcalcStore: ObservableObject {
         recordTotals = [:]
         groupTotal = 0
         totalBalanceMinor = "0"
+        totalBalancesByCurrency = []
         groupsPage = 0
         groupSearchQuery = ""
         recordSearchResultsByKey = [:]
@@ -585,17 +593,23 @@ final class WalkcalcStore: ObservableObject {
             trackSource(remoteSnapshot.source, for: remoteSnapshot.groups)
             var combinedGroups = remoteSnapshot.groups
             var combinedTotalBalance = remoteSnapshot.totalBalanceMinor ?? "0"
+            var combinedCurrencyBalances = resolvedCurrencyBalances(from: remoteSnapshot)
             var localTotal = 0
             if case .success(let localSnapshot) = localResult {
                 trackSource(localSnapshot.source, for: localSnapshot.groups)
                 combinedGroups.append(contentsOf: localSnapshot.groups)
                 combinedTotalBalance = Money.add(combinedTotalBalance, localSnapshot.totalBalanceMinor ?? "0")
+                combinedCurrencyBalances = mergedCurrencyBalances(
+                    combinedCurrencyBalances,
+                    resolvedCurrencyBalances(from: localSnapshot)
+                )
                 localTotal = localSnapshot.groupPagination?.total ?? localSnapshot.groups.count
             } else if case .failure(let failure) = localResult {
                 recordFailure(operation: "refreshHome.local", intent: .backgroundRefresh, disposition: .silent, failure: failure)
             }
             groupSearchQuery = query
             totalBalanceMinor = combinedTotalBalance
+            totalBalancesByCurrency = combinedCurrencyBalances
             groups = mergedGroupSummaries(combinedGroups.sorted { $0.modifiedAt > $1.modifiedAt })
             groupsPage = remoteSnapshot.groupPagination?.page ?? 1
             groupTotal = (remoteSnapshot.groupPagination?.total ?? remoteSnapshot.groups.count) + localTotal
@@ -609,6 +623,7 @@ final class WalkcalcStore: ObservableObject {
                 trackSource(localSnapshot.source, for: localSnapshot.groups)
                 groupSearchQuery = query
                 totalBalanceMinor = localSnapshot.totalBalanceMinor ?? "0"
+                totalBalancesByCurrency = resolvedCurrencyBalances(from: localSnapshot)
                 groups = mergedGroupSummaries(localSnapshot.groups)
                 groupsPage = 1
                 groupTotal = localSnapshot.groupPagination?.total ?? localSnapshot.groups.count
@@ -637,6 +652,7 @@ final class WalkcalcStore: ObservableObject {
             if let total = snapshot.totalBalanceMinor {
                 totalBalanceMinor = total
             }
+            totalBalancesByCurrency = resolvedCurrencyBalances(from: snapshot)
             groupSearchQuery = query
             groups = mergedGroupSummaries(snapshot.groups)
             groupsPage = snapshot.groupPagination?.page ?? 1
@@ -684,6 +700,32 @@ final class WalkcalcStore: ObservableObject {
         groups.first(where: { $0.id == id })
     }
 
+    func preloadGroupContent(_ id: String) {
+        guard groupContentRefreshTasks[id] == nil else { return }
+        groupContentRefreshTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            async let groupRefresh: Void = refreshGroup(id)
+            async let balancesRefresh: Void = refreshGroupBalances(id)
+            async let settlementRefresh: Void = refreshSettlementSuggestion(groupId: id)
+            _ = await (groupRefresh, balancesRefresh, settlementRefresh)
+            groupContentRefreshTasks[id] = nil
+        }
+    }
+
+    func refreshGroupContent(_ id: String) async {
+        preloadGroupContent(id)
+        await groupContentRefreshTasks[id]?.value
+    }
+
+    private func refreshGroupAfterLedgerMutation(_ id: String) async {
+        async let groupRefresh: Void = refreshGroup(id)
+        async let balancesRefresh: Void = refreshGroupBalances(id)
+        async let settlementRefresh: Void = refreshSettlementSuggestion(groupId: id)
+        _ = await (groupRefresh, balancesRefresh, settlementRefresh)
+
+        _ = await refreshHome(search: groupSearchQuery)
+    }
+
     func refreshGroup(_ id: String) async {
         if isFixtureMode { return }
         guard api.ledgerAPIEnabled else { return }
@@ -697,7 +739,6 @@ final class WalkcalcStore: ObservableObject {
             }
             if let group = snapshot.group {
                 replaceGroup(group)
-                settlementSuggestionsByGroup[id] = nil
             }
             clearRecordCaches(for: id)
             recordsByGroup[id] = snapshot.records
@@ -922,7 +963,13 @@ final class WalkcalcStore: ObservableObject {
         await createGroupWithFeedback(name: name, users: users, tempUsers: tempUsers).success
     }
 
-    func createGroupWithFeedback(name: String, users: [UserProfile], tempUsers: [String]) async -> StoreActionResult {
+    func createGroupWithFeedback(
+        name: String,
+        users: [UserProfile],
+        tempUsers: [String],
+        currencyCode: String? = nil
+    ) async -> StoreActionResult {
+        let normalizedCurrencyCode = CurrencyCatalog.normalizedCode(currencyCode)
         if isFixtureMode {
             let groupId = "FIX-\(Int(Date().timeIntervalSince1970 * 1000))"
             let currentUser = user.map {
@@ -937,6 +984,7 @@ final class WalkcalcStore: ObservableObject {
             groups.insert(WalkGroup(
                 id: groupId,
                 name: name,
+                currencyCode: normalizedCurrencyCode,
                 createdAt: Date().timeIntervalSince1970 * 1000,
                 modifiedAt: Date().timeIntervalSince1970 * 1000,
                 membersInfo: members,
@@ -947,7 +995,8 @@ final class WalkcalcStore: ObservableObject {
             ), at: 0)
             recordsByGroup[groupId] = []
             recordTotals[groupId] = 0
-            return .success
+            totalBalancesByCurrency = currencyBalancesFromLoadedGroups()
+            return .success(createdGroupId: groupId)
         }
         return await withLoadingResult(operation: "createGroup") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
@@ -955,7 +1004,11 @@ final class WalkcalcStore: ObservableObject {
             guard context.preferredSource != .local || users.isEmpty else {
                 return .failure(L("Login to continue"))
             }
-            let result = await ledgerRepository.createGroup(name: name, currencyCode: CurrencyCatalog.defaultCurrencyCode(), context: context)
+            let result = await ledgerRepository.createGroup(
+                name: name,
+                currencyCode: normalizedCurrencyCode,
+                context: context
+            )
             guard case .success(let response) = result else {
                 if case .failure(let failure) = result {
                     return actionFailure(operation: "createGroup", failure: failure)
@@ -963,7 +1016,9 @@ final class WalkcalcStore: ObservableObject {
                 return .failure(nil)
             }
             applyRefreshedToken(response.refreshedToken)
+            var createdGroupId: String?
             if let groupId = response.value, !groupId.isEmpty {
+                createdGroupId = groupId
                 trackSource(response.source, forGroupId: groupId)
                 if !users.isEmpty {
                     let inviteResult = await ledgerRepository.invite(code: groupId, userIds: users.map(\.uuid), context: remoteLedgerContext())
@@ -988,6 +1043,9 @@ final class WalkcalcStore: ObservableObject {
                 }
             }
             _ = await refreshHome(search: groupSearchQuery)
+            if let createdGroupId {
+                return .success(createdGroupId: createdGroupId)
+            }
             return .success
         }
     }
@@ -1136,6 +1194,7 @@ final class WalkcalcStore: ObservableObject {
             guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(nil) }
             groups[index].currencyCode = normalized
             groups[index].modifiedAt = Date().timeIntervalSince1970 * 1000
+            totalBalancesByCurrency = currencyBalancesFromLoadedGroups()
             return .success
         }
         return await withLoadingResult(operation: "changeGroupCurrency") {
@@ -1151,6 +1210,7 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: code)
             await refreshGroup(code)
+            _ = await refreshHome(search: groupSearchQuery)
             return .success
         }
     }
@@ -1200,6 +1260,43 @@ final class WalkcalcStore: ObservableObject {
             await refreshGroup(groupId)
             return .success
         }
+    }
+
+    func canRemoveMember(_ member: Member, from group: WalkGroup) -> Bool {
+        group.isOwner && member.uuid != group.ownerUserId && Money.isZero(member.debtMinor)
+    }
+
+    func removeMemberWithFeedback(groupId: String, member: Member) async -> StoreActionResult {
+        guard let group = group(id: groupId), canRemoveMember(member, from: group) else {
+            return .failure(L("Settle this member's balance before removing them."))
+        }
+        if isFixtureMode {
+            guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return .failure(nil) }
+            groups[index].membersInfo.removeAll { $0.uuid == member.uuid }
+            groups[index].tempUsers.removeAll { $0.uuid == member.uuid }
+            groups[index].participantCount = groups[index].allMembers.count
+            groups[index].participantPreview = Array(groups[index].allMembers.prefix(4))
+            return .success
+        }
+        return await withLoadingResult(operation: "removeMember") {
+            guard api.ledgerAPIEnabled else { return .failure(nil) }
+            let result = await ledgerRepository.removeMember(code: groupId, participantId: member.uuid, context: context(for: groupId))
+            guard case .success(let response) = result else {
+                if case .failure(let failure) = result {
+                    return actionFailure(operation: "removeMember", failure: failure)
+                }
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
+            trackSource(response.source, forGroupId: groupId)
+            await refreshGroupAfterLedgerMutation(groupId)
+            return .success
+        }
+    }
+
+    func canMutateRecord(_ record: WalkRecord, in group: WalkGroup) -> Bool {
+        let memberIds = Set(group.allMembers.map(\.uuid))
+        return memberIds.contains(record.who) && record.forWhom.allSatisfy(memberIds.contains)
     }
 
     func searchUsers(name: String) async -> [UserProfile] {
@@ -1261,8 +1358,7 @@ final class WalkcalcStore: ObservableObject {
             }
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
-            await refreshGroup(groupId)
-            _ = await refreshHome(search: groupSearchQuery)
+            await refreshGroupAfterLedgerMutation(groupId)
             return .success
         }
     }
@@ -1272,6 +1368,11 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func editRecordWithFeedback(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false) async -> StoreActionResult {
+        if let group = group(id: groupId),
+           let record = recordsByGroup[groupId]?.first(where: { $0.recordId == recordId }),
+           !canMutateRecord(record, in: group) {
+            return .failure(nil)
+        }
         if isFixtureMode {
             guard let paidMinor = try? Money.parseDisplay(paid),
                   Money.isPositive(paidMinor),
@@ -1298,8 +1399,7 @@ final class WalkcalcStore: ObservableObject {
             }
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
-            await refreshGroup(groupId)
-            _ = await refreshHome(search: groupSearchQuery)
+            await refreshGroupAfterLedgerMutation(groupId)
             return .success
         }
     }
@@ -1309,6 +1409,11 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func deleteRecordWithFeedback(groupId: String, recordId: String) async -> StoreActionResult {
+        if let group = group(id: groupId),
+           let record = recordsByGroup[groupId]?.first(where: { $0.recordId == recordId }),
+           !canMutateRecord(record, in: group) {
+            return .failure(nil)
+        }
         if isFixtureMode {
             recordsByGroup[groupId]?.removeAll { $0.recordId == recordId }
             recordTotals[groupId] = recordsByGroup[groupId]?.count ?? 0
@@ -1327,8 +1432,7 @@ final class WalkcalcStore: ObservableObject {
             }
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
-            await refreshGroup(groupId)
-            _ = await refreshHome(search: groupSearchQuery)
+            await refreshGroupAfterLedgerMutation(groupId)
             return .success
         }
     }
@@ -1357,8 +1461,7 @@ final class WalkcalcStore: ObservableObject {
             }
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
-            await refreshGroup(groupId)
-            _ = await refreshHome(search: groupSearchQuery)
+            await refreshGroupAfterLedgerMutation(groupId)
             return .success
         }
     }
@@ -1380,8 +1483,7 @@ final class WalkcalcStore: ObservableObject {
             }
             applyRefreshedToken(response.refreshedToken)
             trackSource(response.source, forGroupId: groupId)
-            await refreshGroup(groupId)
-            _ = await refreshHome(search: groupSearchQuery)
+            await refreshGroupAfterLedgerMutation(groupId)
             return .success
         }
     }
@@ -1395,56 +1497,34 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func resolvedDebts(for group: WalkGroup) -> [ResolvedDebt] {
-        if let cached = settlementSuggestionsByGroup[group.id] {
-            return cached.compactMap { transfer in
-                guard let from = group.allMembers.first(where: { $0.uuid == transfer.fromId }),
-                      let to = group.allMembers.first(where: { $0.uuid == transfer.toId }) else {
-                    return nil
-                }
-                return ResolvedDebt(from: from, to: to, amountMinor: transfer.amountMinor)
-            }
-        }
-        var receivers = group.allMembers
-            .filter { Money.compare($0.debtMinor, "0") != .orderedAscending }
-            .sorted { Money.compare($0.debtMinor, $1.debtMinor) == .orderedDescending }
-        var payers = group.allMembers
-            .filter { Money.compare($0.debtMinor, "0") == .orderedAscending }
-            .map { member -> Member in
-                var next = member
-                next.debtMinor = Money.negate(member.debtMinor)
-                return next
-            }
-            .sorted { Money.compare($0.debtMinor, $1.debtMinor) == .orderedDescending }
-
-        let receiverTotal = receivers.reduce("0") { Money.add($0, $1.debtMinor) }
-        let payerTotal = payers.reduce("0") { Money.add($0, $1.debtMinor) }
-        guard Money.compare(receiverTotal, payerTotal) == .orderedSame else {
+        guard let cached = settlementSuggestionsByGroup[group.id] else {
             return []
         }
-
-        var result: [ResolvedDebt] = []
-        for receiverIndex in receivers.indices {
-            while !Money.isZero(receivers[receiverIndex].debtMinor) {
-                var advanced = false
-                for payerIndex in payers.indices where !Money.isZero(payers[payerIndex].debtMinor) {
-                    advanced = true
-                    if Money.compare(receivers[receiverIndex].debtMinor, payers[payerIndex].debtMinor) != .orderedAscending {
-                        result.append(ResolvedDebt(from: payers[payerIndex], to: receivers[receiverIndex], amountMinor: payers[payerIndex].debtMinor))
-                        receivers[receiverIndex].debtMinor = Money.add(receivers[receiverIndex].debtMinor, Money.negate(payers[payerIndex].debtMinor))
-                        payers[payerIndex].debtMinor = "0"
-                    } else {
-                        result.append(ResolvedDebt(from: payers[payerIndex], to: receivers[receiverIndex], amountMinor: receivers[receiverIndex].debtMinor))
-                        payers[payerIndex].debtMinor = Money.add(payers[payerIndex].debtMinor, Money.negate(receivers[receiverIndex].debtMinor))
-                        receivers[receiverIndex].debtMinor = "0"
-                        break
-                    }
-                }
-                if !advanced {
-                    break
-                }
+        return cached.compactMap { transfer in
+            guard let from = group.allMembers.first(where: { $0.uuid == transfer.fromId }),
+                  let to = group.allMembers.first(where: { $0.uuid == transfer.toId }) else {
+                return nil
             }
+            return ResolvedDebt(from: from, to: to, amountMinor: transfer.amountMinor)
         }
-        return result
+    }
+
+    func currentParticipantID(for group: WalkGroup) -> String? {
+        if isLocalLedgerGroup(group.id) {
+            return localOwner.uuid
+        }
+        return user?.uuid
+    }
+
+    func personalResolvedDebts(for group: WalkGroup) -> [ResolvedDebt] {
+        BalancePresentation.personalDebts(
+            resolvedDebts(for: group),
+            participantID: currentParticipantID(for: group)
+        )
+    }
+
+    func balancesInServerOrder(for group: WalkGroup) -> [Member] {
+        group.allMembers
     }
 
     func refreshSettlementSuggestion(groupId: String) async {
@@ -1504,6 +1584,9 @@ final class WalkcalcStore: ObservableObject {
         if merged.participantPreview.isEmpty {
             merged.participantPreview = existing.participantPreview
         }
+        if merged.historicalMembers.isEmpty {
+            merged.historicalMembers = existing.historicalMembers
+        }
         if merged.participantCount == 0 {
             merged.participantCount = max(existing.participantCount, merged.allMembers.count, merged.participantPreview.count)
         }
@@ -1513,6 +1596,54 @@ final class WalkcalcStore: ObservableObject {
     private func appendGroups(_ nextGroups: [WalkGroup]) {
         for group in nextGroups {
             replaceGroup(group)
+        }
+    }
+
+    private func resolvedCurrencyBalances(from snapshot: LedgerHomeSnapshot) -> [CurrencyBalanceSummary] {
+        if !snapshot.currencyBalances.isEmpty {
+            return snapshot.currencyBalances.sorted { $0.currencyCode < $1.currencyCode }
+        }
+        guard let totalBalanceMinor = snapshot.totalBalanceMinor else { return [] }
+        return [CurrencyBalanceSummary(
+            currencyCode: CurrencyCatalog.defaultCurrencyCode(),
+            totalBalanceMinor: totalBalanceMinor
+        )]
+    }
+
+    private func mergedCurrencyBalances(
+        _ first: [CurrencyBalanceSummary],
+        _ second: [CurrencyBalanceSummary]
+    ) -> [CurrencyBalanceSummary] {
+        let totals = (first + second).reduce(into: [String: MoneyMinor]()) { result, balance in
+            let currencyCode = CurrencyCatalog.normalizedCode(balance.currencyCode)
+            result[currencyCode] = Money.add(
+                result[currencyCode] ?? "0",
+                balance.totalBalanceMinor
+            )
+        }
+        return totals.keys.sorted().map { currencyCode in
+            CurrencyBalanceSummary(
+                currencyCode: currencyCode,
+                totalBalanceMinor: totals[currencyCode] ?? "0"
+            )
+        }
+    }
+
+    private func currencyBalancesFromLoadedGroups() -> [CurrencyBalanceSummary] {
+        let identityIds = Set([localOwner.uuid, user?.uuid].compactMap { $0 })
+        let totals = groups.reduce(into: [String: MoneyMinor]()) { result, group in
+            guard identityIds.isDisjoint(with: Set(group.archivedUsers)) else { return }
+            let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
+            let balance = group.hasCurrentUserBalanceSummary
+                ? group.currentUserBalanceMinor
+                : group.allMembers.first { identityIds.contains($0.uuid) }?.debtMinor ?? "0"
+            result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance)
+        }
+        return totals.keys.sorted().map { currencyCode in
+            CurrencyBalanceSummary(
+                currencyCode: currencyCode,
+                totalBalanceMinor: totals[currencyCode] ?? "0"
+            )
         }
     }
 

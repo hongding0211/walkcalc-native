@@ -13,7 +13,7 @@ enum MoneyDisplayVerification {
         expect(Money.compactDisplay("9999999", localeIdentifier: "zh-Hans"), equals: "99,999.99", prefix: "zh-under-threshold")
         expect(Money.compactDisplay("10000000", localeIdentifier: "zh-Hans"), equals: "10 万", prefix: "zh-100k")
 
-        expect(signedMoney("123456789012", style: .exact), equals: "+¥1,234,567,890.12", prefix: "exact-positive")
+        expect(signedMoney("123456789012", style: .exact), equals: "¥1,234,567,890.12", prefix: "exact-positive")
         expect(signedMoney("-123456789012", style: .exact), equals: "-¥1,234,567,890.12", prefix: "exact-negative")
         expect(signedMoney("0", style: .exact), equals: "¥0.00", prefix: "exact-zero")
 

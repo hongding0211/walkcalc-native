@@ -2,17 +2,20 @@ import SwiftUI
 import UIKit
 
 struct SoftLedgerColorToken {
-    let light: UInt32
-    let dark: UInt32
+    let uiColor: UIColor
+
+    init(light: UInt32, dark: UInt32) {
+        uiColor = UIColor { traitCollection in
+            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
+        }
+    }
+
+    init(systemColor: UIColor) {
+        uiColor = systemColor
+    }
 
     var color: Color {
         Color(uiColor)
-    }
-
-    var uiColor: UIColor {
-        UIColor { traitCollection in
-            UIColor(hex: traitCollection.userInterfaceStyle == .dark ? dark : light)
-        }
     }
 }
 
@@ -32,12 +35,10 @@ struct AppThemePalette {
     let titleKey: String
     let accent: SoftLedgerColorToken
     let accentSoft: SoftLedgerColorToken
-    let previewAccent: UInt32
-    let previewSoftAccent: UInt32
 }
 
 enum SoftLedgerThemeConfig {
-    static let defaultAppTheme: AppTheme = .black
+    static let defaultAppTheme: AppTheme = .mono
 
     static let neutral = SoftLedgerNeutralPalette(
         canvas: SoftLedgerColorToken(light: 0xF7F7F7, dark: 0x000000),
@@ -55,37 +56,35 @@ enum SoftLedgerThemeConfig {
 
     static func palette(for theme: AppTheme) -> AppThemePalette {
         switch theme {
+        case .mono:
+            return AppThemePalette(
+                titleKey: "Mono",
+                accent: SoftLedgerColorToken(systemColor: .label),
+                accentSoft: SoftLedgerColorToken(light: 0xF4F4F5, dark: 0x27272A)
+            )
         case .blue:
             return AppThemePalette(
                 titleKey: "Blue",
-                accent: SoftLedgerColorToken(light: 0x2C6AA0, dark: 0x6EA3D0),
-                accentSoft: SoftLedgerColorToken(light: 0xDCE7F1, dark: 0x1A2F40),
-                previewAccent: 0x2C6AA0,
-                previewSoftAccent: 0xDCE7F1
+                accent: SoftLedgerColorToken(systemColor: .systemBlue),
+                accentSoft: SoftLedgerColorToken(systemColor: UIColor.systemBlue.withAlphaComponent(0.16))
             )
-        case .black:
+        case .pink:
             return AppThemePalette(
-                titleKey: "Black",
-                accent: SoftLedgerColorToken(light: 0x18181B, dark: 0xFAFAFA),
-                accentSoft: SoftLedgerColorToken(light: 0xF4F4F5, dark: 0x27272A),
-                previewAccent: 0x18181B,
-                previewSoftAccent: 0xF4F4F5
+                titleKey: "Pink",
+                accent: SoftLedgerColorToken(systemColor: .systemPink),
+                accentSoft: SoftLedgerColorToken(systemColor: UIColor.systemPink.withAlphaComponent(0.16))
             )
         case .yellow:
             return AppThemePalette(
                 titleKey: "Yellow",
-                accent: yellowAccent,
-                accentSoft: SoftLedgerColorToken(light: 0xEDCBA4, dark: 0x38322F),
-                previewAccent: 0xB15525,
-                previewSoftAccent: 0xEDCBA4
+                accent: SoftLedgerColorToken(systemColor: .systemYellow),
+                accentSoft: SoftLedgerColorToken(systemColor: UIColor.systemYellow.withAlphaComponent(0.16))
             )
         case .green:
             return AppThemePalette(
                 titleKey: "Green",
-                accent: SoftLedgerColorToken(light: 0x1D6F50, dark: 0x6FBC8D),
-                accentSoft: SoftLedgerColorToken(light: 0xDCEBE3, dark: 0x1A3327),
-                previewAccent: 0x1D6F50,
-                previewSoftAccent: 0xDCEBE3
+                accent: SoftLedgerColorToken(systemColor: .systemGreen),
+                accentSoft: SoftLedgerColorToken(systemColor: UIColor.systemGreen.withAlphaComponent(0.16))
             )
         }
     }

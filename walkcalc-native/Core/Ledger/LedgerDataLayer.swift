@@ -88,10 +88,22 @@ struct LedgerPage<Value> {
     var refreshedToken: String?
 }
 
+struct CurrencyBalanceSummary: Identifiable, Hashable, Sendable {
+    var id: String { currencyCode }
+    var currencyCode: String
+    var totalBalanceMinor: MoneyMinor
+}
+
+struct HomeBalanceSummary: Sendable {
+    var totalBalanceMinor: MoneyMinor
+    var balances: [CurrencyBalanceSummary]
+}
+
 struct LedgerHomeSnapshot {
     var groups: [WalkGroup]
     var groupPagination: Pagination?
     var totalBalanceMinor: MoneyMinor?
+    var currencyBalances: [CurrencyBalanceSummary] = []
     var source: LedgerSourceMetadata
     var refreshedToken: String?
 }
@@ -140,6 +152,7 @@ protocol LedgerDataSource {
     func changeGroupCurrency(code: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func invite(code: String, userIds: [String], context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[String]>>
     func addTempUser(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
+    func removeMember(code: String, participantId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func searchUsers(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[UserProfile]>>
 
     func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>>
@@ -165,7 +178,8 @@ struct RemoteLedgerDataSource: LedgerDataSource {
             return .success(LedgerHomeSnapshot(
                 groups: groups.data ?? [],
                 groupPagination: groups.pagination,
-                totalBalanceMinor: summary.data,
+                totalBalanceMinor: summary.data?.totalBalanceMinor,
+                currencyBalances: summary.data?.balances ?? [],
                 source: .remote(),
                 refreshedToken: groups.refreshedToken ?? summary.refreshedToken
             ))
@@ -302,6 +316,12 @@ struct RemoteLedgerDataSource: LedgerDataSource {
     func addTempUser(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await envelopeMutation(context: context) { token in
             try await api.addTempUser(code: code, name: name, token: token)
+        }
+    }
+
+    func removeMember(code: String, participantId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        await envelopeMutation(context: context) { token in
+            try await api.removeMember(code: code, participantId: participantId, token: token)
         }
     }
 
@@ -471,6 +491,10 @@ final class LedgerRepository {
 
     func addTempUser(code: String, name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await source(for: context).addTempUser(code: code, name: name, context: context)
+    }
+
+    func removeMember(code: String, participantId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        await source(for: context).removeMember(code: code, participantId: participantId, context: context)
     }
 
     func searchUsers(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[UserProfile]>> {

@@ -70,6 +70,10 @@ enum Money {
         formatRaw(-decimal(value))
     }
 
+    static func absolute(_ value: MoneyMinor) -> MoneyMinor {
+        formatRaw(abs(decimal(value)))
+    }
+
     static func compare(_ left: MoneyMinor, _ right: MoneyMinor) -> ComparisonResult {
         let lhs = decimal(left)
         let rhs = decimal(right)

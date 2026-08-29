@@ -99,6 +99,7 @@ struct GroupView: View {
                                 records: records,
                                 isLoadingMore: store.isLoadingRecords(groupId: group.id),
                                 onDelete: { record in
+                                    guard store.canMutateRecord(record, in: group) else { return }
                                     deleteCandidate = record
                                 },
                                 onEdit: { record in
@@ -122,7 +123,7 @@ struct GroupView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 34)
             }
-            .refreshable { await store.refreshGroup(groupId) }
+            .refreshable { await refreshGroupContent() }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
                 let triggerY = max(0, geometry.contentSize.height - 160)
@@ -168,7 +169,7 @@ struct GroupView: View {
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate, isDeleting: $isDeletingRecord)
-        .task { await store.refreshGroup(groupId) }
+        .task { await refreshGroupContent() }
         .sheet(isPresented: $isSearchPresented) {
             if let group {
                 NavigationStack {
@@ -183,6 +184,10 @@ struct GroupView: View {
                 dismiss()
             }
         }
+    }
+
+    private func refreshGroupContent() async {
+        await store.refreshGroupContent(groupId)
     }
 }
 
@@ -310,9 +315,13 @@ private struct RecordSearchCanvas: View {
                         .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
                 } else {
                     ForEach(records) { record in
-                        ExpenseRow(record: record, group: group, onDelete: {
-                            deleteCandidate = record
-                        }) {
+                        ExpenseRow(
+                            record: record,
+                            group: group,
+                            onDelete: store.canMutateRecord(record, in: group) ? {
+                                deleteCandidate = record
+                            } : nil
+                        ) {
                             selectedRecord = record
                         }
 
@@ -368,6 +377,8 @@ private struct RecordSearchCanvas: View {
 
 private struct GroupSummaryCard: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @ScaledMetric(relativeTo: .caption) private var balanceStateSpacing = 5
+    @ScaledMetric(relativeTo: .caption) private var balanceChevronSize = 9
     let group: WalkGroup
     let isAnimationEnabled: Bool
     let onOpenBalance: (Member) -> Void
@@ -416,10 +427,10 @@ private struct GroupSummaryCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
 
-                    HStack(spacing: 6) {
+                    HStack(spacing: balanceStateSpacing) {
                         Text(balanceStateText)
                         Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
+                            .font(.system(size: balanceChevronSize, weight: .semibold))
                             .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
                             .accessibilityHidden(true)
                     }
@@ -448,31 +459,44 @@ private struct GroupBalancesSection: View {
     let onSelect: (Member?) -> Void
 
     private var balances: [Member] {
-        group.allMembers
+        store.balancesInServerOrder(for: group)
     }
 
     private var visibleBalances: [Member] {
         Array(balances.prefix(3))
     }
 
+    private var personalDebts: [ResolvedDebt] {
+        store.personalResolvedDebts(for: group)
+    }
+
+    private var sectionTitle: String {
+        personalDebts.isEmpty ? L("Balances") : L("Suggested settlement")
+    }
+
+    private var footerTitle: String {
+        if !personalDebts.isEmpty {
+            return L("View details")
+        }
+        return balances.count > 3 ? L("View all") : L("View details")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(L("Balances"))
+            Text(sectionTitle)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(SoftLedgerTheme.ink)
+                .padding(.top, 4)
 
-            VStack(spacing: 0) {
-                if visibleBalances.isEmpty {
-                    Text(L("No balances"))
-                        .font(.subheadline)
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                } else {
-                    ForEach(visibleBalances) { member in
-                        BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode) {
-                            onSelect(member)
-                        }
-                        if member.id != visibleBalances.last?.id {
+            if !personalDebts.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(personalDebts.enumerated()), id: \.element.id) { index, debt in
+                        PersonalSettlementPreviewRow(
+                            debt: debt,
+                            currentParticipantID: store.currentParticipantID(for: group),
+                            currencyCode: group.currencyCode
+                        )
+                        if index < personalDebts.count - 1 {
                             Divider()
                                 .overlay(SoftLedgerTheme.rule.opacity(0.54))
                                 .padding(.leading, dividerLeadingPadding)
@@ -487,7 +511,7 @@ private struct GroupBalancesSection: View {
                         onSelect(nil)
                     } label: {
                         HStack(spacing: 8) {
-                            Text(balances.count > 3 ? L("View all") : L("View details"))
+                            Text(L("View details"))
                                 .font(.subheadline.weight(.semibold))
                                 .softLedgerAccentForeground()
                             Spacer()
@@ -500,13 +524,63 @@ private struct GroupBalancesSection: View {
                     }
                     .buttonStyle(.plain)
                 }
-            }
-            .padding(.horizontal, rowHorizontalPadding)
-            .padding(.vertical, rowVerticalPadding)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+                .padding(.horizontal, rowHorizontalPadding)
+                .padding(.vertical, rowVerticalPadding)
+                .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+                }
+            } else {
+                VStack(spacing: 0) {
+                    if visibleBalances.isEmpty {
+                        Text(L("No balances"))
+                            .font(.subheadline)
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                    } else {
+                        ForEach(visibleBalances) { member in
+                            BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode) {
+                                onSelect(member)
+                            }
+                            if member.id != visibleBalances.last?.id {
+                                Divider()
+                                    .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                                    .padding(.leading, dividerLeadingPadding)
+                            }
+                        }
+                    }
+
+                    if !visibleBalances.isEmpty {
+                        Divider()
+                            .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                            .padding(.leading, dividerLeadingPadding)
+
+                        Button {
+                            onSelect(nil)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text(footerTitle)
+                                    .font(.subheadline.weight(.semibold))
+                                    .softLedgerAccentForeground()
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+                            }
+                            .frame(minHeight: detailRowMinHeight)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, rowHorizontalPadding)
+                .padding(.vertical, rowVerticalPadding)
+                .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+                }
             }
         }
     }
@@ -518,6 +592,111 @@ private struct GroupBalancesSection: View {
         return (store.recordsByGroup[group.id] ?? []).filter { record in
             record.who == member.uuid || record.forWhom.contains(member.uuid)
         }.count
+    }
+}
+
+private struct PersonalSettlementPreviewRow: View {
+    @Environment(\.softLedgerAppTheme) private var appTheme
+
+    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
+    @ScaledMetric(relativeTo: .caption) private var receiverAvatarSize = 20
+    @ScaledMetric(relativeTo: .caption) private var arrowBadgeSize = 18
+    @ScaledMetric(relativeTo: .caption2) private var arrowBadgeFontSize = 9
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
+    @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
+    @ScaledMetric(relativeTo: .caption) private var receiverSpacing = 6
+    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 76
+
+    let debt: ResolvedDebt
+    let currentParticipantID: String?
+    let currencyCode: String
+
+    var body: some View {
+        HStack(spacing: rowSpacing) {
+            payerAvatar
+
+            VStack(alignment: .leading, spacing: textSpacing) {
+                Text(relationshipTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.86)
+
+                HStack(spacing: receiverSpacing) {
+                    SoftLedgerAvatar(member: debt.to, size: receiverAvatarSize)
+                        .accessibilityHidden(true)
+
+                    Text(L("Settle with %@").replacingOccurrences(of: "%@", with: counterpartyName))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: rowSpacing)
+
+            Text(displayAmount)
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .foregroundStyle(amountColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .allowsTightening(true)
+                .frame(minWidth: amountMinWidth, alignment: .trailing)
+                .layoutPriority(3)
+        }
+        .frame(minHeight: rowMinHeight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(relationshipTitle), \(displayAmount)")
+    }
+
+    private var isCurrentParticipantPayer: Bool {
+        debt.from.uuid == currentParticipantID
+    }
+
+    private var relationshipTitle: String {
+        if isCurrentParticipantPayer {
+            return L("You owe %@").replacingOccurrences(of: "%@", with: debt.to.name)
+        }
+        if debt.to.uuid == currentParticipantID {
+            return L("%@ owes you").replacingOccurrences(of: "%@", with: debt.from.name)
+        }
+        return "\(debt.from.name) \(L("pays")) \(debt.to.name)"
+    }
+
+    private var counterpartyName: String {
+        isCurrentParticipantPayer ? debt.to.name : debt.from.name
+    }
+
+    private var displayAmount: String {
+        let amount = CurrencyCatalog.formatted(Money.absolute(debt.amountMinor), currencyCode: currencyCode)
+        return isCurrentParticipantPayer ? "-\(amount)" : amount
+    }
+
+    private var amountColor: Color {
+        isCurrentParticipantPayer ? SoftLedgerTheme.negative : SoftLedgerTheme.positive
+    }
+
+    private var payerAvatar: some View {
+        ZStack(alignment: .bottomTrailing) {
+            SoftLedgerAvatar(member: debt.from, size: avatarSize)
+                .accessibilityHidden(true)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: arrowBadgeFontSize, weight: .bold))
+                .foregroundStyle(SoftLedgerTheme.paper)
+                .frame(width: arrowBadgeSize, height: arrowBadgeSize)
+                .background(appTheme.accent, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(SoftLedgerTheme.paper, lineWidth: max(1, arrowBadgeSize / 9))
+                }
+                .offset(x: 2, y: 2)
+                .accessibilityHidden(true)
+        }
+        .frame(width: avatarSize + 3, height: avatarSize + 3)
     }
 }
 
@@ -574,6 +753,7 @@ struct BalancePreviewRow: View {
 }
 
 private struct GroupExpensesSection: View {
+    @EnvironmentObject private var store: WalkcalcStore
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
@@ -601,9 +781,13 @@ private struct GroupExpensesSection: View {
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(records) { record in
-                            ExpenseRow(record: record, group: group, onDelete: {
-                                onDelete(record)
-                            }) {
+                            ExpenseRow(
+                                record: record,
+                                group: group,
+                                onDelete: store.canMutateRecord(record, in: group) ? {
+                                    onDelete(record)
+                                } : nil
+                            ) {
                                 onEdit(record)
                             }
                             if record.id != records.last?.id {
@@ -652,6 +836,7 @@ struct ExpenseRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var iconFontSize = 14
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
+    @ScaledMetric(relativeTo: .subheadline) private var previewCornerRadius = 12
     @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
     @ScaledMetric(relativeTo: .caption2) private var trailingSpacing = 4
 
@@ -668,7 +853,7 @@ struct ExpenseRow: View {
     }
 
     private var payer: Member? {
-        group.allMembers.first(where: { $0.uuid == record.who })
+        group.recordMembers.first(where: { $0.uuid == record.who })
     }
 
     private var category: ExpenseCategory {
@@ -740,9 +925,17 @@ struct ExpenseRow: View {
                     .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
             }
             .frame(minHeight: rowMinHeight)
+            .background(
+                SoftLedgerTheme.paper,
+                in: RoundedRectangle(cornerRadius: previewCornerRadius, style: .continuous)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contentShape(
+            .contextMenuPreview,
+            RoundedRectangle(cornerRadius: previewCornerRadius, style: .continuous)
+        )
         .contextMenu {
             if let onDelete {
                 Button(role: .destructive) {

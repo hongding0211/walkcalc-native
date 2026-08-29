@@ -108,9 +108,21 @@ struct APIClient: Sendable {
         )
     }
 
-    func homeSummary(token: String) async throws -> APIEnvelope<MoneyMinor> {
+    func homeSummary(token: String) async throws -> APIEnvelope<HomeBalanceSummary> {
         try await request(.get, path: "/walkcalc/home/summary", token: token) { raw in
-            Money.minorFromDecimalString(dictPayload(raw)["totalBalance"])
+            let payload = dictPayload(raw)
+            let balances = arrayPayload(payload["balances"]).compactMap { item -> CurrencyBalanceSummary? in
+                let currencyCode = CurrencyCatalog.normalizedCode(item["currencyCode"] as? String)
+                guard !currencyCode.isEmpty else { return nil }
+                return CurrencyBalanceSummary(
+                    currencyCode: currencyCode,
+                    totalBalanceMinor: Money.minorFromDecimalString(item["totalBalance"])
+                )
+            }
+            return HomeBalanceSummary(
+                totalBalanceMinor: Money.minorFromDecimalString(payload["totalBalance"]),
+                balances: balances
+            )
         }
     }
 
@@ -194,6 +206,12 @@ struct APIClient: Sendable {
     func addTempUser(code: String, name: String, token: String) async throws -> APIEnvelope<String> {
         try await request(.post, path: "/walkcalc/groups/\(code)/temp-users", token: token, body: ["name": name]) { raw in
             dictPayload(raw)["participantId"] as? String ?? name
+        }
+    }
+
+    func removeMember(code: String, participantId: String, token: String) async throws -> APIEnvelope<String> {
+        try await request(.delete, path: "/walkcalc/groups/\(code)/members/\(participantId)", token: token) { raw in
+            dictPayload(raw)["participantId"] as? String ?? participantId
         }
     }
 
@@ -588,6 +606,7 @@ private func mapGroup(_ raw: Any?) -> WalkGroup {
     let dict = dictPayload(raw)
     let participants = dict["participants"] as? [[String: Any]] ?? []
     let participantPreview = arrayPayload(dict["participantPreview"]).map { mapMember($0, temporary: ($0["kind"] as? String) == "tempUser") }
+    let historicalMembers = arrayPayload(dict["removedParticipants"]).map { mapMember($0, temporary: ($0["kind"] as? String) == "tempUser") }
     let members: [Member]
     let tempUsers: [Member]
     if participants.isEmpty {
@@ -619,6 +638,7 @@ private func mapGroup(_ raw: Any?) -> WalkGroup {
         currentUserRecordCount: dict["currentUserRecordCount"] as? Int ?? 0,
         participantCount: dict["participantCount"] as? Int ?? participants.count,
         participantPreview: participantPreview,
+        historicalMembers: historicalMembers,
         serverHasUnresolvedBalance: dict["hasUnresolvedBalance"] as? Bool
     )
 }

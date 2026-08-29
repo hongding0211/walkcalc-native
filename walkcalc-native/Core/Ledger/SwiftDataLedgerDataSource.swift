@@ -50,6 +50,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                 groups: slice.items.map(projectGroup),
                 groupPagination: Pagination(page: page, size: pageSize, total: filtered.count),
                 totalBalanceMinor: totalBalance(groups: groups, ownerId: context.localOwner?.uuid),
+                currencyBalances: currencyBalances(groups: groups, ownerId: context.localOwner?.uuid),
                 source: .local(),
                 refreshedToken: nil
             ))
@@ -243,15 +244,42 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         do {
             guard let group = try fetchGroup(code, modelContext) else { return .failure(.sourceUnavailable()) }
             let now = currentTimestamp()
-            let id = Self.localMemberId()
-            let participant = LocalLedgerParticipantModel(id: id, name: name, isTemporary: true, createdAt: now, modifiedAt: now)
-            participant.group = group
-            group.participants.append(participant)
+            let existing = group.participants.first { !$0.isActive && $0.isTemporary && $0.name == name }
+            let id = existing?.id ?? Self.localMemberId()
+            if let existing {
+                existing.isActive = true
+                existing.modifiedAt = now
+                existing.isDirty = true
+            } else {
+                let participant = LocalLedgerParticipantModel(id: id, name: name, isTemporary: true, createdAt: now, modifiedAt: now)
+                participant.group = group
+                group.participants.append(participant)
+            }
             group.modifiedAt = now
             group.isDirty = true
             recomputeBalances(group, updateModifiedAt: false)
             try modelContext.save()
             return .success(mutation(id, source: .local(id: code)))
+        } catch {
+            return .failure(persistenceFailure(error))
+        }
+    }
+
+    func removeMember(code: String, participantId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
+        guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
+        let modelContext = ModelContext(container)
+        do {
+            guard let group = try fetchGroup(code, modelContext),
+                  participantId != group.ownerUserId,
+                  let participant = group.participants.first(where: { $0.id == participantId && $0.isActive }),
+                  Money.isZero(participant.debtMinor) else { return .failure(.sourceUnavailable()) }
+            participant.isActive = false
+            participant.modifiedAt = currentTimestamp()
+            participant.isDirty = true
+            group.modifiedAt = participant.modifiedAt
+            group.isDirty = true
+            try modelContext.save()
+            return .success(mutation(participantId, source: .local(id: code)))
         } catch {
             return .failure(persistenceFailure(error))
         }
@@ -299,9 +327,12 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext),
-                  let record = group.records.first(where: { $0.id == recordId }) else {
+                  let record = group.records.first(where: { $0.id == recordId }),
+                  recordCanMutate(record, in: group) else {
                 return .failure(.sourceUnavailable())
             }
+            let memberIds = Set(group.participants.filter(\.isActive).map(\.id))
+            guard memberIds.contains(who), forWhom.allSatisfy(memberIds.contains) else { return .failure(.sourceUnavailable()) }
             let now = currentTimestamp()
             record.who = who
             record.paidMinor = paidMinor
@@ -326,7 +357,8 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext),
-                  let record = group.records.first(where: { $0.id == recordId }) else {
+                  let record = group.records.first(where: { $0.id == recordId }),
+                  recordCanMutate(record, in: group) else {
                 return .failure(.sourceUnavailable())
             }
             modelContext.delete(record)
@@ -381,6 +413,8 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext) else { return .failure(.sourceUnavailable()) }
+            let memberIds = Set(group.participants.filter(\.isActive).map(\.id))
+            guard memberIds.contains(who), forWhom.allSatisfy(memberIds.contains) else { return .failure(.sourceUnavailable()) }
             let record = makeRecord(
                 who: who,
                 paidMinor: paidMinor,
@@ -512,12 +546,13 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             currentUserRecordCount: ownerRecordCount,
             participantCount: members.count,
             participantPreview: Array(members.prefix(4)),
+            historicalMembers: projectHistoricalMembers(group),
             serverHasUnresolvedBalance: members.contains { !Money.isZero($0.debtMinor) }
         )
     }
 
     private func projectMembers(_ group: LocalLedgerGroupModel) -> [Member] {
-        sortedParticipants(group.participants).map { participant in
+        sortedParticipants(group.participants.filter(\.isActive)).map { participant in
             Member(
                 uuid: participant.id,
                 name: participant.name,
@@ -528,6 +563,25 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                 isTemporary: participant.isTemporary
             )
         }
+    }
+
+    private func projectHistoricalMembers(_ group: LocalLedgerGroupModel) -> [Member] {
+        sortedParticipants(group.participants.filter { !$0.isActive }).map { participant in
+            Member(
+                uuid: participant.id,
+                name: participant.name,
+                avatar: participant.avatar,
+                debtMinor: participant.debtMinor,
+                costMinor: participant.costMinor,
+                recordCount: participant.recordCount,
+                isTemporary: participant.isTemporary
+            )
+        }
+    }
+
+    private func recordCanMutate(_ record: LocalLedgerRecordModel, in group: LocalLedgerGroupModel) -> Bool {
+        let memberIds = Set(group.participants.filter(\.isActive).map(\.id))
+        return memberIds.contains(record.who) && record.forWhom.allSatisfy(memberIds.contains)
     }
 
     private func projectRecord(_ record: LocalLedgerRecordModel) -> WalkRecord {
@@ -657,6 +711,22 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         return groups.reduce("0") { total, group in
             let balance = group.participants.first { $0.id == ownerId }?.debtMinor ?? "0"
             return Money.add(total, balance)
+        }
+    }
+
+    private func currencyBalances(groups: [LocalLedgerGroupModel], ownerId: String?) -> [CurrencyBalanceSummary] {
+        guard let ownerId else { return [] }
+        let totals = groups.reduce(into: [String: MoneyMinor]()) { result, group in
+            guard !group.archivedUserIds.contains(ownerId) else { return }
+            let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
+            let balance = group.participants.first { $0.id == ownerId }?.debtMinor ?? "0"
+            result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance)
+        }
+        return totals.keys.sorted().map { currencyCode in
+            CurrencyBalanceSummary(
+                currencyCode: currencyCode,
+                totalBalanceMinor: totals[currencyCode] ?? "0"
+            )
         }
     }
 
