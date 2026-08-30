@@ -38,9 +38,15 @@ enum SwiftDataLedgerVerification {
         ), prefix: "swiftdata-add-record").value
         expect(record?.text, equals: Optional("Dinner"), prefix: "swiftdata-record-note")
 
+        _ = expectSuccess(await repository.changeGroupCurrency(code: groupId, currencyCode: "USD", context: context), prefix: "swiftdata-change-default-currency")
+        let recordsAfterDefaultChange = expectSuccess(await repository.records(groupId: groupId, page: 1, pageSize: 10, search: nil, context: context), prefix: "swiftdata-records-after-default-change")
+        expect(recordsAfterDefaultChange.items.first?.currencyCode, equals: Optional("CNY"), prefix: "swiftdata-historical-record-currency")
+
         let balances = expectSuccess(await repository.groupBalances(groupId: groupId, context: context), prefix: "swiftdata-balances").value ?? []
         expect(balances.first(where: { $0.uuid == owner.uuid })?.debtMinor, equals: Optional("600"), prefix: "swiftdata-owner-balance")
         expect(balances.first(where: { $0.uuid == guestId })?.debtMinor, equals: Optional("-600"), prefix: "swiftdata-guest-balance")
+        expect(balances.first(where: { $0.uuid == owner.uuid })?.currencyBalances.first(where: { $0.currencyCode == "CNY" })?.debtMinor, equals: Optional("600"), prefix: "swiftdata-historical-projection-currency")
+        _ = expectSuccess(await repository.changeGroupCurrency(code: groupId, currencyCode: "CNY", context: context), prefix: "swiftdata-restore-default-currency")
 
         let search = expectSuccess(await repository.records(groupId: groupId, page: 1, pageSize: 10, search: .noteOrCategoryName(query: "Dinner"), context: context), prefix: "swiftdata-note-search")
         expect(search.items.count, equals: 1, prefix: "swiftdata-note-search-count")
@@ -80,6 +86,54 @@ enum SwiftDataLedgerVerification {
         let resolvedBalances = expectSuccess(await repository.groupBalances(groupId: groupId, context: context), prefix: "swiftdata-resolved-balances").value ?? []
         expect(resolvedBalances.first(where: { $0.uuid == owner.uuid })?.debtMinor, equals: Optional("0"), prefix: "swiftdata-resolved-owner-balance")
         expect(resolvedBalances.first(where: { $0.uuid == guestId })?.debtMinor, equals: Optional("0"), prefix: "swiftdata-resolved-guest-balance")
+
+        _ = expectSuccess(await repository.addRecord(
+            groupId: groupId,
+            who: owner.uuid,
+            paidMinor: "1000",
+            forWhom: [owner.uuid, guestId],
+            type: "shopping",
+            text: "USD purchase",
+            long: "",
+            lat: "",
+            occurredAt: 1_710_000_000_002,
+            currencyCode: "USD",
+            context: context
+        ), prefix: "swiftdata-add-usd-record")
+        _ = expectSuccess(await repository.addRecord(
+            groupId: groupId,
+            who: owner.uuid,
+            paidMinor: "400",
+            forWhom: [owner.uuid, guestId],
+            type: "food",
+            text: "CNY purchase",
+            long: "",
+            lat: "",
+            occurredAt: 1_710_000_000_003,
+            currencyCode: "CNY",
+            context: context
+        ), prefix: "swiftdata-add-cny-record")
+
+        let mixedBalances = expectSuccess(await repository.groupBalances(groupId: groupId, context: context), prefix: "swiftdata-mixed-balances").value ?? []
+        let ownerMixed = mixedBalances.first(where: { $0.uuid == owner.uuid })
+        expect(ownerMixed?.currencyBalances.first(where: { $0.currencyCode == "CNY" })?.debtMinor, equals: Optional("200"), prefix: "swiftdata-owner-cny-balance")
+        expect(ownerMixed?.currencyBalances.first(where: { $0.currencyCode == "USD" })?.debtMinor, equals: Optional("500"), prefix: "swiftdata-owner-usd-balance")
+
+        let cnySettlement = expectSuccess(await repository.settlementSuggestion(groupId: groupId, currencyCode: "CNY", context: context), prefix: "swiftdata-cny-suggestion").value ?? []
+        let usdSettlement = expectSuccess(await repository.settlementSuggestion(groupId: groupId, currencyCode: "USD", context: context), prefix: "swiftdata-usd-suggestion").value ?? []
+        expect(cnySettlement.first?.amountMinor, equals: Optional("200"), prefix: "swiftdata-cny-suggestion-amount")
+        expect(cnySettlement.first?.currencyCode, equals: Optional("CNY"), prefix: "swiftdata-cny-suggestion-currency")
+        expect(usdSettlement.first?.amountMinor, equals: Optional("500"), prefix: "swiftdata-usd-suggestion-amount")
+        expect(usdSettlement.first?.currencyCode, equals: Optional("USD"), prefix: "swiftdata-usd-suggestion-currency")
+
+        _ = expectSuccess(await repository.resolveDebts(groupId: groupId, currencyCode: "CNY", context: context), prefix: "swiftdata-resolve-cny")
+        let afterCNYResolve = expectSuccess(await repository.groupBalances(groupId: groupId, context: context), prefix: "swiftdata-after-cny-resolve").value ?? []
+        let ownerAfterCNY = afterCNYResolve.first(where: { $0.uuid == owner.uuid })
+        expect(ownerAfterCNY?.currencyBalances.first(where: { $0.currencyCode == "CNY" })?.debtMinor, equals: Optional("0"), prefix: "swiftdata-cny-is-resolved")
+        expect(ownerAfterCNY?.currencyBalances.first(where: { $0.currencyCode == "USD" })?.debtMinor, equals: Optional("500"), prefix: "swiftdata-usd-remains-unresolved")
+        expectFailure(await repository.removeMember(code: groupId, participantId: guestId, context: context), kind: .sourceUnavailable, prefix: "swiftdata-remove-member-with-usd-balance")
+
+        _ = expectSuccess(await repository.resolveDebts(groupId: groupId, currencyCode: "USD", context: context), prefix: "swiftdata-resolve-usd")
 
         _ = expectSuccess(await repository.changeGroupName(code: groupId, name: "Renamed Trip", context: context), prefix: "swiftdata-rename")
         _ = expectSuccess(await repository.archiveGroup(code: groupId, context: context), prefix: "swiftdata-archive")

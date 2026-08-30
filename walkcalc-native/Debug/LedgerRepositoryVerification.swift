@@ -98,6 +98,8 @@ enum LedgerRepositoryVerification {
         _ = expectSuccess(await repository.groups(page: 2, pageSize: 20, search: "trip", context: context), prefix: "remote-groups")
         _ = expectSuccess(await repository.groupDetail(groupId: "AB12", recordPageSize: 10, context: context), prefix: "remote-group-detail")
         _ = expectSuccess(await repository.groupBalances(groupId: "AB12", context: context), prefix: "remote-balances")
+        let usdSuggestion = expectSuccess(await repository.settlementSuggestion(groupId: "AB12", currencyCode: "USD", context: context), prefix: "remote-usd-settlement-suggestion").value ?? []
+        expect(usdSuggestion.first?.currencyCode, equals: Optional("USD"), prefix: "remote-usd-settlement-currency")
         _ = expectSuccess(await repository.records(groupId: "AB12", page: 1, pageSize: 10, search: .noteOrCategoryName(query: "Dinner"), context: context), prefix: "remote-record-search")
         _ = expectSuccess(await repository.memberRecords(groupId: "AB12", memberId: "user-1", page: 1, pageSize: 10, context: context), prefix: "remote-member-records")
         _ = expectSuccess(await repository.createGroup(name: "New Group", currencyCode: "CNY", context: context), prefix: "remote-create-group")
@@ -106,11 +108,11 @@ enum LedgerRepositoryVerification {
         _ = expectSuccess(await repository.changeGroupName(code: "AB12", name: "Renamed", context: context), prefix: "remote-rename")
         _ = expectSuccess(await repository.archiveGroup(code: "AB12", context: context), prefix: "remote-archive")
         _ = expectSuccess(await repository.unarchiveGroup(code: "AB12", context: context), prefix: "remote-unarchive")
-        _ = expectSuccess(await repository.addRecord(groupId: "AB12", who: "user-1", paidMinor: "1200", forWhom: ["user-1", "tmp-1"], type: "food", text: "Dinner", long: "", lat: "", occurredAt: 1_710_000_000_000, context: context), prefix: "remote-add-record")
-        _ = expectSuccess(await repository.updateRecord(groupId: "AB12", recordId: "record-1", who: "user-1", paidMinor: "1300", forWhom: ["user-1"], type: "food", text: "Updated", occurredAt: 1_710_000_000_001, isSettlement: false, context: context), prefix: "remote-update-record")
+        _ = expectSuccess(await repository.addRecord(groupId: "AB12", who: "user-1", paidMinor: "1200", forWhom: ["user-1", "tmp-1"], type: "food", text: "Dinner", long: "", lat: "", occurredAt: 1_710_000_000_000, currencyCode: "USD", context: context), prefix: "remote-add-record")
+        _ = expectSuccess(await repository.updateRecord(groupId: "AB12", recordId: "record-1", who: "user-1", paidMinor: "1300", forWhom: ["user-1"], type: "food", text: "Updated", occurredAt: 1_710_000_000_001, isSettlement: false, currencyCode: "USD", context: context), prefix: "remote-update-record")
         _ = expectSuccess(await repository.deleteRecord(groupId: "AB12", recordId: "record-1", context: context), prefix: "remote-delete-record")
-        _ = expectSuccess(await repository.addSettlementRecord(groupId: "AB12", fromId: "tmp-1", toId: "user-1", amountMinor: "600", note: "resolve", context: context), prefix: "remote-settlement-record")
-        _ = expectSuccess(await repository.resolveDebts(groupId: "AB12", context: context), prefix: "remote-resolve-all")
+        _ = expectSuccess(await repository.addSettlementRecord(groupId: "AB12", fromId: "tmp-1", toId: "user-1", amountMinor: "600", note: "resolve", currencyCode: "USD", context: context), prefix: "remote-settlement-record")
+        _ = expectSuccess(await repository.resolveDebts(groupId: "AB12", currencyCode: "USD", context: context), prefix: "remote-resolve-all")
         _ = expectSuccess(await repository.deleteGroup(code: "AB12", context: context), prefix: "remote-delete-group")
 
         let requests = MockLedgerURLProtocol.requests
@@ -119,6 +121,7 @@ enum LedgerRepositoryVerification {
         expect(requests.containsPath("/api/walkcalc/groups/AB12", method: "GET"), equals: true, prefix: "remote-group-detail-path")
         expect(requests.containsPath("/api/walkcalc/groups/AB12/records", method: "GET"), equals: true, prefix: "remote-records-path")
         expect(requests.containsPath("/api/walkcalc/groups/AB12/balances", method: "GET"), equals: true, prefix: "remote-balances-path")
+        expect(requests.first { $0.path == "/api/walkcalc/groups/AB12/settlement-suggestion" }?.query["currencyCode"], equals: Optional("USD"), prefix: "remote-settlement-suggestion-currency-query")
         expect(requests.containsPath("/api/walkcalc/groups/AB12/balances/user-1/records", method: "GET"), equals: true, prefix: "remote-member-records-path")
         expect(requests.containsPath("/api/walkcalc/groups", method: "POST"), equals: true, prefix: "remote-create-group-path")
         expect(requests.containsPath("/api/walkcalc/groups/AB12/invite", method: "POST"), equals: true, prefix: "remote-invite-path")
@@ -136,6 +139,9 @@ enum LedgerRepositoryVerification {
         expect(searchRequest?.query["search"]?.contains("\"operator\":\"or\""), equals: Optional(true), prefix: "remote-search-operator")
         expect(searchRequest?.query["search"]?.contains("\"field\":\"note\""), equals: Optional(true), prefix: "remote-search-note")
         expect(searchRequest?.query["search"]?.contains("\"field\":\"categoryName\""), equals: Optional(true), prefix: "remote-search-category")
+        let currencyRecordRequests = requests.filter { $0.path == "/api/walkcalc/records" || $0.path == "/api/walkcalc/records/update" }
+        expect(currencyRecordRequests.allSatisfy { $0.body["currencyCode"] as? String == "USD" }, equals: true, prefix: "remote-record-currency-body")
+        expect(requests.first { $0.path == "/api/walkcalc/groups/AB12/settlements/resolve" }?.body["currencyCode"] as? String, equals: Optional("USD"), prefix: "remote-resolve-currency-body")
     }
 
     private static func verifyRemoteAuthFailures() async {
@@ -301,6 +307,13 @@ private final class MockLedgerURLProtocol: URLProtocol {
             return (200, pagedEnvelope([recordPayload(id: "record-1")], page: Int(query["page"] ?? "1") ?? 1, pageSize: Int(query["pageSize"] ?? "10") ?? 10, total: 1))
         case ("GET", "/api/walkcalc/groups/AB12/balances"):
             return (200, envelope(["participants": participantsPayload()]))
+        case ("GET", "/api/walkcalc/groups/AB12/settlement-suggestion"):
+            return (200, envelope([
+                "groupCode": "AB12",
+                "currencyCode": query["currencyCode"] ?? "CNY",
+                "strategy": "exact",
+                "transfers": [["fromId": "tmp-1", "toId": "user-1", "amount": "10.00"]]
+            ]))
         case ("GET", "/api/walkcalc/groups/AB12/balances/user-1/records"):
             var member = participantsPayload()[0]
             member["records"] = [recordPayload(id: "record-1")]
@@ -346,6 +359,15 @@ private final class MockLedgerURLProtocol: URLProtocol {
             "createdAt": 1_710_000_000_000,
             "modifiedAt": 1_710_000_000_000,
             "currentUserBalance": "10.00",
+            "currentUserCurrencyBalances": [[
+                "currencyCode": "USD",
+                "balance": "10.00",
+                "expenseShare": "6.00",
+                "paidTotal": "12.00",
+                "recordCount": 1,
+                "settlementIn": "0.00",
+                "settlementOut": "0.00"
+            ]],
             "participants": participantsPayload()
         ]
     }
@@ -358,7 +380,16 @@ private final class MockLedgerURLProtocol: URLProtocol {
                 "profile": ["name": "Me", "avatar": ""],
                 "balance": "10.00",
                 "expenseShare": "6.00",
-                "recordCount": 1
+                "recordCount": 1,
+                "currencyBalances": [[
+                    "currencyCode": "USD",
+                    "balance": "10.00",
+                    "expenseShare": "6.00",
+                    "paidTotal": "12.00",
+                    "recordCount": 1,
+                    "settlementIn": "0.00",
+                    "settlementOut": "0.00"
+                ]]
             ],
             [
                 "participantId": "tmp-1",
@@ -376,6 +407,7 @@ private final class MockLedgerURLProtocol: URLProtocol {
             "recordId": id,
             "type": type,
             "amount": "12.00",
+            "currencyCode": "USD",
             "payerId": "user-1",
             "participantIds": ["user-1", "tmp-1"],
             "category": "food",

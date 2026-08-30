@@ -537,7 +537,11 @@ struct RootHomeView: View {
                                         store.preloadGroupContent(group.id)
                                         path.append(.group(group.id))
                                     } label: {
-                                        GroupSummaryRow(group: group, isPending: pendingGroupAction?.groupID == group.id)
+                                        GroupSummaryRow(
+                                            group: group,
+                                            isPending: pendingGroupAction?.groupID == group.id,
+                                            isAnimationEnabled: isBalanceAnimationEnabled
+                                        )
                                     }
                                     .buttonStyle(.plain)
                                     .disabled(pendingGroupAction != nil)
@@ -884,52 +888,104 @@ private struct HomeBalanceCard: View {
 
     let isAnimationEnabled: Bool
 
-    private var balances: [CurrencyBalanceSummary] {
-        let availableBalances = store.totalBalancesByCurrency.isEmpty
-            ? [CurrencyBalanceSummary(
-                currencyCode: CurrencyCatalog.defaultCurrencyCode(),
-                totalBalanceMinor: store.totalBalanceMinor
-            )]
-            : store.totalBalancesByCurrency
-        let nonZeroBalances = availableBalances.filter {
-            Money.compare($0.totalBalanceMinor, "0") != .orderedSame
+    private var actualCurrencyCodes: Set<String> {
+        let identityIds = Set([store.localOwner.uuid, store.user?.uuid].compactMap { $0 })
+        return store.groups.reduce(into: Set<String>()) { result, group in
+            guard identityIds.isDisjoint(with: Set(group.archivedUsers)) else { return }
+            let member = group.allMembers.first { identityIds.contains($0.uuid) }
+            let projections = group.hasCurrentUserBalanceSummary
+                ? group.currentUserCurrencyBalances
+                : member?.currencyBalances ?? []
+            for balance in projections where balance.hasLedgerActivity {
+                result.insert(CurrencyCatalog.normalizedCode(balance.currencyCode))
+            }
         }
-        return nonZeroBalances.isEmpty ? Array(availableBalances.prefix(1)) : nonZeroBalances
+    }
+
+    private var balances: [CurrencyBalanceSummary] {
+        let actualBalances = store.totalBalancesByCurrency.filter {
+            actualCurrencyCodes.contains(CurrencyCatalog.normalizedCode($0.currencyCode))
+                || !Money.isZero($0.totalBalanceMinor)
+        }
+        if !actualBalances.isEmpty {
+            return actualBalances.sorted { $0.currencyCode < $1.currencyCode }
+        }
+        guard !Money.isZero(store.totalBalanceMinor) else { return [] }
+        return [CurrencyBalanceSummary(
+            currencyCode: CurrencyCatalog.defaultCurrencyCode(),
+            totalBalanceMinor: store.totalBalanceMinor
+        )]
     }
 
     private func scopeCount(for currencyCode: String) -> Int {
         let loadedCount = store.groups.filter {
             let identityIds = Set([store.localOwner.uuid, store.user?.uuid].compactMap { $0 })
-            return identityIds.isDisjoint(with: Set($0.archivedUsers))
-                && CurrencyCatalog.normalizedCode($0.currencyCode) == currencyCode
+            guard identityIds.isDisjoint(with: Set($0.archivedUsers)) else { return false }
+            let member = $0.allMembers.first { identityIds.contains($0.uuid) }
+            let currencyBalances = $0.hasCurrentUserBalanceSummary
+                ? $0.currentUserCurrencyBalances
+                : member?.currencyBalances ?? []
+            let actualBalances = currencyBalances.filter(\.hasLedgerActivity)
+            if actualBalances.isEmpty {
+                let legacyBalance = $0.hasCurrentUserBalanceSummary
+                    ? $0.currentUserBalanceMinor
+                    : member?.debtMinor ?? "0"
+                guard !Money.isZero(legacyBalance) else { return false }
+                return CurrencyCatalog.normalizedCode($0.currencyCode) == currencyCode
+            }
+            return actualBalances.contains {
+                CurrencyCatalog.normalizedCode($0.currencyCode) == currencyCode
+            }
         }.count
         return loadedCount > 0 ? loadedCount : max(store.groupTotal, store.groups.count)
     }
 
     var body: some View {
-        SoftLedgerCard(usesGlass: true) {
-            CurrencyBalanceCarousel(
-                balances: balances,
-                isAnimationEnabled: isAnimationEnabled,
-                scopeCount: scopeCount
-            )
+        SoftLedgerCard {
+            if balances.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("Total balance"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    Text("—")
+                        .font(.system(size: 42, weight: .semibold, design: .rounded))
+                        .foregroundStyle(SoftLedgerTheme.ink)
+                }
+            } else {
+                CurrencyBalanceCarousel(
+                    balances: balances,
+                    isAnimationEnabled: isAnimationEnabled,
+                    scopeCount: scopeCount
+                )
+            }
         }
     }
 }
 
-private struct CurrencyBalanceCarousel: View {
+struct CurrencyBalanceCarousel: View {
     private enum Direction: Int {
         case previous = -1
         case next = 1
     }
 
+    private enum Presentation {
+        case card
+        case compact
+    }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @ScaledMetric(relativeTo: .largeTitle) private var amountPageHeight = 52
+    @ScaledMetric(relativeTo: .largeTitle) private var cardAmountPageHeight = 52
+    @ScaledMetric(relativeTo: .subheadline) private var compactAmountPageHeight = 24
 
     let balances: [CurrencyBalanceSummary]
     let isAnimationEnabled: Bool
-    let scopeCount: (String) -> Int
+    private let title: String
+    let scopeCount: ((String) -> Int)?
+    let subtitle: ((CurrencyBalanceSummary) -> String)?
+    let onTap: ((CurrencyBalanceSummary) -> Void)?
+    private let presentation: Presentation
+    private let amountColor: (CurrencyBalanceSummary) -> Color
 
     @State private var selection = 0
     @State private var dragOffset: CGFloat = 0
@@ -937,12 +993,74 @@ private struct CurrencyBalanceCarousel: View {
     @State private var hasUserInteracted = false
     @State private var settleTask: Task<Void, Never>?
 
+    init(
+        balances: [CurrencyBalanceSummary],
+        isAnimationEnabled: Bool,
+        scopeCount: @escaping (String) -> Int
+    ) {
+        self.balances = balances
+        self.isAnimationEnabled = isAnimationEnabled
+        self.title = L("Total balance")
+        self.scopeCount = scopeCount
+        self.subtitle = nil
+        self.onTap = nil
+        self.presentation = .card
+        self.amountColor = { _ in SoftLedgerTheme.ink }
+    }
+
+    init(
+        balances: [CurrencyBalanceSummary],
+        isAnimationEnabled: Bool,
+        subtitle: @escaping (CurrencyBalanceSummary) -> String,
+        onTap: @escaping (CurrencyBalanceSummary) -> Void
+    ) {
+        self.balances = balances
+        self.isAnimationEnabled = isAnimationEnabled
+        self.title = L("Total balance")
+        self.scopeCount = nil
+        self.subtitle = subtitle
+        self.onTap = onTap
+        self.presentation = .card
+        self.amountColor = { _ in SoftLedgerTheme.ink }
+    }
+
+    init(
+        balances: [CurrencyBalanceSummary],
+        isAnimationEnabled: Bool,
+        title: String,
+        amountColor: @escaping (CurrencyBalanceSummary) -> Color
+    ) {
+        self.balances = balances
+        self.isAnimationEnabled = isAnimationEnabled
+        self.title = title
+        self.scopeCount = nil
+        self.subtitle = nil
+        self.onTap = nil
+        self.presentation = .card
+        self.amountColor = amountColor
+    }
+
+    init(
+        compactBalances balances: [CurrencyBalanceSummary],
+        isAnimationEnabled: Bool,
+        amountColor: @escaping (CurrencyBalanceSummary) -> Color
+    ) {
+        self.balances = balances
+        self.isAnimationEnabled = isAnimationEnabled
+        self.title = ""
+        self.scopeCount = nil
+        self.subtitle = nil
+        self.onTap = nil
+        self.presentation = .compact
+        self.amountColor = amountColor
+    }
+
     private var selectedBalance: CurrencyBalanceSummary {
         balances[safe: selection] ?? balances[0]
     }
 
     private var selectedScopeCount: Int {
-        scopeCount(selectedBalance.currencyCode)
+        scopeCount?(selectedBalance.currencyCode) ?? 0
     }
 
     private var autoPlayID: String {
@@ -954,72 +1072,111 @@ private struct CurrencyBalanceCarousel: View {
         isAnimationEnabled && !isSettling && dragOffset == 0
     }
 
+    private var amountPageHeight: CGFloat {
+        presentation == .card ? cardAmountPageHeight : compactAmountPageHeight
+    }
+
+    private var contentMaxWidth: CGFloat? {
+        presentation == .card ? .infinity : nil
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L("Total balance"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
-
-                HStack(alignment: .center, spacing: 12) {
-                    amountViewport
-
-                    if balances.count > 1 {
-                        CurrencyPageIndicator(
-                            pageCount: balances.count,
-                            selection: selection
-                        )
-                        .offset(x: 6)
-                    }
+        carouselContent
+            .frame(maxWidth: contentMaxWidth, alignment: presentation == .card ? .leading : .trailing)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onTap?(selectedBalance)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint(onTap == nil ? "" : L("View details"))
+            .accessibilityValue(balances.count > 1 ? "\(selection + 1) / \(balances.count)" : "")
+            .accessibilityAdjustableAction { direction in
+                guard balances.count > 1 else { return }
+                stopAutoPlay()
+                switch direction {
+                case .increment:
+                    settle(.next, pageHeight: amountPageHeight)
+                case .decrement:
+                    settle(.previous, pageHeight: amountPageHeight)
+                @unknown default:
+                    break
                 }
             }
-
-            AnimatedGroupScopeText(groupCount: selectedScopeCount)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(balances.count > 1 ? "\(selection + 1) / \(balances.count)" : "")
-        .accessibilityAdjustableAction { direction in
-            guard balances.count > 1 else { return }
-            stopAutoPlay()
-            switch direction {
-            case .increment:
-                settle(.next, pageHeight: amountPageHeight)
-            case .decrement:
-                settle(.previous, pageHeight: amountPageHeight)
-            @unknown default:
-                break
-            }
-        }
-        .task(id: autoPlayID) {
-            guard balances.count > 1,
-                  !hasUserInteracted,
-                  isAnimationEnabled,
-                  scenePhase == .active else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                guard !Task.isCancelled,
+            .task(id: autoPlayID) {
+                guard balances.count > 1,
                       !hasUserInteracted,
-                      !isSettling,
                       isAnimationEnabled,
                       scenePhase == .active else { return }
-                settle(.next, pageHeight: amountPageHeight)
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled,
+                          !hasUserInteracted,
+                          !isSettling,
+                          isAnimationEnabled,
+                          scenePhase == .active else { return }
+                    settle(.next, pageHeight: amountPageHeight)
+                }
             }
-        }
-        .onChange(of: balances.map(\.currencyCode)) { oldCodes, newCodes in
-            guard oldCodes != newCodes else { return }
-            let selectedCode = oldCodes[safe: selection]
-            selection = selectedCode.flatMap { newCodes.firstIndex(of: $0) } ?? 0
-            dragOffset = 0
-            isSettling = false
-            settleTask?.cancel()
-        }
-        .onDisappear {
-            settleTask?.cancel()
+            .onChange(of: balances.map(\.currencyCode)) { oldCodes, newCodes in
+                guard oldCodes != newCodes else { return }
+                let selectedCode = oldCodes[safe: selection]
+                selection = selectedCode.flatMap { newCodes.firstIndex(of: $0) } ?? 0
+                dragOffset = 0
+                isSettling = false
+                settleTask?.cancel()
+            }
+            .onDisappear {
+                settleTask?.cancel()
+            }
+            .allowsHitTesting(presentation == .card)
+    }
+
+    @ViewBuilder
+    private var carouselContent: some View {
+        if presentation == .compact {
+            amountViewport
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+
+                    HStack(alignment: .center, spacing: 12) {
+                        amountViewport
+
+                        if balances.count > 1 {
+                            CurrencyPageIndicator(
+                                pageCount: balances.count,
+                                selection: selection
+                            )
+                            .offset(x: 6)
+                        }
+                    }
+                }
+
+                if let subtitle {
+                    HStack(spacing: 4) {
+                        Text(subtitle(selectedBalance))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
+                        if onTap != nil {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+                                .accessibilityHidden(true)
+                        }
+                    }
+                } else if scopeCount != nil {
+                    AnimatedGroupScopeText(groupCount: selectedScopeCount)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .lineLimit(1)
+                }
+            }
         }
     }
 
@@ -1062,18 +1219,29 @@ private struct CurrencyBalanceCarousel: View {
     }
 
     private func balancePage(_ balance: CurrencyBalanceSummary) -> some View {
-        AnimatedBalanceAmountText(
-            amountMinor: balance.totalBalanceMinor,
-            style: .exact,
-            currencyCode: balance.currencyCode,
-            isAnimationEnabled: allowsNumericAnimation
-        )
-            .font(.system(size: 42, weight: .semibold, design: .rounded))
-            .monospacedDigit()
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .id(balance.currencyCode)
+        Group {
+            if presentation == .compact {
+                Text(signedMoney(balance.totalBalanceMinor, currencyCode: balance.currencyCode))
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(amountColor(balance))
+                    .minimumScaleFactor(0.82)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            } else {
+                AnimatedBalanceAmountText(
+                    amountMinor: balance.totalBalanceMinor,
+                    style: .exact,
+                    currencyCode: balance.currencyCode,
+                    isAnimationEnabled: allowsNumericAnimation,
+                    foregroundColor: amountColor(balance)
+                )
+                .font(.system(size: 42, weight: .semibold, design: .rounded))
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            }
+        }
+        .monospacedDigit()
+        .lineLimit(1)
+        .id(balance.currencyCode)
     }
 
     private func balance(at direction: Direction) -> CurrencyBalanceSummary {
@@ -1152,7 +1320,13 @@ private struct CurrencyBalanceCarousel: View {
     }
 
     private var accessibilityLabel: String {
-        "\(L("Total balance")), \(signedMoney(selectedBalance.totalBalanceMinor, style: .exact, currencyCode: selectedBalance.currencyCode)), \(groupScopeText(selectedScopeCount))"
+        var components = [title, signedMoney(selectedBalance.totalBalanceMinor, style: .exact, currencyCode: selectedBalance.currencyCode)]
+        if let subtitle {
+            components.append(subtitle(selectedBalance))
+        } else if scopeCount != nil {
+            components.append(groupScopeText(selectedScopeCount))
+        }
+        return components.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 }
 
@@ -1338,10 +1512,12 @@ private struct GroupSummaryRow: View {
     @ScaledMetric(relativeTo: .caption) private var metadataSpacing = 8
     @ScaledMetric(relativeTo: .caption) private var statusInset = 12
     @ScaledMetric(relativeTo: .caption) private var statusWidth = 3
-    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 82
+    @ScaledMetric(relativeTo: .subheadline) private var amountWidth = 82
+    @ScaledMetric(relativeTo: .subheadline) private var amountHeight = 24
 
     let group: WalkGroup
     let isPending: Bool
+    let isAnimationEnabled: Bool
 
     private var myBalance: MoneyMinor {
         if group.hasCurrentUserBalanceSummary {
@@ -1354,8 +1530,38 @@ private struct GroupSummaryRow: View {
         group.allMembers.isEmpty ? group.participantPreview : group.allMembers
     }
 
-    private var balanceTextColor: Color {
-        Money.isZero(myBalance) ? SoftLedgerTheme.ink : moneyColor(myBalance)
+    private var currentMember: Member? {
+        guard let participantID = store.currentParticipantID(for: group) else { return nil }
+        return group.allMembers.first { $0.uuid == participantID }
+    }
+
+    private var carouselBalances: [CurrencyBalanceSummary] {
+        let projections = group.hasCurrentUserBalanceSummary
+            ? group.currentUserCurrencyBalances
+            : currentMember?.currencyBalances ?? []
+        let actualBalances = projections
+            .filter(\.hasLedgerActivity)
+            .sorted { $0.currencyCode < $1.currencyCode }
+        if !actualBalances.isEmpty {
+            return actualBalances.map {
+                CurrencyBalanceSummary(
+                    currencyCode: $0.currencyCode,
+                    totalBalanceMinor: $0.debtMinor
+                )
+            }
+        }
+        guard !Money.isZero(myBalance) else { return [] }
+        return [CurrencyBalanceSummary(
+            currencyCode: CurrencyCatalog.normalizedCode(group.currencyCode),
+            totalBalanceMinor: myBalance
+        )]
+    }
+
+    private var accessibilityBalanceText: String {
+        guard !carouselBalances.isEmpty else { return "—" }
+        return carouselBalances
+            .map { signedMoney($0.totalBalanceMinor, currencyCode: $0.currencyCode) }
+            .joined(separator: ", ")
     }
 
     private var balanceIndicatorColor: Color {
@@ -1379,14 +1585,21 @@ private struct GroupSummaryRow: View {
 
             Spacer()
 
-            Text(signedMoney(myBalance, currencyCode: group.currencyCode))
-                .font(.subheadline.monospacedDigit().weight(.semibold))
-                .foregroundStyle(balanceTextColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .allowsTightening(true)
-                .frame(minWidth: amountMinWidth, alignment: .trailing)
+            if carouselBalances.isEmpty {
+                Text("—")
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
+                    .layoutPriority(2)
+            } else {
+                CurrencyBalanceCarousel(
+                    compactBalances: carouselBalances,
+                    isAnimationEnabled: isAnimationEnabled,
+                    amountColor: { moneyColor($0.totalBalanceMinor) }
+                )
+                .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
                 .layoutPriority(2)
+            }
 
             if isPending {
                 ProgressView()
@@ -1414,7 +1627,7 @@ private struct GroupSummaryRow: View {
                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(group.name), \(signedMoney(myBalance, currencyCode: group.currencyCode))")
+        .accessibilityLabel("\(group.name), \(accessibilityBalanceText)")
         .accessibilityHint(L("Opens group details"))
     }
 }

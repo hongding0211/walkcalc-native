@@ -54,8 +54,16 @@ enum LocalLedgerUIFlowVerification {
         )
         expect(store.groups.count, equals: 1, prefix: "local-ui-home-count")
         let groupId = store.groups.first?.id ?? ""
+        let preferenceKey = "walkcalc.recordCurrency.\(groupId)"
+        UserDefaults.standard.removeObject(forKey: preferenceKey)
+        defer { UserDefaults.standard.removeObject(forKey: preferenceKey) }
         expect(groupId.hasPrefix("l-"), equals: true, prefix: "local-ui-group-id")
         expect(store.groups.first?.currencyCode, equals: Optional("USD"), prefix: "local-ui-group-currency")
+        expect(store.preferredRecordCurrencyCode(for: groupId), equals: "USD", prefix: "local-ui-record-currency-default")
+        store.rememberRecordCurrencyCode("CNY", for: groupId)
+        store.groups[0].currencyCode = "EUR"
+        expect(store.preferredRecordCurrencyCode(for: groupId), equals: "CNY", prefix: "local-ui-record-currency-cache")
+        store.groups[0].currencyCode = "USD"
         expect(store.sourceMetadata(for: groupId)?.source, equals: Optional(.local), prefix: "local-ui-source-metadata")
 
         await store.refreshGroup(groupId)
@@ -68,17 +76,24 @@ enum LocalLedgerUIFlowVerification {
         await store.refreshGroup(groupId)
         expect(store.group(id: groupId)?.tempUsers.count, equals: Optional(2), prefix: "local-ui-temp-count")
 
-        expect(await store.addRecordWithFeedback(groupId: groupId, who: ownerId, paid: "12.00", forWhom: [ownerId, guestId], type: "food", text: "Dinner", occurredAt: 1_710_000_000_000).success, equals: true, prefix: "local-ui-add-record")
+        expect(await store.addRecordWithFeedback(groupId: groupId, who: ownerId, paid: "12.00", forWhom: [ownerId, guestId], type: "food", text: "Dinner", occurredAt: 1_710_000_000_000, currencyCode: "EUR").success, equals: true, prefix: "local-ui-add-record")
         expect(store.records(groupId: groupId).count, equals: 1, prefix: "local-ui-record-count")
+        expect(store.records(groupId: groupId).first?.currencyCode, equals: Optional("EUR"), prefix: "local-ui-created-record-currency")
         let recordId = store.records(groupId: groupId).first?.recordId ?? ""
 
-        expect(await store.editRecordWithFeedback(groupId: groupId, recordId: recordId, who: ownerId, paid: "15.00", forWhom: [ownerId, guestId], type: "food", text: "Dinner updated", occurredAt: 1_710_000_000_001).success, equals: true, prefix: "local-ui-edit-record")
+        expect(await store.editRecordWithFeedback(groupId: groupId, recordId: recordId, who: ownerId, paid: "15.00", forWhom: [ownerId, guestId], type: "food", text: "Dinner updated", occurredAt: 1_710_000_000_001, currencyCode: "CNY").success, equals: true, prefix: "local-ui-edit-record")
+        expect(store.records(groupId: groupId).first?.currencyCode, equals: Optional("CNY"), prefix: "local-ui-edited-record-currency")
         await store.searchRecords(groupId: groupId, query: "updated")
         expect(store.records(groupId: groupId, search: "updated").count, equals: 1, prefix: "local-ui-search")
 
+        expect(await store.addRecordWithFeedback(groupId: groupId, who: ownerId, paid: "40.00", forWhom: [ownerId, guestId], type: "shopping", text: "USD purchase", occurredAt: 1_710_000_000_002, currencyCode: "USD").success, equals: true, prefix: "local-ui-add-usd-record")
+
         await store.refreshSettlementSuggestion(groupId: groupId)
-        expect(store.resolvedDebts(for: store.group(id: groupId) ?? group!).isEmpty, equals: false, prefix: "local-ui-settlement")
-        expect(await store.resolveAllWithFeedback(groupId: groupId, debts: []).success, equals: true, prefix: "local-ui-resolve")
+        let settlementDebts = store.resolvedDebts(for: store.group(id: groupId) ?? group!)
+        expect(settlementDebts.isEmpty, equals: false, prefix: "local-ui-settlement")
+        expect(settlementDebts.map(\.currencyCode), equals: ["USD", "CNY"], prefix: "local-ui-settlement-currency-order")
+        expect(settlementDebts.map(\.amountMinor), equals: ["2000", "750"], prefix: "local-ui-settlement-absolute-order")
+        expect(await store.resolveAllWithFeedback(groupId: groupId, debts: settlementDebts).success, equals: true, prefix: "local-ui-resolve")
 
         expect(await store.deleteRecordWithFeedback(groupId: groupId, recordId: recordId).success, equals: true, prefix: "local-ui-delete-record")
         expect(store.records(groupId: groupId).contains(where: { $0.recordId == recordId }), equals: false, prefix: "local-ui-record-deleted")

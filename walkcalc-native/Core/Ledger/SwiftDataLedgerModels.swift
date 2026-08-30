@@ -76,6 +76,7 @@ final class LocalLedgerParticipantModel {
     var debtMinor: MoneyMinor
     var costMinor: MoneyMinor
     var recordCount: Int
+    var currencyBalancesJSON: String?
     var isTemporary: Bool
     var isActive: Bool = true
     var createdAt: TimeInterval
@@ -106,6 +107,7 @@ final class LocalLedgerParticipantModel {
         self.debtMinor = debtMinor
         self.costMinor = costMinor
         self.recordCount = recordCount
+        self.currencyBalancesJSON = nil
         self.isTemporary = isTemporary
         self.isActive = isActive
         self.createdAt = createdAt
@@ -113,6 +115,25 @@ final class LocalLedgerParticipantModel {
         self.remoteIdentifier = remoteIdentifier
         self.syncState = syncState
         self.isDirty = isDirty
+    }
+
+    var currencyBalances: [MemberCurrencyProjection] {
+        get {
+            guard let currencyBalancesJSON,
+                  let data = currencyBalancesJSON.data(using: .utf8),
+                  let values = try? JSONDecoder().decode([MemberCurrencyProjection].self, from: data) else {
+                return []
+            }
+            return values
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue),
+                  let value = String(data: data, encoding: .utf8) else {
+                currencyBalancesJSON = nil
+                return
+            }
+            currencyBalancesJSON = value
+        }
     }
 }
 
@@ -132,6 +153,7 @@ final class LocalLedgerRecordModel {
     var isDebtResolve: Bool
     var createdBy: String?
     var modifiedBy: String?
+    var currencyCode: String?
     var remoteIdentifier: String?
     var syncState: String
     var isDirty: Bool
@@ -152,6 +174,7 @@ final class LocalLedgerRecordModel {
         isDebtResolve: Bool,
         createdBy: String?,
         modifiedBy: String?,
+        currencyCode: String? = nil,
         remoteIdentifier: String? = nil,
         syncState: String = "local",
         isDirty: Bool = true
@@ -170,6 +193,7 @@ final class LocalLedgerRecordModel {
         self.isDebtResolve = isDebtResolve
         self.createdBy = createdBy
         self.modifiedBy = modifiedBy
+        self.currencyCode = currencyCode
         self.remoteIdentifier = remoteIdentifier
         self.syncState = syncState
         self.isDirty = isDirty

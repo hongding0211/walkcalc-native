@@ -141,7 +141,7 @@ protocol LedgerDataSource {
     func groupBalances(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[Member]>>
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>>
     func memberRecords(groupId: String, memberId: String, page: Int, pageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMemberRecordSnapshot>
-    func settlementSuggestion(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>>
+    func settlementSuggestion(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>>
 
     func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func joinGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
@@ -155,11 +155,11 @@ protocol LedgerDataSource {
     func removeMember(code: String, participantId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func searchUsers(name: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[UserProfile]>>
 
-    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>>
-    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>>
-    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>>
+    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>>
+    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>>
+    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>>
     func deleteRecord(groupId: String, recordId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
-    func resolveDebts(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>>
+    func resolveDebts(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>>
 }
 
 struct RemoteLedgerDataSource: LedgerDataSource {
@@ -246,15 +246,15 @@ struct RemoteLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func settlementSuggestion(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {
+    func settlementSuggestion(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {
         guard let token = context.accessToken else { return .failure(.authenticationRequired()) }
         do {
-            let response = try await api.settlementSuggestion(groupCode: groupId, token: token)
+            let response = try await api.settlementSuggestion(groupCode: groupId, currencyCode: currencyCode, token: token)
             if let failure = failure(from: response) {
                 return .failure(failure)
             }
             return .success(LedgerMutationResponse(
-                value: (response.data ?? []).map { SettlementTransfer(fromId: $0.fromId, toId: $0.toId, amountMinor: $0.amountMinor) },
+                value: (response.data ?? []).map { SettlementTransfer(fromId: $0.fromId, toId: $0.toId, amountMinor: $0.amountMinor, currencyCode: $0.currencyCode) },
                 message: response.message,
                 errorData: response.errorData,
                 source: .remote(id: groupId),
@@ -331,21 +331,21 @@ struct RemoteLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         await envelopeMutation(context: context) { token in
-            try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, long: long, lat: lat, occurredAt: occurredAt)
+            try await api.addRecord(groupCode: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, currencyCode: currencyCode, token: token, long: long, lat: lat, occurredAt: occurredAt)
         }
     }
 
-    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         await envelopeMutation(context: context) { token in
-            try await api.addSettlementRecord(groupCode: groupId, fromId: fromId, toId: toId, amountMinor: amountMinor, note: note, token: token)
+            try await api.addSettlementRecord(groupCode: groupId, fromId: fromId, toId: toId, amountMinor: amountMinor, note: note, currencyCode: currencyCode, token: token)
         }
     }
 
-    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         await envelopeMutation(context: context) { token in
-            try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, token: token, occurredAt: occurredAt, isSettlement: isSettlement)
+            try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, currencyCode: currencyCode, token: token, occurredAt: occurredAt, isSettlement: isSettlement)
         }
     }
 
@@ -355,9 +355,9 @@ struct RemoteLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func resolveDebts(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
+    func resolveDebts(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
         await envelopeMutation(context: context) { token in
-            try await api.resolveDebts(groupCode: groupId, token: token)
+            try await api.resolveDebts(groupCode: groupId, currencyCode: currencyCode, token: token)
         }
     }
 
@@ -453,8 +453,8 @@ final class LedgerRepository {
         await source(for: context).memberRecords(groupId: groupId, memberId: memberId, page: page, pageSize: pageSize, context: context)
     }
 
-    func settlementSuggestion(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {
-        await source(for: context).settlementSuggestion(groupId: groupId, context: context)
+    func settlementSuggestion(groupId: String, currencyCode: String? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {
+        await source(for: context).settlementSuggestion(groupId: groupId, currencyCode: currencyCode, context: context)
     }
 
     func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
@@ -501,24 +501,24 @@ final class LedgerRepository {
         await remoteSource.searchUsers(name: name, context: context)
     }
 
-    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
-        await source(for: context).addRecord(groupId: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, long: long, lat: lat, occurredAt: occurredAt, context: context)
+    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, currencyCode: String? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+        await source(for: context).addRecord(groupId: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, long: long, lat: lat, occurredAt: occurredAt, currencyCode: currencyCode, context: context)
     }
 
-    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
-        await source(for: context).addSettlementRecord(groupId: groupId, fromId: fromId, toId: toId, amountMinor: amountMinor, note: note, context: context)
+    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, currencyCode: String? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+        await source(for: context).addSettlementRecord(groupId: groupId, fromId: fromId, toId: toId, amountMinor: amountMinor, note: note, currencyCode: currencyCode, context: context)
     }
 
-    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
-        await source(for: context).updateRecord(groupId: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, occurredAt: occurredAt, isSettlement: isSettlement, context: context)
+    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, currencyCode: String? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+        await source(for: context).updateRecord(groupId: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, occurredAt: occurredAt, isSettlement: isSettlement, currencyCode: currencyCode, context: context)
     }
 
     func deleteRecord(groupId: String, recordId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await source(for: context).deleteRecord(groupId: groupId, recordId: recordId, context: context)
     }
 
-    func resolveDebts(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
-        await source(for: context).resolveDebts(groupId: groupId, context: context)
+    func resolveDebts(groupId: String, currencyCode: String? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
+        await source(for: context).resolveDebts(groupId: groupId, currencyCode: currencyCode, context: context)
     }
 
     private func source(for context: LedgerSessionContext) -> any LedgerDataSource {

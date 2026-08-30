@@ -249,7 +249,7 @@ struct APIClient: Sendable {
         try await request(.get, path: "/walkcalc/records/\(id)", token: token, mapper: mapRecord)
     }
 
-    func addRecord(groupCode: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, token: String, long: String = "", lat: String = "", occurredAt: TimeInterval) async throws -> APIEnvelope<WalkRecord> {
+    func addRecord(groupCode: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, currencyCode: String? = nil, token: String, long: String = "", lat: String = "", occurredAt: TimeInterval) async throws -> APIEnvelope<WalkRecord> {
         let body = expenseRecordBody(
             groupCode: groupCode,
             payerId: who,
@@ -257,6 +257,7 @@ struct APIClient: Sendable {
             participantIds: forWhom,
             category: type,
             note: text,
+            currencyCode: currencyCode,
             long: long,
             lat: lat,
             occurredAt: occurredAt
@@ -266,19 +267,19 @@ struct APIClient: Sendable {
         }
     }
 
-    func addSettlementRecord(groupCode: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, token: String) async throws -> APIEnvelope<WalkRecord> {
-        let body = settlementRecordBody(groupCode: groupCode, fromId: fromId, toId: toId, amountMinor: amountMinor, note: note, occurredAt: Date().timeIntervalSince1970 * 1000)
+    func addSettlementRecord(groupCode: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, currencyCode: String? = nil, token: String) async throws -> APIEnvelope<WalkRecord> {
+        let body = settlementRecordBody(groupCode: groupCode, fromId: fromId, toId: toId, amountMinor: amountMinor, note: note, currencyCode: currencyCode, occurredAt: Date().timeIntervalSince1970 * 1000)
         return try await request(.post, path: "/walkcalc/records", token: token, body: body) { raw in
             mapRecord(dictPayload(raw)["record"] ?? raw)
         }
     }
 
-    func updateRecord(groupCode: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, token: String, occurredAt: TimeInterval, isSettlement: Bool = false) async throws -> APIEnvelope<WalkRecord> {
+    func updateRecord(groupCode: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, currencyCode: String? = nil, token: String, occurredAt: TimeInterval, isSettlement: Bool = false) async throws -> APIEnvelope<WalkRecord> {
         let body: [String: Any]
         if isSettlement {
-            body = settlementRecordBody(groupCode: groupCode, recordId: recordId, fromId: who, toId: forWhom.first ?? "", amountMinor: paidMinor, note: text, occurredAt: occurredAt)
+            body = settlementRecordBody(groupCode: groupCode, recordId: recordId, fromId: who, toId: forWhom.first ?? "", amountMinor: paidMinor, note: text, currencyCode: currencyCode, occurredAt: occurredAt)
         } else {
-            body = expenseRecordBody(groupCode: groupCode, recordId: recordId, payerId: who, amountMinor: paidMinor, participantIds: forWhom, category: type, note: text, occurredAt: occurredAt)
+            body = expenseRecordBody(groupCode: groupCode, recordId: recordId, payerId: who, amountMinor: paidMinor, participantIds: forWhom, category: type, note: text, currencyCode: currencyCode, occurredAt: occurredAt)
         }
         return try await request(.post, path: "/walkcalc/records/update", token: token, body: body) { raw in
             mapRecord(dictPayload(raw)["record"] ?? raw)
@@ -291,20 +292,26 @@ struct APIClient: Sendable {
         }
     }
 
-    func settlementSuggestion(groupCode: String, token: String) async throws -> APIEnvelope<[(fromId: String, toId: String, amountMinor: MoneyMinor)]> {
-        try await request(.get, path: "/walkcalc/groups/\(groupCode)/settlement-suggestion", token: token) { raw in
-            arrayPayload(dictPayload(raw)["transfers"]).map { transfer in
+    func settlementSuggestion(groupCode: String, currencyCode: String? = nil, token: String) async throws -> APIEnvelope<[(fromId: String, toId: String, amountMinor: MoneyMinor, currencyCode: String)]> {
+        let query = currencyCode.map { ["currencyCode": $0] } ?? [:]
+        return try await request(.get, path: "/walkcalc/groups/\(groupCode)/settlement-suggestion", query: query, token: token) { raw in
+            let payload = dictPayload(raw)
+            let responseCurrencyCode = CurrencyCatalog.normalizedCode(payload["currencyCode"] as? String ?? currencyCode)
+            return arrayPayload(payload["transfers"]).map { transfer in
                 (
                     fromId: transfer["fromId"] as? String ?? "",
                     toId: transfer["toId"] as? String ?? "",
-                    amountMinor: Money.minorFromDecimalString(transfer["amount"])
+                    amountMinor: Money.minorFromDecimalString(transfer["amount"]),
+                    currencyCode: responseCurrencyCode
                 )
             }
         }
     }
 
-    func resolveDebts(groupCode: String, token: String) async throws -> APIEnvelope<[WalkRecord]> {
-        try await request(.post, path: "/walkcalc/groups/\(groupCode)/settlements/resolve", token: token, body: [:]) { raw in
+    func resolveDebts(groupCode: String, currencyCode: String? = nil, token: String) async throws -> APIEnvelope<[WalkRecord]> {
+        var body: [String: Any] = [:]
+        if let currencyCode { body["currencyCode"] = currencyCode }
+        return try await request(.post, path: "/walkcalc/groups/\(groupCode)/settlements/resolve", token: token, body: body) { raw in
             arrayPayload(dictPayload(raw)["records"]).map(mapRecord)
         }
     }
@@ -514,6 +521,7 @@ private func expenseRecordBody(
     participantIds: [String],
     category: String,
     note: String,
+    currencyCode: String? = nil,
     long: String = "",
     lat: String = "",
     occurredAt: TimeInterval
@@ -530,6 +538,9 @@ private func expenseRecordBody(
     if let recordId {
         body["recordId"] = recordId
     }
+    if let currencyCode {
+        body["currencyCode"] = CurrencyCatalog.normalizedCode(currencyCode)
+    }
     body["occurredAt"] = Int(occurredAt)
     if !long.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         body["long"] = long
@@ -540,7 +551,7 @@ private func expenseRecordBody(
     return body
 }
 
-private func settlementRecordBody(groupCode: String, recordId: String? = nil, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, occurredAt: TimeInterval) -> [String: Any] {
+private func settlementRecordBody(groupCode: String, recordId: String? = nil, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, currencyCode: String? = nil, occurredAt: TimeInterval) -> [String: Any] {
     var body: [String: Any] = [
         "groupCode": groupCode,
         "type": "settlement",
@@ -551,6 +562,9 @@ private func settlementRecordBody(groupCode: String, recordId: String? = nil, fr
     ]
     if let recordId {
         body["recordId"] = recordId
+    }
+    if let currencyCode {
+        body["currencyCode"] = CurrencyCatalog.normalizedCode(currencyCode)
     }
     body["occurredAt"] = Int(occurredAt)
     return body
@@ -586,8 +600,23 @@ private func mapMember(_ raw: [String: Any], temporary: Bool = false) -> Member 
         debtMinor: debtMinor,
         costMinor: costMinor,
         recordCount: raw["recordCount"] as? Int ?? 0,
-        isTemporary: isTemporary
+        isTemporary: isTemporary,
+        currencyBalances: mapMemberCurrencyProjections(raw["currencyBalances"])
     )
+}
+
+private func mapMemberCurrencyProjections(_ raw: Any?) -> [MemberCurrencyProjection] {
+    arrayPayload(raw).map { item in
+        MemberCurrencyProjection(
+            currencyCode: CurrencyCatalog.normalizedCode(item["currencyCode"] as? String),
+            debtMinor: Money.minorFromDecimalString(item["balance"]),
+            costMinor: Money.minorFromDecimalString(item["expenseShare"]),
+            paidTotalMinor: Money.minorFromDecimalString(item["paidTotal"]),
+            recordCount: item["recordCount"] as? Int ?? 0,
+            settlementInMinor: Money.minorFromDecimalString(item["settlementIn"]),
+            settlementOutMinor: Money.minorFromDecimalString(item["settlementOut"])
+        )
+    }
 }
 
 private func mapParticipants(_ raw: Any?) -> [Member] {
@@ -636,6 +665,7 @@ private func mapGroup(_ raw: Any?) -> WalkGroup {
         currentUserExpenseShareMinor: Money.minorFromDecimalString(dict["currentUserExpenseShare"]),
         currentUserPaidTotalMinor: Money.minorFromDecimalString(dict["currentUserPaidTotal"]),
         currentUserRecordCount: dict["currentUserRecordCount"] as? Int ?? 0,
+        currentUserCurrencyBalances: mapMemberCurrencyProjections(dict["currentUserCurrencyBalances"]),
         participantCount: dict["participantCount"] as? Int ?? participants.count,
         participantPreview: participantPreview,
         historicalMembers: historicalMembers,
@@ -667,7 +697,8 @@ private func mapRecord(_ raw: Any?) -> WalkRecord {
         modifiedAt: timeInterval(dict["updatedAt"]),
         isDebtResolve: isSettlement,
         createdBy: dict["createdBy"] as? String,
-        modifiedBy: dict["updatedBy"] as? String
+        modifiedBy: dict["updatedBy"] as? String,
+        currencyCode: (dict["currencyCode"] as? String).map { CurrencyCatalog.normalizedCode($0) }
     )
 }
 

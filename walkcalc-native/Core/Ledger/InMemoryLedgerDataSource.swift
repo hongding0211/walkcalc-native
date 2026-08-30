@@ -79,10 +79,10 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         ))
     }
 
-    func settlementSuggestion(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {
+    func settlementSuggestion(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let group = group(id: groupId) else { return .failure(.sourceUnavailable()) }
-        return .success(mutation(settlementSuggestions(for: group), source: .local(id: groupId)))
+        return .success(mutation(settlementSuggestions(for: group, currencyCode: currencyCode), source: .local(id: groupId)))
     }
 
     func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
@@ -149,8 +149,16 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
     func changeGroupCurrency(code: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(.sourceUnavailable()) }
+        let previousCurrencyCode = groups[index].currencyCode
+        recordsByGroup[code] = recordsByGroup[code]?.map { record in
+            var next = record
+            if next.currencyCode == nil {
+                next.currencyCode = previousCurrencyCode
+            }
+            return next
+        }
         groups[index].currencyCode = CurrencyCatalog.normalizedCode(currencyCode)
-        groups[index].modifiedAt = Date().timeIntervalSince1970 * 1000
+        recomputeBalances(groupId: code)
         return .success(mutation(groups[index].currencyCode, source: .local(id: code)))
     }
 
@@ -182,7 +190,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
               groups[index].isOwner,
               participantId != groups[index].ownerUserId,
               let member = groups[index].allMembers.first(where: { $0.uuid == participantId }),
-              Money.isZero(member.debtMinor) else {
+              !member.hasUnresolvedCurrencyBalance else {
             return .failure(.sourceUnavailable())
         }
         removedMembersByGroup[code, default: []].append(member)
@@ -197,7 +205,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         .failure(.authenticationRequired())
     }
 
-    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let group = group(id: groupId) else { return .failure(.sourceUnavailable()) }
         let memberIds = Set(group.allMembers.map(\.uuid))
@@ -217,16 +225,18 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
             modifiedAt: now,
             isDebtResolve: false,
             createdBy: context.localOwner?.uuid,
-            modifiedBy: context.localOwner?.uuid
+            modifiedBy: context.localOwner?.uuid,
+            currencyCode: CurrencyCatalog.normalizedCode(currencyCode ?? group.currencyCode)
         )
         recordsByGroup[groupId, default: []].insert(record, at: 0)
         recomputeBalances(groupId: groupId)
         return .success(mutation(record, source: .local(id: groupId)))
     }
 
-    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let now = Date().timeIntervalSince1970 * 1000
+        guard let group = group(id: groupId) else { return .failure(.sourceUnavailable()) }
         let record = WalkRecord(
             recordId: Self.localRecordId(),
             who: fromId,
@@ -241,14 +251,15 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
             modifiedAt: now,
             isDebtResolve: true,
             createdBy: context.localOwner?.uuid,
-            modifiedBy: context.localOwner?.uuid
+            modifiedBy: context.localOwner?.uuid,
+            currencyCode: CurrencyCatalog.normalizedCode(currencyCode ?? group.currencyCode)
         )
         recordsByGroup[groupId, default: []].insert(record, at: 0)
         recomputeBalances(groupId: groupId)
         return .success(mutation(record, source: .local(id: groupId)))
     }
 
-    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let index = recordsByGroup[groupId]?.firstIndex(where: { $0.recordId == recordId }) else { return .failure(.sourceUnavailable()) }
         guard let group = group(id: groupId), recordCanMutate(recordsByGroup[groupId]![index], in: group) else { return .failure(.sourceUnavailable()) }
@@ -261,6 +272,9 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         recordsByGroup[groupId]?[index].text = text
         recordsByGroup[groupId]?[index].occurredAt = occurredAt
         recordsByGroup[groupId]?[index].isDebtResolve = isSettlement
+        recordsByGroup[groupId]?[index].currencyCode = CurrencyCatalog.normalizedCode(
+            currencyCode ?? recordsByGroup[groupId]?[index].currencyCode ?? group.currencyCode
+        )
         recordsByGroup[groupId]?[index].modifiedAt = Date().timeIntervalSince1970 * 1000
         recomputeBalances(groupId: groupId)
         return .success(mutation(recordsByGroup[groupId]?[index], source: .local(id: groupId)))
@@ -281,12 +295,13 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         return memberIds.contains(record.who) && record.forWhom.allSatisfy(memberIds.contains)
     }
 
-    func resolveDebts(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
+    func resolveDebts(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let group = group(id: groupId) else { return .failure(.sourceUnavailable()) }
         var created: [WalkRecord] = []
-        for transfer in settlementSuggestions(for: group) {
-            if case .success(let response) = await addSettlementRecord(groupId: groupId, fromId: transfer.fromId, toId: transfer.toId, amountMinor: transfer.amountMinor, note: "resolve", context: context),
+        let resolvedCurrencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? group.currencyCode)
+        for transfer in settlementSuggestions(for: group, currencyCode: resolvedCurrencyCode) {
+            if case .success(let response) = await addSettlementRecord(groupId: groupId, fromId: transfer.fromId, toId: transfer.toId, amountMinor: transfer.amountMinor, note: "resolve", currencyCode: resolvedCurrencyCode, context: context),
                let record = response.value {
                 created.append(record)
             }
@@ -342,9 +357,16 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         guard let ownerId else { return [] }
         let totals = groups.reduce(into: [String: MoneyMinor]()) { result, group in
             guard !group.archivedUsers.contains(ownerId) else { return }
-            let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
-            let balance = group.allMembers.first { $0.uuid == ownerId }?.debtMinor ?? "0"
-            result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance)
+            guard let member = group.allMembers.first(where: { $0.uuid == ownerId }) else { return }
+            if member.currencyBalances.isEmpty {
+                let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
+                result[currencyCode] = Money.add(result[currencyCode] ?? "0", member.debtMinor)
+            } else {
+                for balance in member.currencyBalances {
+                    let currencyCode = CurrencyCatalog.normalizedCode(balance.currencyCode)
+                    result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance.debtMinor)
+                }
+            }
         }
         return totals.keys.sorted().map { currencyCode in
             CurrencyBalanceSummary(
@@ -368,13 +390,14 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
             members[index].debtMinor = "0"
             members[index].costMinor = "0"
             members[index].recordCount = 0
+            members[index].currencyBalances = []
         }
 
         for record in records {
             if record.isDebtResolve {
-                applySettlement(record, to: &members)
+                applySettlement(record, groupCurrencyCode: groups[groupIndex].currencyCode, to: &members)
             } else {
-                applyExpense(record, to: &members)
+                applyExpense(record, groupCurrencyCode: groups[groupIndex].currencyCode, to: &members)
             }
         }
 
@@ -385,11 +408,19 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         groups[groupIndex].modifiedAt = Date().timeIntervalSince1970 * 1000
     }
 
-    private func applyExpense(_ record: WalkRecord, to members: inout [Member]) {
+    private func applyExpense(_ record: WalkRecord, groupCurrencyCode: String, to members: inout [Member]) {
         guard !record.forWhom.isEmpty else { return }
+        let currencyCode = CurrencyCatalog.normalizedCode(record.currencyCode ?? groupCurrencyCode)
         if let payerIndex = members.firstIndex(where: { $0.uuid == record.who }) {
             members[payerIndex].debtMinor = Money.add(members[payerIndex].debtMinor, record.paidMinor)
             members[payerIndex].recordCount += 1
+            applyCurrencyDelta(
+                to: &members[payerIndex],
+                currencyCode: currencyCode,
+                debtMinor: record.paidMinor,
+                paidTotalMinor: record.paidMinor,
+                recordCount: 1
+            )
         }
         let share = Money.splitFirst(record.paidMinor, count: record.forWhom.count)
         for participantId in record.forWhom {
@@ -399,26 +430,58 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
             if participantId != record.who {
                 members[index].recordCount += 1
             }
+            applyCurrencyDelta(
+                to: &members[index],
+                currencyCode: currencyCode,
+                debtMinor: Money.negate(share),
+                costMinor: share,
+                recordCount: participantId == record.who ? 0 : 1
+            )
         }
     }
 
-    private func applySettlement(_ record: WalkRecord, to members: inout [Member]) {
+    private func applySettlement(_ record: WalkRecord, groupCurrencyCode: String, to members: inout [Member]) {
+        let currencyCode = CurrencyCatalog.normalizedCode(record.currencyCode ?? groupCurrencyCode)
         if let fromIndex = members.firstIndex(where: { $0.uuid == record.who }) {
             members[fromIndex].debtMinor = Money.add(members[fromIndex].debtMinor, record.paidMinor)
             members[fromIndex].recordCount += 1
+            applyCurrencyDelta(
+                to: &members[fromIndex],
+                currencyCode: currencyCode,
+                debtMinor: record.paidMinor,
+                recordCount: 1,
+                settlementOutMinor: record.paidMinor
+            )
         }
         if let toId = record.forWhom.first,
            let toIndex = members.firstIndex(where: { $0.uuid == toId }) {
             members[toIndex].debtMinor = Money.add(members[toIndex].debtMinor, Money.negate(record.paidMinor))
             members[toIndex].recordCount += 1
+            applyCurrencyDelta(
+                to: &members[toIndex],
+                currencyCode: currencyCode,
+                debtMinor: Money.negate(record.paidMinor),
+                recordCount: 1,
+                settlementInMinor: record.paidMinor
+            )
         }
     }
 
-    private func settlementSuggestions(for group: WalkGroup) -> [SettlementTransfer] {
-        var receivers = group.allMembers
+    private func settlementSuggestions(for group: WalkGroup, currencyCode: String?) -> [SettlementTransfer] {
+        let resolvedCurrencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? group.currencyCode)
+        let currencyMembers = group.allMembers.map { member -> Member in
+            var next = member
+            if let balance = member.currencyBalances.first(where: { $0.currencyCode == resolvedCurrencyCode }) {
+                next.debtMinor = balance.debtMinor
+            } else if resolvedCurrencyCode != CurrencyCatalog.normalizedCode(group.currencyCode) || !member.currencyBalances.isEmpty {
+                next.debtMinor = "0"
+            }
+            return next
+        }
+        var receivers = currencyMembers
             .filter { Money.compare($0.debtMinor, "0") != .orderedAscending }
             .sorted { Money.compare($0.debtMinor, $1.debtMinor) == .orderedDescending }
-        var payers = group.allMembers
+        var payers = currencyMembers
             .filter { Money.compare($0.debtMinor, "0") == .orderedAscending }
             .map { member -> Member in
                 var next = member
@@ -443,7 +506,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
                         payers[payerIndex].debtMinor = Money.add(payers[payerIndex].debtMinor, Money.negate(receivers[receiverIndex].debtMinor))
                         receivers[receiverIndex].debtMinor = "0"
                     }
-                    result.append(SettlementTransfer(fromId: payers[payerIndex].uuid, toId: receivers[receiverIndex].uuid, amountMinor: amount))
+                    result.append(SettlementTransfer(fromId: payers[payerIndex].uuid, toId: receivers[receiverIndex].uuid, amountMinor: amount, currencyCode: resolvedCurrencyCode))
                     if Money.isZero(receivers[receiverIndex].debtMinor) {
                         break
                     }
@@ -454,6 +517,37 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
             }
         }
         return result
+    }
+
+    private func applyCurrencyDelta(
+        to member: inout Member,
+        currencyCode: String,
+        debtMinor: MoneyMinor = "0",
+        costMinor: MoneyMinor = "0",
+        paidTotalMinor: MoneyMinor = "0",
+        recordCount: Int = 0,
+        settlementInMinor: MoneyMinor = "0",
+        settlementOutMinor: MoneyMinor = "0"
+    ) {
+        let normalized = CurrencyCatalog.normalizedCode(currencyCode)
+        if !member.currencyBalances.contains(where: { $0.currencyCode == normalized }) {
+            member.currencyBalances.append(MemberCurrencyProjection(
+                currencyCode: normalized,
+                debtMinor: "0",
+                costMinor: "0",
+                paidTotalMinor: "0",
+                recordCount: 0,
+                settlementInMinor: "0",
+                settlementOutMinor: "0"
+            ))
+        }
+        guard let index = member.currencyBalances.firstIndex(where: { $0.currencyCode == normalized }) else { return }
+        member.currencyBalances[index].debtMinor = Money.add(member.currencyBalances[index].debtMinor, debtMinor)
+        member.currencyBalances[index].costMinor = Money.add(member.currencyBalances[index].costMinor, costMinor)
+        member.currencyBalances[index].paidTotalMinor = Money.add(member.currencyBalances[index].paidTotalMinor, paidTotalMinor)
+        member.currencyBalances[index].recordCount += recordCount
+        member.currencyBalances[index].settlementInMinor = Money.add(member.currencyBalances[index].settlementInMinor, settlementInMinor)
+        member.currencyBalances[index].settlementOutMinor = Money.add(member.currencyBalances[index].settlementOutMinor, settlementOutMinor)
     }
 
     private static func localGroupId() -> String {

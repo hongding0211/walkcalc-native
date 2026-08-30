@@ -5,6 +5,7 @@ enum BalancePresentationVerification {
     static func assertAllCasesPass() {
         verifyPersonalDebtFiltering()
         verifyStableDebtIdentity()
+        verifyCurrencyIndependentAbsoluteSorting()
     }
 
     private static func verifyPersonalDebtFiltering() {
@@ -29,10 +30,23 @@ enum BalancePresentationVerification {
         let alex = member(id: "alex", debt: "0")
         let yan = member(id: "yan", debt: "0")
         expect(
-            ResolvedDebt(from: alex, to: yan, amountMinor: "300").id,
-            equals: "alex->yan:300",
+            ResolvedDebt(from: alex, to: yan, amountMinor: "300", currencyCode: "CNY").id,
+            equals: "CNY:alex->yan:300",
             prefix: "stable-debt-id"
         )
+    }
+
+    private static func verifyCurrencyIndependentAbsoluteSorting() {
+        let me = member(id: "me", debt: "0")
+        let alex = member(id: "alex", debt: "0")
+        let sam = member(id: "sam", debt: "0")
+        let debts = [
+            ResolvedDebt(from: me, to: alex, amountMinor: "900", currencyCode: "USD"),
+            ResolvedDebt(from: me, to: sam, amountMinor: "1200", currencyCode: "EUR"),
+            ResolvedDebt(from: alex, to: sam, amountMinor: "1200", currencyCode: "CNY")
+        ]
+        let sorted = BalancePresentation.sortedByAbsoluteAmount(debts)
+        expect(sorted.map(\.currencyCode), equals: ["CNY", "EUR", "USD"], prefix: "currency-independent-absolute-sort")
     }
 
     private static func member(id: String, debt: MoneyMinor) -> Member {

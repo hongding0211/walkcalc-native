@@ -179,6 +179,7 @@ struct AnimatedBalanceAmountText: View {
     var style: MoneyDisplayStyle = .exact
     var currencyCode: String? = nil
     var isAnimationEnabled = true
+    var foregroundColor: Color = SoftLedgerTheme.ink
 
     @State private var displayedAmountMinor: MoneyMinor?
     @State private var pendingAmountMinor: MoneyMinor?
@@ -195,7 +196,7 @@ struct AnimatedBalanceAmountText: View {
 
     var body: some View {
         Text(signedMoney(resolvedAmountMinor, style: style, currencyCode: currencyCode))
-            .foregroundStyle(SoftLedgerTheme.ink)
+            .foregroundStyle(foregroundColor)
             .contentTransition(.numericText(value: transitionValue))
             .scaleEffect(isPulsing ? 1.018 : 1, anchor: .leading)
             .offset(y: isPulsing ? -1 : 0)
@@ -291,7 +292,6 @@ struct SoftLedgerCard<Content: View>: View {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(SoftLedgerTheme.rule.opacity(0.70), lineWidth: 1)
                 }
-                .shadow(color: SoftLedgerTheme.ink.opacity(0.04), radius: 10, y: 5)
         } else {
             content
                 .padding(20)
@@ -301,7 +301,6 @@ struct SoftLedgerCard<Content: View>: View {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .stroke(SoftLedgerTheme.rule.opacity(0.68), lineWidth: 1)
                 }
-                .shadow(color: SoftLedgerTheme.ink.opacity(0.04), radius: 10, y: 5)
         }
     }
 }
