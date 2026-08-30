@@ -941,7 +941,7 @@ private struct HomeBalanceCard: View {
     }
 
     var body: some View {
-        SoftLedgerCard(usesGlass: true) {
+        SoftLedgerCard {
             if balances.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L("Total balance"))
@@ -1157,11 +1157,22 @@ struct CurrencyBalanceCarousel: View {
                 }
 
                 if let subtitle {
-                    Text(subtitle(selectedBalance))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .lineLimit(1)
-                        .contentTransition(.opacity)
+                    HStack(spacing: 8) {
+                        Text(subtitle(selectedBalance))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
+
+                        Spacer(minLength: 8)
+
+                        if onTap != nil {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+                                .accessibilityHidden(true)
+                        }
+                    }
                 } else if scopeCount != nil {
                     AnimatedGroupScopeText(groupCount: selectedScopeCount)
                         .font(.caption.weight(.semibold))

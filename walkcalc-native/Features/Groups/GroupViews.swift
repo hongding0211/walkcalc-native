@@ -423,7 +423,7 @@ private struct GroupSummaryCard: View {
     }
 
     var body: some View {
-        SoftLedgerCard(usesGlass: true) {
+        SoftLedgerCard {
             if balances.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L("Total balance"))
@@ -483,7 +483,20 @@ private struct GroupBalancesSection: View {
         return balances.count > 3 ? L("View all") : L("View details")
     }
 
+    private var isSuggestionReady: Bool {
+        !group.hasUnresolvedBalance || store.isSettlementSuggestionReady(for: group.id)
+    }
+
+    @ViewBuilder
     var body: some View {
+        if isSuggestionReady {
+            balancesContent
+        } else {
+            loadingContent
+        }
+    }
+
+    private var balancesContent: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(sectionTitle)
                 .font(.headline.weight(.semibold))
@@ -585,6 +598,29 @@ private struct GroupBalancesSection: View {
                 }
             }
         }
+    }
+
+    private var loadingContent: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(SoftLedgerTheme.rule.opacity(0.45))
+                .frame(width: 142, height: 18)
+                .padding(.top, 4)
+
+            HStack {
+                ProgressView()
+                    .controlSize(.small)
+                    .softLedgerProgressTint()
+            }
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(L("Balances"))
     }
 
     private func recordCount(for member: Member) -> Int {

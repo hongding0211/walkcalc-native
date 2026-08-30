@@ -96,6 +96,7 @@ final class WalkcalcStore: ObservableObject {
     @Published private var memberRecordsByKey: [String: [WalkRecord]] = [:]
     @Published private var memberRecordTotalsByKey: [String: Int] = [:]
     @Published private var settlementSuggestionsByGroup: [String: [SettlementTransfer]] = [:]
+    @Published private var settlementSuggestionReadyGroupIds: Set<String> = []
     private var groupContentRefreshTasks: [String: Task<Void, Never>] = [:]
     @Published private var loadingRecordKeys: Set<String> = []
     @Published private(set) var preferredLedgerSource: LedgerSourceKind = .remote
@@ -359,6 +360,7 @@ final class WalkcalcStore: ObservableObject {
         memberRecordsByKey = [:]
         memberRecordTotalsByKey = [:]
         settlementSuggestionsByGroup = [:]
+        settlementSuggestionReadyGroupIds = []
         groupSourceById = [:]
     }
 
@@ -722,8 +724,8 @@ final class WalkcalcStore: ObservableObject {
             guard let self else { return }
             async let groupRefresh: Void = refreshGroup(id)
             async let balancesRefresh: Void = refreshGroupBalances(id)
-            _ = await (groupRefresh, balancesRefresh)
-            await refreshSettlementSuggestion(groupId: id)
+            async let settlementRefresh: Void = refreshSettlementSuggestion(groupId: id)
+            _ = await (groupRefresh, balancesRefresh, settlementRefresh)
             groupContentRefreshTasks[id] = nil
         }
     }
@@ -1560,6 +1562,12 @@ final class WalkcalcStore: ObservableObject {
         )
     }
 
+    func isSettlementSuggestionReady(for groupId: String) -> Bool {
+        isFixtureMode
+            || settlementSuggestionsByGroup[groupId] != nil
+            || settlementSuggestionReadyGroupIds.contains(groupId)
+    }
+
     func balancesInServerOrder(for group: WalkGroup) -> [Member] {
         group.allMembers
     }
@@ -1567,6 +1575,7 @@ final class WalkcalcStore: ObservableObject {
     func refreshSettlementSuggestion(groupId: String) async {
         if isFixtureMode { return }
         guard let group = group(id: groupId) else { return }
+        defer { settlementSuggestionReadyGroupIds.insert(groupId) }
         let context = context(for: groupId)
         var merged: [SettlementTransfer] = []
         var receivedResponse = false
