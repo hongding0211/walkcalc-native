@@ -208,6 +208,8 @@
 "You owe" = "You owe";
 "members" = "members";
 "Currency" = "Currency";
+"Default currency" = "Default currency";
+"Select currency" = "Select currency";
 "No currencies" = "No currencies";
 "Search currencies" = "Search currencies";
 "Remove member?" = "Remove member?";

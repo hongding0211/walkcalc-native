@@ -208,6 +208,8 @@
 "You owe" = "你欠别人";
 "members" = "成员";
 "Currency" = "货币";
+"Default currency" = "默认货币";
+"Select currency" = "选择货币";
 "No currencies" = "没有匹配的货币";
 "Search currencies" = "搜索货币";
 "Remove member?" = "移除成员？";

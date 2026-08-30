@@ -148,14 +148,14 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func settlementSuggestion(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {
+    func settlementSuggestion(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext) else { return .failure(.sourceUnavailable()) }
             recomputeBalances(group, updateModifiedAt: false)
             try modelContext.save()
-            return .success(mutation(settlementSuggestions(for: projectGroup(group)), source: .local(id: groupId)))
+            return .success(mutation(settlementSuggestions(for: projectGroup(group), currencyCode: currencyCode), source: .local(id: groupId)))
         } catch {
             return .failure(persistenceFailure(error))
         }
@@ -230,7 +230,12 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
 
     func changeGroupCurrency(code: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await updateGroup(code, context: context) { group in
+            let previousCurrencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
+            for record in group.records where record.currencyCode == nil {
+                record.currencyCode = previousCurrencyCode
+            }
             group.currencyCode = CurrencyCatalog.normalizedCode(currencyCode)
+            recomputeBalances(group, updateModifiedAt: false)
         }
     }
 
@@ -272,7 +277,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             guard let group = try fetchGroup(code, modelContext),
                   participantId != group.ownerUserId,
                   let participant = group.participants.first(where: { $0.id == participantId && $0.isActive }),
-                  Money.isZero(participant.debtMinor) else { return .failure(.sourceUnavailable()) }
+                  !participantHasUnresolvedBalance(participant) else { return .failure(.sourceUnavailable()) }
             participant.isActive = false
             participant.modifiedAt = currentTimestamp()
             participant.isDirty = true
@@ -289,7 +294,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         .failure(.authenticationRequired())
     }
 
-    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func addRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         await insertRecord(
             groupId: groupId,
             who: who,
@@ -301,11 +306,12 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             lat: lat,
             occurredAt: occurredAt,
             isDebtResolve: false,
+            currencyCode: currencyCode,
             context: context
         )
     }
 
-    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func addSettlementRecord(groupId: String, fromId: String, toId: String, amountMinor: MoneyMinor, note: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         let now = currentTimestamp()
         return await insertRecord(
             groupId: groupId,
@@ -318,11 +324,12 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             lat: "",
             occurredAt: now,
             isDebtResolve: true,
+            currencyCode: currencyCode,
             context: context
         )
     }
 
-    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let modelContext = ModelContext(container)
         do {
@@ -341,6 +348,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             record.text = text
             record.occurredAt = occurredAt
             record.isDebtResolve = isSettlement
+            record.currencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? record.currencyCode ?? group.currencyCode)
             record.modifiedAt = now
             record.modifiedBy = context.localOwner?.uuid
             record.isDirty = true
@@ -371,13 +379,14 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func resolveDebts(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
+    func resolveDebts(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[WalkRecord]>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext) else { return .failure(.sourceUnavailable()) }
             recomputeBalances(group, updateModifiedAt: false)
-            let transfers = settlementSuggestions(for: projectGroup(group))
+            let resolvedCurrencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? group.currencyCode)
+            let transfers = settlementSuggestions(for: projectGroup(group), currencyCode: resolvedCurrencyCode)
             var created: [WalkRecord] = []
             for transfer in transfers {
                 let record = makeRecord(
@@ -390,6 +399,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                     lat: "",
                     occurredAt: currentTimestamp(),
                     isDebtResolve: true,
+                    currencyCode: resolvedCurrencyCode,
                     context: context
                 )
                 record.group = group
@@ -405,7 +415,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         }
     }
 
-    private func insertRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, isDebtResolve: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
+    private func insertRecord(groupId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, isDebtResolve: Bool, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard !forWhom.isEmpty else {
             return .failure(LedgerOperationFailure(kind: .validation, message: L("Select at least one people."), statusCode: nil, errorData: nil))
@@ -425,6 +435,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                 lat: lat,
                 occurredAt: occurredAt,
                 isDebtResolve: isDebtResolve,
+                currencyCode: CurrencyCatalog.normalizedCode(currencyCode ?? group.currencyCode),
                 context: context
             )
             record.group = group
@@ -453,7 +464,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         }
     }
 
-    private func makeRecord(who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, isDebtResolve: Bool, context: LedgerSessionContext) -> LocalLedgerRecordModel {
+    private func makeRecord(who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, long: String, lat: String, occurredAt: TimeInterval, isDebtResolve: Bool, currencyCode: String?, context: LedgerSessionContext) -> LocalLedgerRecordModel {
         let now = currentTimestamp()
         return LocalLedgerRecordModel(
             id: Self.localRecordId(),
@@ -469,7 +480,8 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             modifiedAt: now,
             isDebtResolve: isDebtResolve,
             createdBy: context.localOwner?.uuid,
-            modifiedBy: context.localOwner?.uuid
+            modifiedBy: context.localOwner?.uuid,
+            currencyCode: currencyCode
         )
     }
 
@@ -528,6 +540,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let ownerBalance = members.first { $0.uuid == ownerId }?.debtMinor ?? "0"
         let ownerCost = members.first { $0.uuid == ownerId }?.costMinor ?? "0"
         let ownerRecordCount = members.first { $0.uuid == ownerId }?.recordCount ?? 0
+        let ownerCurrencyBalances = members.first { $0.uuid == ownerId }?.currencyBalances ?? []
         return WalkGroup(
             id: group.id,
             name: group.name,
@@ -544,10 +557,11 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             currentUserExpenseShareMinor: ownerCost,
             currentUserPaidTotalMinor: "0",
             currentUserRecordCount: ownerRecordCount,
+            currentUserCurrencyBalances: ownerCurrencyBalances,
             participantCount: members.count,
             participantPreview: Array(members.prefix(4)),
             historicalMembers: projectHistoricalMembers(group),
-            serverHasUnresolvedBalance: members.contains { !Money.isZero($0.debtMinor) }
+            serverHasUnresolvedBalance: members.contains { $0.hasUnresolvedCurrencyBalance }
         )
     }
 
@@ -560,7 +574,8 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                 debtMinor: participant.debtMinor,
                 costMinor: participant.costMinor,
                 recordCount: participant.recordCount,
-                isTemporary: participant.isTemporary
+                isTemporary: participant.isTemporary,
+                currencyBalances: participant.currencyBalances
             )
         }
     }
@@ -574,7 +589,8 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                 debtMinor: participant.debtMinor,
                 costMinor: participant.costMinor,
                 recordCount: participant.recordCount,
-                isTemporary: participant.isTemporary
+                isTemporary: participant.isTemporary,
+                currencyBalances: participant.currencyBalances
             )
         }
     }
@@ -599,7 +615,8 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             modifiedAt: record.modifiedAt,
             isDebtResolve: record.isDebtResolve,
             createdBy: record.createdBy,
-            modifiedBy: record.modifiedBy
+            modifiedBy: record.modifiedBy,
+            currencyCode: record.currencyCode
         )
     }
 
@@ -608,13 +625,14 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             participant.debtMinor = "0"
             participant.costMinor = "0"
             participant.recordCount = 0
+            participant.currencyBalances = []
         }
 
         for record in group.records {
             if record.isDebtResolve {
-                applySettlement(record, participants: group.participants)
+                applySettlement(record, groupCurrencyCode: group.currencyCode ?? CurrencyCatalog.defaultCurrencyCode(), participants: group.participants)
             } else {
-                applyExpense(record, participants: group.participants)
+                applyExpense(record, groupCurrencyCode: group.currencyCode ?? CurrencyCatalog.defaultCurrencyCode(), participants: group.participants)
             }
         }
 
@@ -624,11 +642,13 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         }
     }
 
-    private func applyExpense(_ record: LocalLedgerRecordModel, participants: [LocalLedgerParticipantModel]) {
+    private func applyExpense(_ record: LocalLedgerRecordModel, groupCurrencyCode: String, participants: [LocalLedgerParticipantModel]) {
         guard !record.forWhom.isEmpty else { return }
+        let currencyCode = CurrencyCatalog.normalizedCode(record.currencyCode ?? groupCurrencyCode)
         if let payer = participants.first(where: { $0.id == record.who }) {
             payer.debtMinor = Money.add(payer.debtMinor, record.paidMinor)
             payer.recordCount += 1
+            applyCurrencyDelta(to: payer, currencyCode: currencyCode, debtMinor: record.paidMinor, paidTotalMinor: record.paidMinor, recordCount: 1)
         }
         let share = Money.splitFirst(record.paidMinor, count: record.forWhom.count)
         for participantId in record.forWhom {
@@ -638,26 +658,40 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             if participantId != record.who {
                 participant.recordCount += 1
             }
+            applyCurrencyDelta(to: participant, currencyCode: currencyCode, debtMinor: Money.negate(share), costMinor: share, recordCount: participantId == record.who ? 0 : 1)
         }
     }
 
-    private func applySettlement(_ record: LocalLedgerRecordModel, participants: [LocalLedgerParticipantModel]) {
+    private func applySettlement(_ record: LocalLedgerRecordModel, groupCurrencyCode: String, participants: [LocalLedgerParticipantModel]) {
+        let currencyCode = CurrencyCatalog.normalizedCode(record.currencyCode ?? groupCurrencyCode)
         if let from = participants.first(where: { $0.id == record.who }) {
             from.debtMinor = Money.add(from.debtMinor, record.paidMinor)
             from.recordCount += 1
+            applyCurrencyDelta(to: from, currencyCode: currencyCode, debtMinor: record.paidMinor, recordCount: 1, settlementOutMinor: record.paidMinor)
         }
         if let toId = record.forWhom.first,
            let to = participants.first(where: { $0.id == toId }) {
             to.debtMinor = Money.add(to.debtMinor, Money.negate(record.paidMinor))
             to.recordCount += 1
+            applyCurrencyDelta(to: to, currencyCode: currencyCode, debtMinor: Money.negate(record.paidMinor), recordCount: 1, settlementInMinor: record.paidMinor)
         }
     }
 
-    private func settlementSuggestions(for group: WalkGroup) -> [SettlementTransfer] {
-        var receivers = group.allMembers
+    private func settlementSuggestions(for group: WalkGroup, currencyCode: String?) -> [SettlementTransfer] {
+        let resolvedCurrencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? group.currencyCode)
+        let currencyMembers = group.allMembers.map { member -> Member in
+            var next = member
+            if let balance = member.currencyBalances.first(where: { $0.currencyCode == resolvedCurrencyCode }) {
+                next.debtMinor = balance.debtMinor
+            } else if resolvedCurrencyCode != CurrencyCatalog.normalizedCode(group.currencyCode) || !member.currencyBalances.isEmpty {
+                next.debtMinor = "0"
+            }
+            return next
+        }
+        var receivers = currencyMembers
             .filter { Money.compare($0.debtMinor, "0") != .orderedAscending }
             .sorted { Money.compare($0.debtMinor, $1.debtMinor) == .orderedDescending }
-        var payers = group.allMembers
+        var payers = currencyMembers
             .filter { Money.compare($0.debtMinor, "0") == .orderedAscending }
             .map { member -> Member in
                 var next = member
@@ -682,7 +716,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                         payers[payerIndex].debtMinor = Money.add(payers[payerIndex].debtMinor, Money.negate(receivers[receiverIndex].debtMinor))
                         receivers[receiverIndex].debtMinor = "0"
                     }
-                    result.append(SettlementTransfer(fromId: payers[payerIndex].uuid, toId: receivers[receiverIndex].uuid, amountMinor: amount))
+                    result.append(SettlementTransfer(fromId: payers[payerIndex].uuid, toId: receivers[receiverIndex].uuid, amountMinor: amount, currencyCode: resolvedCurrencyCode))
                     if Money.isZero(receivers[receiverIndex].debtMinor) {
                         break
                     }
@@ -693,6 +727,39 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             }
         }
         return result
+    }
+
+    private func applyCurrencyDelta(
+        to participant: LocalLedgerParticipantModel,
+        currencyCode: String,
+        debtMinor: MoneyMinor = "0",
+        costMinor: MoneyMinor = "0",
+        paidTotalMinor: MoneyMinor = "0",
+        recordCount: Int = 0,
+        settlementInMinor: MoneyMinor = "0",
+        settlementOutMinor: MoneyMinor = "0"
+    ) {
+        let normalized = CurrencyCatalog.normalizedCode(currencyCode)
+        var balances = participant.currencyBalances
+        if !balances.contains(where: { $0.currencyCode == normalized }) {
+            balances.append(MemberCurrencyProjection(
+                currencyCode: normalized,
+                debtMinor: "0",
+                costMinor: "0",
+                paidTotalMinor: "0",
+                recordCount: 0,
+                settlementInMinor: "0",
+                settlementOutMinor: "0"
+            ))
+        }
+        guard let index = balances.firstIndex(where: { $0.currencyCode == normalized }) else { return }
+        balances[index].debtMinor = Money.add(balances[index].debtMinor, debtMinor)
+        balances[index].costMinor = Money.add(balances[index].costMinor, costMinor)
+        balances[index].paidTotalMinor = Money.add(balances[index].paidTotalMinor, paidTotalMinor)
+        balances[index].recordCount += recordCount
+        balances[index].settlementInMinor = Money.add(balances[index].settlementInMinor, settlementInMinor)
+        balances[index].settlementOutMinor = Money.add(balances[index].settlementOutMinor, settlementOutMinor)
+        participant.currencyBalances = balances
     }
 
     private func conditionMatches(record: LocalLedgerRecordModel, condition: RecordSearchCondition) -> Bool {
@@ -718,9 +785,17 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         guard let ownerId else { return [] }
         let totals = groups.reduce(into: [String: MoneyMinor]()) { result, group in
             guard !group.archivedUserIds.contains(ownerId) else { return }
-            let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
-            let balance = group.participants.first { $0.id == ownerId }?.debtMinor ?? "0"
-            result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance)
+            guard let participant = group.participants.first(where: { $0.id == ownerId }) else { return }
+            let balances = participant.currencyBalances
+            if balances.isEmpty {
+                let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
+                result[currencyCode] = Money.add(result[currencyCode] ?? "0", participant.debtMinor)
+            } else {
+                for balance in balances {
+                    let currencyCode = CurrencyCatalog.normalizedCode(balance.currencyCode)
+                    result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance.debtMinor)
+                }
+            }
         }
         return totals.keys.sorted().map { currencyCode in
             CurrencyBalanceSummary(
@@ -732,6 +807,14 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
 
     private func mutation<Value>(_ value: Value?, source: LedgerSourceMetadata) -> LedgerMutationResponse<Value> {
         LedgerMutationResponse(value: value, message: nil, errorData: nil, source: source, refreshedToken: nil)
+    }
+
+    private func participantHasUnresolvedBalance(_ participant: LocalLedgerParticipantModel) -> Bool {
+        let balances = participant.currencyBalances
+        if !balances.isEmpty {
+            return balances.contains { !Money.isZero($0.debtMinor) }
+        }
+        return !Money.isZero(participant.debtMinor)
     }
 
     private func isAvailable(_ context: LedgerSessionContext) -> Bool {

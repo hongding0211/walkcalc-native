@@ -377,26 +377,42 @@ private struct RecordSearchCanvas: View {
 
 private struct GroupSummaryCard: View {
     @EnvironmentObject private var store: WalkcalcStore
-    @ScaledMetric(relativeTo: .caption) private var balanceStateSpacing = 5
-    @ScaledMetric(relativeTo: .caption) private var balanceChevronSize = 9
     let group: WalkGroup
     let isAnimationEnabled: Bool
     let onOpenBalance: (Member) -> Void
 
-    private var myBalance: MoneyMinor {
-        if group.hasCurrentUserBalanceSummary {
-            return group.currentUserBalanceMinor
-        }
-        return group.membersInfo.first(where: { $0.uuid == store.user?.uuid })?.debtMinor ?? group.currentUserBalanceMinor
-    }
-
     private var currentMember: Member? {
-        guard let userId = store.user?.uuid else { return nil }
+        guard let userId = store.currentParticipantID(for: group) else { return nil }
         return group.allMembers.first { $0.uuid == userId }
     }
 
-    private var balanceStateText: String {
-        switch Money.compare(myBalance, "0") {
+    private var balances: [CurrencyBalanceSummary] {
+        let projections = group.hasCurrentUserBalanceSummary
+            ? group.currentUserCurrencyBalances
+            : currentMember?.currencyBalances ?? []
+        let actualBalances = projections
+            .filter(\.hasLedgerActivity)
+            .sorted { $0.currencyCode < $1.currencyCode }
+        if !actualBalances.isEmpty {
+            return actualBalances.map {
+                CurrencyBalanceSummary(currencyCode: $0.currencyCode, totalBalanceMinor: $0.debtMinor)
+            }
+        }
+        let legacyBalance = group.hasCurrentUserBalanceSummary
+            ? group.currentUserBalanceMinor
+            : currentMember?.debtMinor ?? "0"
+        let legacyRecordCount = group.hasCurrentUserBalanceSummary
+            ? group.currentUserRecordCount
+            : currentMember?.recordCount ?? 0
+        guard legacyRecordCount > 0 || !Money.isZero(legacyBalance) else { return [] }
+        return [CurrencyBalanceSummary(
+            currencyCode: CurrencyCatalog.normalizedCode(group.currencyCode),
+            totalBalanceMinor: legacyBalance
+        )]
+    }
+
+    private func balanceStateText(_ balance: CurrencyBalanceSummary) -> String {
+        switch Money.compare(balance.totalBalanceMinor, "0") {
         case .orderedDescending:
             return L("Owed to you")
         case .orderedAscending:
@@ -407,43 +423,29 @@ private struct GroupSummaryCard: View {
     }
 
     var body: some View {
-        Button {
-            guard let currentMember else { return }
-            onOpenBalance(currentMember)
-        } label: {
-            SoftLedgerCard(usesGlass: true) {
+        SoftLedgerCard(usesGlass: true) {
+            if balances.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(L("My balance"))
+                    Text(L("Total balance"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    AnimatedBalanceAmountText(
-                        amountMinor: myBalance,
-                        style: .exact,
-                        currencyCode: group.currencyCode,
-                        isAnimationEnabled: isAnimationEnabled
-                    )
+                    Text("—")
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-
-                    HStack(spacing: balanceStateSpacing) {
-                        Text(balanceStateText)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: balanceChevronSize, weight: .semibold))
-                            .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
-                            .accessibilityHidden(true)
-                    }
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .foregroundStyle(SoftLedgerTheme.ink)
+                }
+            } else {
+                CurrencyBalanceCarousel(
+                    balances: balances,
+                    isAnimationEnabled: isAnimationEnabled,
+                    subtitle: balanceStateText
+                ) { _ in
+                    guard let currentMember else { return }
+                    onOpenBalance(currentMember)
                 }
             }
         }
-        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .disabled(currentMember == nil)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(L("View details"))
+        .allowsHitTesting(currentMember != nil)
     }
 }
 
@@ -494,7 +496,7 @@ private struct GroupBalancesSection: View {
                         PersonalSettlementPreviewRow(
                             debt: debt,
                             currentParticipantID: store.currentParticipantID(for: group),
-                            currencyCode: group.currencyCode
+                            currencyCode: debt.currencyCode
                         )
                         if index < personalDebts.count - 1 {
                             Divider()
@@ -705,12 +707,43 @@ struct BalancePreviewRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
     @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
-    @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 82
+    @ScaledMetric(relativeTo: .subheadline) private var amountWidth = 82
+    @ScaledMetric(relativeTo: .subheadline) private var amountHeight = 24
 
     let member: Member
     let recordCount: Int
     let currencyCode: String
     let action: () -> Void
+
+    private var displayBalances: [MemberCurrencyProjection] {
+        let actualBalances = member.currencyBalances
+            .filter(\.hasLedgerActivity)
+            .sorted { $0.currencyCode < $1.currencyCode }
+        if !actualBalances.isEmpty {
+            return actualBalances
+        }
+        guard recordCount > 0 || !Money.isZero(member.debtMinor) || !Money.isZero(member.costMinor) else {
+            return []
+        }
+        return [MemberCurrencyProjection(
+                currencyCode: CurrencyCatalog.normalizedCode(currencyCode),
+                debtMinor: member.debtMinor,
+                costMinor: member.costMinor,
+                paidTotalMinor: "0",
+                recordCount: member.recordCount,
+                settlementInMinor: "0",
+                settlementOutMinor: "0"
+            )]
+    }
+
+    private var carouselBalances: [CurrencyBalanceSummary] {
+        displayBalances.map {
+            CurrencyBalanceSummary(
+                currencyCode: $0.currencyCode,
+                totalBalanceMinor: $0.debtMinor
+            )
+        }
+    }
 
     var body: some View {
         Button(action: action) {
@@ -731,22 +764,30 @@ struct BalancePreviewRow: View {
 
                 Spacer()
 
-                Text(signedMoney(member.debtMinor, currencyCode: currencyCode))
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(moneyColor(member.debtMinor))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .allowsTightening(true)
-                    .frame(minWidth: amountMinWidth, alignment: .trailing)
+                if carouselBalances.isEmpty {
+                    Text("—")
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
+                        .layoutPriority(2)
+                } else {
+                    CurrencyBalanceCarousel(
+                        compactBalances: carouselBalances,
+                        isAnimationEnabled: true,
+                        amountColor: { moneyColor($0.totalBalanceMinor) }
+                    )
+                    .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
                     .layoutPriority(2)
+                }
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
             }
-            .frame(minHeight: rowMinHeight)
+            .frame(maxWidth: .infinity, minHeight: rowMinHeight, alignment: .leading)
             .contentShape(Rectangle())
         }
+        .frame(maxWidth: .infinity)
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
     }
@@ -902,7 +943,7 @@ struct ExpenseRow: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: trailingSpacing) {
-                    Text(CurrencyCatalog.formatted(record.paidMinor, currencyCode: group.currencyCode))
+                    Text(CurrencyCatalog.formatted(record.paidMinor, currencyCode: record.currencyCode ?? group.currencyCode))
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
@@ -946,7 +987,7 @@ struct ExpenseRow: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(recordTitle(record)), \(L("Paid by %@").replacingOccurrences(of: "%@", with: payerName)), \(CurrencyCatalog.formatted(record.paidMinor, currencyCode: group.currencyCode)), \(fullCreatedAt)")
+        .accessibilityLabel("\(recordTitle(record)), \(L("Paid by %@").replacingOccurrences(of: "%@", with: payerName)), \(CurrencyCatalog.formatted(record.paidMinor, currencyCode: record.currencyCode ?? group.currencyCode)), \(fullCreatedAt)")
     }
 }
 

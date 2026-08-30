@@ -56,6 +56,34 @@ struct Member: Identifiable, Hashable {
     var costMinor: MoneyMinor
     var recordCount: Int = 0
     var isTemporary: Bool = false
+    var currencyBalances: [MemberCurrencyProjection] = []
+
+    var hasUnresolvedCurrencyBalance: Bool {
+        if !currencyBalances.isEmpty {
+            return currencyBalances.contains { !Money.isZero($0.debtMinor) }
+        }
+        return !Money.isZero(debtMinor)
+    }
+}
+
+struct MemberCurrencyProjection: Identifiable, Hashable, Codable {
+    var id: String { currencyCode }
+    var currencyCode: String
+    var debtMinor: MoneyMinor
+    var costMinor: MoneyMinor
+    var paidTotalMinor: MoneyMinor
+    var recordCount: Int
+    var settlementInMinor: MoneyMinor
+    var settlementOutMinor: MoneyMinor
+
+    var hasLedgerActivity: Bool {
+        recordCount > 0
+            || !Money.isZero(debtMinor)
+            || !Money.isZero(costMinor)
+            || !Money.isZero(paidTotalMinor)
+            || !Money.isZero(settlementInMinor)
+            || !Money.isZero(settlementOutMinor)
+    }
 }
 
 struct WalkGroup: Identifiable, Hashable {
@@ -74,6 +102,7 @@ struct WalkGroup: Identifiable, Hashable {
     var currentUserExpenseShareMinor: MoneyMinor = "0"
     var currentUserPaidTotalMinor: MoneyMinor = "0"
     var currentUserRecordCount: Int = 0
+    var currentUserCurrencyBalances: [MemberCurrencyProjection] = []
     var participantCount: Int = 0
     var participantPreview: [Member] = []
     var historicalMembers: [Member] = []
@@ -101,7 +130,13 @@ struct WalkGroup: Identifiable, Hashable {
         if let serverHasUnresolvedBalance {
             return serverHasUnresolvedBalance
         }
-        return allMembers.contains { !Money.isZero($0.debtMinor) }
+        if !allMembers.isEmpty {
+            return allMembers.contains { $0.hasUnresolvedCurrencyBalance }
+        }
+        if !currentUserCurrencyBalances.isEmpty {
+            return currentUserCurrencyBalances.contains { !Money.isZero($0.debtMinor) }
+        }
+        return !Money.isZero(currentUserBalanceMinor)
     }
 
     var shouldShowDeleteResolutionNotice: Bool {
@@ -109,7 +144,7 @@ struct WalkGroup: Identifiable, Hashable {
             return serverHasUnresolvedBalance
         }
         if allMembers.isEmpty {
-            return participantCount > 1 || !Money.isZero(currentUserBalanceMinor)
+            return participantCount > 1 || hasUnresolvedBalance
         }
         return hasUnresolvedBalance
     }
@@ -119,7 +154,7 @@ struct WalkGroup: Identifiable, Hashable {
             return serverHasUnresolvedBalance
         }
         if allMembers.isEmpty {
-            return !Money.isZero(currentUserBalanceMinor)
+            return hasUnresolvedBalance
         }
         return hasUnresolvedBalance
     }
@@ -141,6 +176,7 @@ struct WalkRecord: Identifiable, Hashable {
     var isDebtResolve: Bool
     var createdBy: String?
     var modifiedBy: String?
+    var currencyCode: String? = nil
 }
 
 struct RecordSearchRequest: Encodable, Hashable {
@@ -167,9 +203,10 @@ struct ResolvedDebt: Identifiable, Hashable {
     var from: Member
     var to: Member
     var amountMinor: MoneyMinor
+    var currencyCode: String = CurrencyCatalog.defaultCurrencyCode()
 
     var id: String {
-        "\(from.uuid)->\(to.uuid):\(amountMinor)"
+        "\(CurrencyCatalog.normalizedCode(currencyCode)):\(from.uuid)->\(to.uuid):\(amountMinor)"
     }
 }
 
@@ -181,12 +218,34 @@ enum BalancePresentation {
         }
     }
 
+    static func sortedByAbsoluteAmount(_ debts: [ResolvedDebt]) -> [ResolvedDebt] {
+        debts.sorted { left, right in
+            let amountOrder = Money.compare(
+                Money.absolute(left.amountMinor),
+                Money.absolute(right.amountMinor)
+            )
+            if amountOrder != .orderedSame {
+                return amountOrder == .orderedDescending
+            }
+            let leftCurrency = CurrencyCatalog.normalizedCode(left.currencyCode)
+            let rightCurrency = CurrencyCatalog.normalizedCode(right.currencyCode)
+            if leftCurrency != rightCurrency {
+                return leftCurrency < rightCurrency
+            }
+            if left.from.uuid != right.from.uuid {
+                return left.from.uuid < right.from.uuid
+            }
+            return left.to.uuid < right.to.uuid
+        }
+    }
+
 }
 
 struct SettlementTransfer: Hashable {
     var fromId: String
     var toId: String
     var amountMinor: MoneyMinor
+    var currencyCode: String? = nil
 }
 
 struct MemberRecordPage {

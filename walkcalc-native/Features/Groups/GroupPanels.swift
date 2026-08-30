@@ -122,7 +122,7 @@ struct CreateGroupSheet: View {
                     }
                 } label: {
                     HStack {
-                        Text(L("Currency"))
+                        Text(L("Default currency"))
                         Spacer()
                         Text(selectedCurrencyCode)
                             .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -958,7 +958,7 @@ struct GroupSettingsSheet: View {
                         CurrencySelectionView(group: currentGroup)
                     } label: {
                         HStack {
-                            Text(L("Currency"))
+                            Text(L("Default currency"))
                             Spacer()
                             Text(currentCurrency.code)
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -968,7 +968,7 @@ struct GroupSettingsSheet: View {
                     }
                 } else {
                     HStack {
-                        Text(L("Currency"))
+                        Text(L("Default currency"))
                         Spacer()
                         Text(currentCurrency.code)
                             .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -1926,6 +1926,7 @@ struct RecordEditorView: View {
     let onDone: () -> Void
 
     @State private var amount: String
+    @State private var selectedCurrencyCode: String
     @State private var paidBy: String
     @State private var splitMembers: Set<String>
     @State private var categoryId: String
@@ -1935,12 +1936,14 @@ struct RecordEditorView: View {
     @State private var deleteCandidate: WalkRecord?
     @State private var hasEditIntent: Bool
     @State private var isSubmitting = false
+    @State private var isShowingCurrencyPicker = false
 
     init(groupId: String, record: WalkRecord? = nil, onDone: @escaping () -> Void) {
         self.groupId = groupId
         self.record = record
         self.onDone = onDone
         _amount = State(initialValue: record.map { Money.editableDisplay($0.paidMinor) } ?? "")
+        _selectedCurrencyCode = State(initialValue: CurrencyCatalog.normalizedCode(record?.currencyCode))
         _paidBy = State(initialValue: record?.who ?? "")
         _splitMembers = State(initialValue: Set(record?.forWhom ?? []))
         _categoryId = State(initialValue: record.map { expenseCategory(for: $0).id } ?? "food")
@@ -1988,9 +1991,19 @@ struct RecordEditorView: View {
         Form {
             Section {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(CurrencyCatalog.symbol(for: group?.currencyCode))
-                        .font(.system(size: 40, weight: .semibold, design: .rounded))
-                        .foregroundStyle(SoftLedgerTheme.ink)
+                    Button {
+                        focusedField = nil
+                        isShowingCurrencyPicker = true
+                    } label: {
+                        Text(CurrencyCatalog.symbol(for: selectedCurrencyCode))
+                            .font(.system(size: 40, weight: .semibold, design: .rounded))
+                            .foregroundStyle(SoftLedgerTheme.ink)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(L("Currency")), \(selectedCurrencyCode)")
+                    .accessibilityHint(L("Select currency"))
                     TextField("0.00", text: $amount)
                         .keyboardType(.decimalPad)
                         .font(.system(size: 44, weight: .semibold, design: .rounded))
@@ -2068,6 +2081,14 @@ struct RecordEditorView: View {
         .background(SoftLedgerTheme.canvas)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $isShowingCurrencyPicker) {
+            CurrencySelectionView(selectedCode: selectedCurrencyCode) { currency in
+                selectedCurrencyCode = currency.code
+                store.rememberRecordCurrencyCode(currency.code, for: groupId)
+                beginEditing()
+                return .success
+            }
+        }
         .toolbar {
             if showsEditActions {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2094,6 +2115,11 @@ struct RecordEditorView: View {
             }
         }
         .task {
+            if record == nil {
+                selectedCurrencyCode = store.preferredRecordCurrencyCode(for: groupId)
+            } else if record?.currencyCode == nil {
+                selectedCurrencyCode = CurrencyCatalog.normalizedCode(group?.currencyCode)
+            }
             if paidBy.isEmpty {
                 paidBy = store.user?.uuid ?? members.first?.uuid ?? ""
             }
@@ -2141,6 +2167,9 @@ struct RecordEditorView: View {
         categoryId = record.map { expenseCategory(for: $0).id } ?? "food"
         date = record?.occurredAt.walkDate ?? Date()
         note = record?.text ?? ""
+        selectedCurrencyCode = record.map {
+            CurrencyCatalog.normalizedCode($0.currencyCode ?? group?.currencyCode)
+        } ?? store.preferredRecordCurrencyCode(for: groupId)
     }
 
     private func submit() async {
@@ -2169,7 +2198,8 @@ struct RecordEditorView: View {
                 type: categoryId,
                 text: note,
                 occurredAt: date.timeIntervalSince1970 * 1000,
-                isSettlement: record.isDebtResolve
+                isSettlement: record.isDebtResolve,
+                currencyCode: selectedCurrencyCode
             )
         } else {
             result = await store.addRecordWithFeedback(
@@ -2179,11 +2209,13 @@ struct RecordEditorView: View {
                 forWhom: Array(splitMembers),
                 type: categoryId,
                 text: note,
-                occurredAt: date.timeIntervalSince1970 * 1000
+                occurredAt: date.timeIntervalSince1970 * 1000,
+                currencyCode: selectedCurrencyCode
             )
         }
 
         if result.success {
+            store.rememberRecordCurrencyCode(selectedCurrencyCode, for: groupId)
             dismiss()
             onDone()
         } else {
@@ -2599,7 +2631,7 @@ private struct BalancesRootView: View {
               let debt = pendingResolveDebts.first else {
             return ""
         }
-        let amount = CurrencyCatalog.formatted(debt.amountMinor, currencyCode: group.currencyCode, style: .exact)
+        let amount = CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode, style: .exact)
         let currentParticipantID = store.currentParticipantID(for: group)
         if debt.from.uuid == currentParticipantID {
             return String(format: L("You should pay %@ %@"), debt.to.name, amount)
@@ -2636,8 +2668,7 @@ private struct BalancesRootView: View {
                             debts: debts,
                             resolvingDebtID: resolvingDebtID,
                             isDisabled: isResolving,
-                            currentParticipantID: store.currentParticipantID(for: group),
-                            currencyCode: group.currencyCode
+                            currentParticipantID: store.currentParticipantID(for: group)
                         ) { debt in
                             pendingResolveMode = .single
                             pendingResolveDebts = [debt]
@@ -2778,7 +2809,6 @@ private struct SettlementPlanSection: View {
     let resolvingDebtID: ResolvedDebt.ID?
     let isDisabled: Bool
     let currentParticipantID: String?
-    let currencyCode: String
     let onResolve: (ResolvedDebt) -> Void
 
     var body: some View {
@@ -2792,7 +2822,6 @@ private struct SettlementPlanSection: View {
                     SettlementPlanRow(
                         debt: debt,
                         currentParticipantID: currentParticipantID,
-                        currencyCode: currencyCode,
                         isResolving: resolvingDebtID == debt.id
                     ) {
                         onResolve(debt)
@@ -2823,7 +2852,6 @@ private struct SettlementPlanRow: View {
 
     let debt: ResolvedDebt
     let currentParticipantID: String?
-    let currencyCode: String
     let isResolving: Bool
     let onResolve: () -> Void
 
@@ -2833,7 +2861,7 @@ private struct SettlementPlanRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(transferTitle), \(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currencyCode, style: .exact))")
+        .accessibilityLabel("\(transferTitle), \(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode, style: .exact))")
         .accessibilityHint(L("Resolve this transfer"))
     }
 
@@ -2865,7 +2893,7 @@ private struct SettlementPlanRow: View {
             Spacer(minLength: rowSpacing)
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currencyCode))
+                Text(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode))
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.ink)
                     .lineLimit(1)
@@ -2941,9 +2969,7 @@ private struct SettlementPlanRow: View {
 
 private struct MemberBalanceDetailView: View {
     @EnvironmentObject private var store: WalkcalcStore
-    @ScaledMetric(relativeTo: .title) private var balanceFontSize = 36
     @ScaledMetric(relativeTo: .body) private var summaryPadding = 18
-    @ScaledMetric(relativeTo: .caption) private var summarySpacing = 5
     @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 10
     @ScaledMetric(relativeTo: .subheadline) private var emptyRowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
@@ -2981,12 +3007,40 @@ private struct MemberBalanceDetailView: View {
         store.memberRecordTotal(groupId: group.id, memberId: member.uuid)
     }
 
-    private var balanceTextColor: Color {
-        Money.isZero(currentMember.debtMinor) ? SoftLedgerTheme.ink : moneyColor(currentMember.debtMinor)
+    private var displayBalances: [MemberCurrencyProjection] {
+        let actualBalances = currentMember.currencyBalances
+            .filter(\.hasLedgerActivity)
+            .sorted { $0.currencyCode < $1.currencyCode }
+        if !actualBalances.isEmpty {
+            return actualBalances
+        }
+        guard recordTotal > 0
+            || currentMember.recordCount > 0
+            || !Money.isZero(currentMember.debtMinor)
+            || !Money.isZero(currentMember.costMinor) else {
+            return []
+        }
+        return [MemberCurrencyProjection(
+                currencyCode: CurrencyCatalog.normalizedCode(currentGroup.currencyCode),
+                debtMinor: currentMember.debtMinor,
+                costMinor: currentMember.costMinor,
+                paidTotalMinor: "0",
+                recordCount: currentMember.recordCount,
+                settlementInMinor: "0",
+                settlementOutMinor: "0"
+            )]
+    }
+
+    private var carouselBalances: [CurrencyBalanceSummary] {
+        displayBalances.map {
+            CurrencyBalanceSummary(
+                currencyCode: $0.currencyCode,
+                totalBalanceMinor: $0.debtMinor
+            )
+        }
     }
 
     private var memberDebts: [ResolvedDebt] {
-        guard !Money.isZero(currentMember.debtMinor) else { return [] }
         return store.resolvedDebts(for: currentGroup).filter { debt in
             debt.from.uuid == currentMember.uuid || debt.to.uuid == currentMember.uuid
         }
@@ -2994,7 +3048,7 @@ private struct MemberBalanceDetailView: View {
 
     private var resolveConfirmationMessage: String {
         guard let debt = pendingResolveDebt else { return "" }
-        let amount = CurrencyCatalog.formatted(debt.amountMinor, currencyCode: currentGroup.currencyCode, style: .exact)
+        let amount = CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode, style: .exact)
         let currentParticipantID = store.currentParticipantID(for: currentGroup)
         if debt.from.uuid == currentParticipantID {
             return String(format: L("You should pay %@ %@"), debt.to.name, amount)
@@ -3016,17 +3070,27 @@ private struct MemberBalanceDetailView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: summarySpacing) {
-                            Text(L("Balance with %@").replacingOccurrences(of: "%@", with: currentMember.name))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                            Text(signedMoney(currentMember.debtMinor, style: .exact, currencyCode: currentGroup.currencyCode))
-                                .font(.system(size: balanceFontSize, weight: .semibold, design: .rounded))
-                                .monospacedDigit()
-                                .foregroundStyle(balanceTextColor)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.82)
+                    HStack(alignment: .top) {
+                        if carouselBalances.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(L("Balance with %@").replacingOccurrences(of: "%@", with: currentMember.name))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                                Text("—")
+                                    .font(.system(size: 42, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(SoftLedgerTheme.ink)
+                            }
+                        } else {
+                            CurrencyBalanceCarousel(
+                                balances: carouselBalances,
+                                isAnimationEnabled: true,
+                                title: L("Balance with %@").replacingOccurrences(of: "%@", with: currentMember.name),
+                                amountColor: {
+                                    Money.isZero($0.totalBalanceMinor)
+                                        ? SoftLedgerTheme.ink
+                                        : moneyColor($0.totalBalanceMinor)
+                                }
+                            )
                         }
                         if showsRecordTotal {
                             Spacer()
@@ -3048,8 +3112,7 @@ private struct MemberBalanceDetailView: View {
                             debts: memberDebts,
                             resolvingDebtID: resolvingDebtID,
                             isDisabled: resolvingDebtID != nil,
-                            currentParticipantID: store.currentParticipantID(for: currentGroup),
-                            currencyCode: currentGroup.currencyCode
+                            currentParticipantID: store.currentParticipantID(for: currentGroup)
                         ) { debt in
                             pendingResolveDebt = debt
                             showsResolveConfirmation = true

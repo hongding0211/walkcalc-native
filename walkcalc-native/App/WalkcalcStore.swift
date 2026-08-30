@@ -700,14 +700,30 @@ final class WalkcalcStore: ObservableObject {
         groups.first(where: { $0.id == id })
     }
 
+    func preferredRecordCurrencyCode(for groupId: String) -> String {
+        let key = recordCurrencyPreferenceKey(groupId)
+        if let stored = UserDefaults.standard.string(forKey: key)?.uppercased(),
+           CurrencyCatalog.currencies.contains(where: { $0.code == stored }) {
+            return stored
+        }
+        return CurrencyCatalog.normalizedCode(group(id: groupId)?.currencyCode)
+    }
+
+    func rememberRecordCurrencyCode(_ currencyCode: String, for groupId: String) {
+        UserDefaults.standard.set(
+            CurrencyCatalog.normalizedCode(currencyCode),
+            forKey: recordCurrencyPreferenceKey(groupId)
+        )
+    }
+
     func preloadGroupContent(_ id: String) {
         guard groupContentRefreshTasks[id] == nil else { return }
         groupContentRefreshTasks[id] = Task { [weak self] in
             guard let self else { return }
             async let groupRefresh: Void = refreshGroup(id)
             async let balancesRefresh: Void = refreshGroupBalances(id)
-            async let settlementRefresh: Void = refreshSettlementSuggestion(groupId: id)
-            _ = await (groupRefresh, balancesRefresh, settlementRefresh)
+            _ = await (groupRefresh, balancesRefresh)
+            await refreshSettlementSuggestion(groupId: id)
             groupContentRefreshTasks[id] = nil
         }
     }
@@ -720,8 +736,8 @@ final class WalkcalcStore: ObservableObject {
     private func refreshGroupAfterLedgerMutation(_ id: String) async {
         async let groupRefresh: Void = refreshGroup(id)
         async let balancesRefresh: Void = refreshGroupBalances(id)
-        async let settlementRefresh: Void = refreshSettlementSuggestion(groupId: id)
-        _ = await (groupRefresh, balancesRefresh, settlementRefresh)
+        _ = await (groupRefresh, balancesRefresh)
+        await refreshSettlementSuggestion(groupId: id)
 
         _ = await refreshHome(search: groupSearchQuery)
     }
@@ -1263,7 +1279,7 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func canRemoveMember(_ member: Member, from group: WalkGroup) -> Bool {
-        group.isOwner && member.uuid != group.ownerUserId && Money.isZero(member.debtMinor)
+        group.isOwner && member.uuid != group.ownerUserId && !member.hasUnresolvedCurrencyBalance
     }
 
     func removeMemberWithFeedback(groupId: String, member: Member) async -> StoreActionResult {
@@ -1319,11 +1335,12 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
-    func addRecord(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", occurredAt: TimeInterval) async -> Bool {
-        await addRecordWithFeedback(groupId: groupId, who: who, paid: paid, forWhom: forWhom, type: type, text: text, long: long, lat: lat, occurredAt: occurredAt).success
+    func addRecord(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", occurredAt: TimeInterval, currencyCode: String? = nil) async -> Bool {
+        await addRecordWithFeedback(groupId: groupId, who: who, paid: paid, forWhom: forWhom, type: type, text: text, long: long, lat: lat, occurredAt: occurredAt, currencyCode: currencyCode).success
     }
 
-    func addRecordWithFeedback(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", occurredAt: TimeInterval) async -> StoreActionResult {
+    func addRecordWithFeedback(groupId: String, who: String, paid: String, forWhom: [String], type: String, text: String, long: String = "", lat: String = "", occurredAt: TimeInterval, currencyCode: String? = nil) async -> StoreActionResult {
+        let resolvedCurrencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? group(id: groupId)?.currencyCode)
         if isFixtureMode {
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return .failure(L("Enter a valid amount with up to 2 decimal places")) }
             let now = Date().timeIntervalSince1970 * 1000
@@ -1339,7 +1356,8 @@ final class WalkcalcStore: ObservableObject {
                 createdAt: now,
                 occurredAt: occurredAt,
                 modifiedAt: now,
-                isDebtResolve: false
+                isDebtResolve: false,
+                currencyCode: resolvedCurrencyCode
             )
             recordsByGroup[groupId, default: []].insert(record, at: 0)
             recordTotals[groupId] = recordsByGroup[groupId]?.count ?? 0
@@ -1349,7 +1367,7 @@ final class WalkcalcStore: ObservableObject {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return .failure(L("Enter a valid amount with up to 2 decimal places")) }
             let context = context(for: groupId)
-            let result = await ledgerRepository.addRecord(groupId: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, long: long, lat: lat, occurredAt: occurredAt, context: context)
+            let result = await ledgerRepository.addRecord(groupId: groupId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, long: long, lat: lat, occurredAt: occurredAt, currencyCode: resolvedCurrencyCode, context: context)
             guard case .success(let response) = result else {
                 if case .failure(let failure) = result {
                     return actionFailure(operation: "addRecord", failure: failure)
@@ -1363,11 +1381,11 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
-    func editRecord(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false) async -> Bool {
-        await editRecordWithFeedback(groupId: groupId, recordId: recordId, who: who, paid: paid, forWhom: forWhom, type: type, text: text, occurredAt: occurredAt, isSettlement: isSettlement).success
+    func editRecord(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false, currencyCode: String? = nil) async -> Bool {
+        await editRecordWithFeedback(groupId: groupId, recordId: recordId, who: who, paid: paid, forWhom: forWhom, type: type, text: text, occurredAt: occurredAt, isSettlement: isSettlement, currencyCode: currencyCode).success
     }
 
-    func editRecordWithFeedback(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false) async -> StoreActionResult {
+    func editRecordWithFeedback(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false, currencyCode: String? = nil) async -> StoreActionResult {
         if let group = group(id: groupId),
            let record = recordsByGroup[groupId]?.first(where: { $0.recordId == recordId }),
            !canMutateRecord(record, in: group) {
@@ -1383,6 +1401,7 @@ final class WalkcalcStore: ObservableObject {
             recordsByGroup[groupId]?[index].type = type
             recordsByGroup[groupId]?[index].text = text
             recordsByGroup[groupId]?[index].occurredAt = occurredAt
+            recordsByGroup[groupId]?[index].currencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? recordsByGroup[groupId]?[index].currencyCode ?? group(id: groupId)?.currencyCode)
             recordsByGroup[groupId]?[index].modifiedAt = Date().timeIntervalSince1970 * 1000
             return .success
         }
@@ -1390,7 +1409,7 @@ final class WalkcalcStore: ObservableObject {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
             guard let paidMinor = try? Money.parseDisplay(paid), Money.isPositive(paidMinor) else { return .failure(L("Enter a valid amount with up to 2 decimal places")) }
             let context = context(for: groupId)
-            let result = await ledgerRepository.updateRecord(groupId: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, occurredAt: occurredAt, isSettlement: isSettlement, context: context)
+            let result = await ledgerRepository.updateRecord(groupId: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, occurredAt: occurredAt, isSettlement: isSettlement, currencyCode: currencyCode, context: context)
             guard case .success(let response) = result else {
                 if case .failure(let failure) = result {
                     return actionFailure(operation: "editRecord", failure: failure)
@@ -1451,6 +1470,7 @@ final class WalkcalcStore: ObservableObject {
                 toId: debt.to.uuid,
                 amountMinor: debt.amountMinor,
                 note: "resolve",
+                currencyCode: debt.currencyCode,
                 context: context
             )
             guard case .success(let response) = result else {
@@ -1474,15 +1494,26 @@ final class WalkcalcStore: ObservableObject {
         await withLoadingResult(operation: "resolveAll") {
             guard api.ledgerAPIEnabled else { return .failure(nil) }
             let context = context(for: groupId)
-            let result = await ledgerRepository.resolveDebts(groupId: groupId, context: context)
-            guard case .success(let response) = result else {
-                if case .failure(let failure) = result {
-                    return actionFailure(operation: "resolveAll", failure: failure)
+            let currencyCodes = Set(debts.map { CurrencyCatalog.normalizedCode($0.currencyCode) })
+            let resolvedCodes = currencyCodes.isEmpty
+                ? [CurrencyCatalog.normalizedCode(group(id: groupId)?.currencyCode)]
+                : currencyCodes.sorted()
+            for currencyCode in resolvedCodes {
+                let result = await ledgerRepository.resolveDebts(
+                    groupId: groupId,
+                    currencyCode: currencyCode,
+                    context: context
+                )
+                guard case .success(let response) = result else {
+                    await refreshGroupAfterLedgerMutation(groupId)
+                    if case .failure(let failure) = result {
+                        return actionFailure(operation: "resolveAll", failure: failure)
+                    }
+                    return .failure(nil)
                 }
-                return .failure(nil)
+                applyRefreshedToken(response.refreshedToken)
+                trackSource(response.source, forGroupId: groupId)
             }
-            applyRefreshedToken(response.refreshedToken)
-            trackSource(response.source, forGroupId: groupId)
             await refreshGroupAfterLedgerMutation(groupId)
             return .success
         }
@@ -1500,13 +1531,19 @@ final class WalkcalcStore: ObservableObject {
         guard let cached = settlementSuggestionsByGroup[group.id] else {
             return []
         }
-        return cached.compactMap { transfer in
+        let debts: [ResolvedDebt] = cached.compactMap { transfer in
             guard let from = group.allMembers.first(where: { $0.uuid == transfer.fromId }),
                   let to = group.allMembers.first(where: { $0.uuid == transfer.toId }) else {
                 return nil
             }
-            return ResolvedDebt(from: from, to: to, amountMinor: transfer.amountMinor)
+            return ResolvedDebt(
+                from: from,
+                to: to,
+                amountMinor: transfer.amountMinor,
+                currencyCode: CurrencyCatalog.normalizedCode(transfer.currencyCode ?? group.currencyCode)
+            )
         }
+        return BalancePresentation.sortedByAbsoluteAmount(debts)
     }
 
     func currentParticipantID(for group: WalkGroup) -> String? {
@@ -1529,15 +1566,68 @@ final class WalkcalcStore: ObservableObject {
 
     func refreshSettlementSuggestion(groupId: String) async {
         if isFixtureMode { return }
-        let result = await ledgerRepository.settlementSuggestion(groupId: groupId, context: context(for: groupId))
-        switch result {
-        case .success(let response):
-            applyRefreshedToken(response.refreshedToken)
-            trackSource(response.source, forGroupId: groupId)
-            settlementSuggestionsByGroup[groupId] = response.value ?? []
-        case .failure(let failure):
-            recordFailure(operation: "refreshSettlementSuggestion", intent: .secondaryLoad, disposition: .silent, failure: failure)
+        guard let group = group(id: groupId) else { return }
+        let context = context(for: groupId)
+        var merged: [SettlementTransfer] = []
+        var receivedResponse = false
+        for currencyCode in settlementCurrencyCodes(for: group) {
+            let result = await ledgerRepository.settlementSuggestion(
+                groupId: groupId,
+                currencyCode: currencyCode,
+                context: context
+            )
+            switch result {
+            case .success(let response):
+                receivedResponse = true
+                applyRefreshedToken(response.refreshedToken)
+                trackSource(response.source, forGroupId: groupId)
+                merged.append(contentsOf: (response.value ?? []).map { transfer in
+                    var next = transfer
+                    next.currencyCode = CurrencyCatalog.normalizedCode(transfer.currencyCode ?? currencyCode)
+                    return next
+                })
+            case .failure(let failure):
+                recordFailure(operation: "refreshSettlementSuggestion", intent: .secondaryLoad, disposition: .silent, failure: failure)
+            }
         }
+        if receivedResponse {
+            settlementSuggestionsByGroup[groupId] = merged.sorted(by: settlementTransferSort)
+        }
+    }
+
+    private func settlementCurrencyCodes(for group: WalkGroup) -> [String] {
+        var codes = Set<String>()
+        for balance in group.currentUserCurrencyBalances where balance.hasLedgerActivity {
+            codes.insert(CurrencyCatalog.normalizedCode(balance.currencyCode))
+        }
+        for member in group.allMembers {
+            for balance in member.currencyBalances where balance.hasLedgerActivity {
+                codes.insert(CurrencyCatalog.normalizedCode(balance.currencyCode))
+            }
+        }
+        for record in recordsByGroup[group.id] ?? [] {
+            codes.insert(CurrencyCatalog.normalizedCode(record.currencyCode ?? group.currencyCode))
+        }
+        if codes.isEmpty, group.hasUnresolvedBalance {
+            codes.insert(CurrencyCatalog.normalizedCode(group.currencyCode))
+        }
+        return codes.sorted()
+    }
+
+    private func settlementTransferSort(_ left: SettlementTransfer, _ right: SettlementTransfer) -> Bool {
+        let amountOrder = Money.compare(Money.absolute(left.amountMinor), Money.absolute(right.amountMinor))
+        if amountOrder != .orderedSame {
+            return amountOrder == .orderedDescending
+        }
+        let leftCurrency = CurrencyCatalog.normalizedCode(left.currencyCode)
+        let rightCurrency = CurrencyCatalog.normalizedCode(right.currencyCode)
+        if leftCurrency != rightCurrency {
+            return leftCurrency < rightCurrency
+        }
+        if left.fromId != right.fromId {
+            return left.fromId < right.fromId
+        }
+        return left.toId < right.toId
     }
 
     private func replaceGroup(_ group: WalkGroup) {
@@ -1603,7 +1693,8 @@ final class WalkcalcStore: ObservableObject {
         if !snapshot.currencyBalances.isEmpty {
             return snapshot.currencyBalances.sorted { $0.currencyCode < $1.currencyCode }
         }
-        guard let totalBalanceMinor = snapshot.totalBalanceMinor else { return [] }
+        guard let totalBalanceMinor = snapshot.totalBalanceMinor,
+              !Money.isZero(totalBalanceMinor) else { return [] }
         return [CurrencyBalanceSummary(
             currencyCode: CurrencyCatalog.defaultCurrencyCode(),
             totalBalanceMinor: totalBalanceMinor
@@ -1633,11 +1724,24 @@ final class WalkcalcStore: ObservableObject {
         let identityIds = Set([localOwner.uuid, user?.uuid].compactMap { $0 })
         let totals = groups.reduce(into: [String: MoneyMinor]()) { result, group in
             guard identityIds.isDisjoint(with: Set(group.archivedUsers)) else { return }
-            let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
-            let balance = group.hasCurrentUserBalanceSummary
-                ? group.currentUserBalanceMinor
-                : group.allMembers.first { identityIds.contains($0.uuid) }?.debtMinor ?? "0"
-            result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance)
+            let member = group.allMembers.first { identityIds.contains($0.uuid) }
+            let currencyBalances = group.hasCurrentUserBalanceSummary
+                ? group.currentUserCurrencyBalances
+                : member?.currencyBalances ?? []
+            let actualBalances = currencyBalances.filter(\.hasLedgerActivity)
+            if actualBalances.isEmpty {
+                let currencyCode = CurrencyCatalog.normalizedCode(group.currencyCode)
+                let balance = group.hasCurrentUserBalanceSummary
+                    ? group.currentUserBalanceMinor
+                    : member?.debtMinor ?? "0"
+                guard !Money.isZero(balance) else { return }
+                result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance)
+            } else {
+                for balance in actualBalances {
+                    let currencyCode = CurrencyCatalog.normalizedCode(balance.currencyCode)
+                    result[currencyCode] = Money.add(result[currencyCode] ?? "0", balance.debtMinor)
+                }
+            }
         }
         return totals.keys.sorted().map { currencyCode in
             CurrencyBalanceSummary(
@@ -1736,6 +1840,10 @@ final class WalkcalcStore: ObservableObject {
         let created = "local-user-\(UUID().uuidString.lowercased())"
         UserDefaults.standard.set(created, forKey: key)
         return created
+    }
+
+    private func recordCurrencyPreferenceKey(_ groupId: String) -> String {
+        "walkcalc.recordCurrency.\(groupId)"
     }
 
     var localOwner: Member {
