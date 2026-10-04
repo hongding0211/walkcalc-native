@@ -84,8 +84,47 @@ enum TemporalDisplayVerification {
     }
 
     static func assertAllCasesPass() {
-        let failures = run().filter { !$0.passed }
+        let failures = (run() + sectionResults()).filter { !$0.passed }
+        print("TEMPORAL_DISPLAY_VERIFICATION: \(failures.isEmpty ? "PASSED" : "FAILED")")
         assert(failures.isEmpty, failures.map { "\($0.name): expected \($0.expected), got \($0.actual)" }.joined(separator: "\n"))
+    }
+
+    private static func sectionResults() -> [Result] {
+        let calendar = verificationCalendar
+        let now = date(year: 2026, month: 1, day: 2, hour: 12, minute: 0, calendar: calendar)
+        let samples = [
+            (date(year: 2026, month: 1, day: 2, hour: 1, minute: 0, calendar: calendar), "Today", "今天"),
+            (date(year: 2026, month: 1, day: 1, hour: 23, minute: 0, calendar: calendar), "Yesterday", "昨天"),
+            (date(year: 2025, month: 12, day: 31, hour: 23, minute: 0, calendar: calendar), "2025", "2025年")
+        ]
+        var results = samples.enumerated().flatMap { index, sample in
+            [("en", sample.1), ("zh-Hans", sample.2)].map { locale, expected in
+                Result(name: "section-\(locale)-\(index)", expected: expected,
+                       actual: TemporalDisplay.sectionTitle(for: sample.0, now: now, locale: Locale(identifier: locale), calendar: calendar))
+            }
+        }
+        let may = date(year: 2026, month: 5, day: 15, hour: 12, minute: 0, calendar: calendar)
+        let earlier = date(year: 2026, month: 5, day: 11, hour: 12, minute: 0, calendar: calendar)
+        for (locale, expected) in [("en", "May 11"), ("zh-Hans", "5月11日")] {
+            results.append(Result(name: "section-month-day-\(locale)", expected: expected,
+                                  actual: TemporalDisplay.sectionTitle(for: earlier, now: may, locale: Locale(identifier: locale), calendar: calendar)))
+        }
+        for (index, sample) in samples.enumerated() {
+            let expected = index == 0 ? "01:00" : "23:00"
+            for locale in ["en", "zh-Hans"] {
+                results.append(Result(name: "section-row-time-\(locale)-\(index)", expected: expected,
+                    actual: TemporalDisplay.timeString(fromMilliseconds: sample.0.timeIntervalSince1970 * 1000,
+                        locale: Locale(identifier: locale), calendar: calendar)))
+            }
+        }
+        let newYear = date(year: 2026, month: 1, day: 1, hour: 12, minute: 0, calendar: calendar)
+        let lastDay = samples[2].0
+        results.append(Result(name: "section-cross-year-yesterday", expected: "Yesterday",
+                              actual: TemporalDisplay.sectionTitle(for: lastDay, now: newYear, locale: Locale(identifier: "en"), calendar: calendar)))
+        let yearStart = date(year: 2025, month: 1, day: 1, hour: 0, minute: 0, calendar: calendar)
+        assert(TemporalDisplay.sectionDate(for: lastDay, now: now, calendar: calendar) == yearStart)
+        assert(TemporalDisplay.sectionDate(for: lastDay, now: newYear, calendar: calendar) == calendar.startOfDay(for: lastDay))
+        return results
     }
 
     private static var verificationCalendar: Calendar {

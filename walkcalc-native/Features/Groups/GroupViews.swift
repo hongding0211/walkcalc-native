@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum GroupSheet: Identifiable {
     case newExpense
@@ -33,6 +34,7 @@ private extension GroupSheet {
 
 struct GroupView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @Environment(\.softLedgerAppTheme) private var appTheme
     @Environment(\.dismiss) private var dismiss
 
     let groupId: String
@@ -42,6 +44,8 @@ struct GroupView: View {
     @State private var ignoredSearchText = ""
     @State private var deleteCandidate: WalkRecord?
     @State private var isDeletingRecord = false
+    @State private var hasCompletedInitialLoad = false
+    @State private var isRefreshingRecords = false
 
     private static func initialSheet() -> GroupSheet? {
         #if DEBUG
@@ -63,9 +67,19 @@ struct GroupView: View {
         store.records(groupId: groupId)
     }
 
-    private var shouldShowPeopleSetup: Bool {
-        guard let group else { return false }
-        return group.allMembers.count == 1 && records.isEmpty
+    private var filters: GroupRecordFilters { store.recordFilters(for: groupId) }
+
+    private var hasLoadedRecords: Bool {
+        store.recordsByGroup[groupId] != nil
+    }
+
+    private var filterIconColor: Color {
+        guard filters.isActive else { return .primary }
+        switch appTheme {
+        case .mono: return Color(uiColor: .systemBackground)
+        case .yellow, .green: return .black
+        case .blue, .pink: return .white
+        }
     }
 
     private var isBalanceAnimationEnabled: Bool {
@@ -83,40 +97,43 @@ struct GroupView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     if let group {
-                        if shouldShowPeopleSetup {
-                            PeopleSetupEmptyState {
-                                activeSheet = .peopleSetup
-                            }
+                        if hasLoadedRecords && records.isEmpty && !filters.isActive {
+                            GroupRecordsEmptyState()
                         } else {
+                            // The group list already supplies this summary; record
+                            // loading must not hide it or replace it with a placeholder.
                             GroupSummaryCard(group: group, isAnimationEnabled: isBalanceAnimationEnabled) { member in
                                 activeSheet = .myBalance(member)
                             }
                             GroupBalancesSection(group: group) { selectedMember in
                                 activeSheet = .balances(selectedMember)
                             }
-                            GroupExpensesSection(
-                                group: group,
-                                records: records,
-                                isLoadingMore: store.isLoadingRecords(groupId: group.id),
-                                onDelete: { record in
-                                    guard store.canMutateRecord(record, in: group) else { return }
-                                    deleteCandidate = record
-                                },
-                                onEdit: { record in
-                                    activeSheet = .editExpense(record)
-                                }
-                            )
+                            if isRefreshingRecords || (!hasLoadedRecords && !hasCompletedInitialLoad) {
+                                GroupRecordsLoadingSection()
+                            } else if hasLoadedRecords {
+                                GroupExpensesSection(
+                                    group: group,
+                                    records: records,
+                                    isLoadingMore: store.isLoadingRecords(groupId: group.id),
+                                    onDelete: { record in
+                                        guard store.canMutateRecord(record, in: group) else { return }
+                                        deleteCandidate = record
+                                    },
+                                    onEdit: { record in
+                                        activeSheet = .editExpense(record)
+                                    }
+                                )
+                            } else if hasCompletedInitialLoad {
+                                recordLoadFailure
+                            }
                         }
+                    } else if hasCompletedInitialLoad {
+                        recordLoadFailure
                     } else {
-                        VStack(spacing: 10) {
-                            ProgressView()
-                                .softLedgerProgressTint()
-                            Text(L("Loading groups..."))
-                                .font(.callout)
-                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 80)
+                        ProgressView()
+                            .softLedgerProgressTint()
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 80)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -137,7 +154,31 @@ struct GroupView: View {
         .navigationTitle(group?.name ?? L("Group"))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu {
+                    GroupRecordFilterMenu(
+                        filters: Binding(
+                            get: { filters },
+                            set: { next in
+                                guard next != filters else { return }
+                                isRefreshingRecords = true
+                                store.setRecordFilters(next, for: groupId)
+                            }
+                        ),
+                        currencyCodes: filterCurrencyCodes
+                    )
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .foregroundStyle(filterIconColor)
+                        .background {
+                            Circle()
+                                .fill(filters.isActive ? appTheme.accent : .clear)
+                                .frame(width: 32, height: 32)
+                        }
+                }
+                .accessibilityLabel(L("Filters"))
+                .accessibilityValue(filters.summary)
+                .menuActionDismissBehavior(.disabled)
                 Button {
                     activeSheet = .groupSettings
                 } label: {
@@ -152,7 +193,7 @@ struct GroupView: View {
 
             ToolbarItem(placement: .bottomBar) {
                 Button {
-                    activeSheet = .newExpense
+                    presentNewExpense()
                 } label: {
                     Image(systemName: "square.and.pencil")
                 }
@@ -169,7 +210,7 @@ struct GroupView: View {
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate, isDeleting: $isDeletingRecord)
-        .task { await refreshGroupContent() }
+        .task(id: filters) { await refreshGroupContent() }
         .sheet(isPresented: $isSearchPresented) {
             if let group {
                 NavigationStack {
@@ -186,18 +227,153 @@ struct GroupView: View {
         }
     }
 
+    // Derive options from the whole ledger's projections, never the filtered page.
+    private var filterCurrencyCodes: [String] {
+        var codes = filters.currencyCodes
+        if let group {
+            codes.insert(CurrencyCatalog.normalizedCode(group.currencyCode))
+            codes.formUnion(group.currentUserCurrencyBalances.map(\.currencyCode))
+            for member in group.allMembers {
+                codes.formUnion(member.currencyBalances.map(\.currencyCode))
+            }
+        }
+        return codes.sorted()
+    }
+
+    private func presentNewExpense() {
+        activeSheet = .newExpense
+    }
+
+    private var recordLoadFailure: some View {
+        VStack(spacing: 18) {
+            Text(L("Couldn't load records"))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Button(L("Retry")) {
+                Task { await refreshGroupContent() }
+            }
+            .buttonStyle(.glass)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
     private func refreshGroupContent() async {
+        if !hasLoadedRecords {
+            hasCompletedInitialLoad = false
+            isRefreshingRecords = true
+        }
         await store.refreshGroupContent(groupId)
+        guard !Task.isCancelled else { return }
+        isRefreshingRecords = false
+        hasCompletedInitialLoad = true
+    }
+}
+
+private struct GroupRecordsLoadingSection: View {
+    @ScaledMetric(relativeTo: .subheadline) private var horizontalPadding = 14
+    @ScaledMetric(relativeTo: .caption) private var verticalPadding = 4
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+
+    var body: some View {
+        LedgerPaginationLoadingView()
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+            }
+    }
+}
+
+private struct GroupRecordFilterMenu: View {
+    @Binding var filters: GroupRecordFilters
+    let currencyCodes: [String]
+
+    private var currencySubtitle: String {
+        let codes = filters.currencyCodes.sorted()
+        guard !codes.isEmpty else { return L("All currencies") }
+        let visible = codes.prefix(2).joined(separator: ", ")
+        return codes.count > 2 ? "\(visible), … +\(codes.count - 2)" : visible
+    }
+
+    var body: some View {
+        Button {
+            filters.onlyRelatedToMe.toggle()
+        } label: {
+            Label {
+                Text(L("Related to me"))
+            } icon: {
+                Image(uiImage: filters.onlyRelatedToMe ? FilterMenuImages.personSelected : FilterMenuImages.person)
+            }
+        }
+        .accessibilityAddTraits(filters.onlyRelatedToMe ? .isSelected : [])
+        .menuActionDismissBehavior(.disabled)
+
+        Menu {
+            ForEach(currencyCodes, id: \.self) { code in
+                let selected = filters.currencyCodes.contains(code)
+                Button {
+                    if selected { filters.currencyCodes.remove(code) }
+                    else { filters.currencyCodes.insert(code) }
+                } label: {
+                    Label {
+                        Text("\(code) · \(CurrencyCatalog.currencyInfo(for: code).name)")
+                    } icon: {
+                        Image(uiImage: selected ? FilterMenuImages.checked : FilterMenuImages.unchecked)
+                    }
+                }
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .menuActionDismissBehavior(.disabled)
+            }
+        } label: {
+            Label {
+                Text(L("Currency"))
+            } icon: {
+                Image(uiImage: FilterMenuImages.currency)
+            }
+            Text(currencySubtitle)
+        }
+        .menuActionDismissBehavior(.disabled)
+    }
+}
+
+private enum FilterMenuImages {
+    // System menus insert their state column only once a Toggle is selected.
+    // Keep that space in the image bounds instead, leaving native row layout
+    // and submenu presentation intact in both states.
+    static let person = indicator(symbol: "person.crop.circle", selected: false)
+    static let personSelected = indicator(symbol: "person.crop.circle", selected: true)
+    static let currency = indicator(symbol: "dollarsign.circle", selected: false)
+    static let checked = indicator(selected: true)
+    static let unchecked = indicator(selected: false)
+
+    private static func indicator(symbol: String? = nil, selected: Bool) -> UIImage {
+        // Include trailing breathing room as well: UIKit centers a custom menu
+        // image in its image column rather than laying out a SwiftUI HStack.
+        let size = CGSize(width: symbol == nil ? 16 : 40, height: 20)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            if selected, let check = UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)) {
+                check.draw(at: CGPoint(x: 0, y: (size.height - check.size.height) / 2))
+            }
+            if let symbol, let icon = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)) {
+                icon.draw(at: CGPoint(x: 16 + (18 - icon.size.width) / 2, y: (size.height - icon.size.height) / 2))
+            }
+        }.withRenderingMode(.alwaysTemplate)
     }
 }
 
 private struct RecordSearchCanvas: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
+    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
     @FocusState private var isSearchFocused: Bool
     @State private var query = ""
     @State private var selectedRecord: WalkRecord?
     @State private var deleteCandidate: WalkRecord?
     @State private var isPreparingSearch = false
+    @State private var hasFocusedSearch = false
 
     let group: WalkGroup
 
@@ -228,7 +404,6 @@ private struct RecordSearchCanvas: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 searchField
-
                 if !trimmedQuery.isEmpty {
                     resultList
                 } else {
@@ -253,20 +428,21 @@ private struct RecordSearchCanvas: View {
             }
         }
         .task {
-            await MainActor.run {
-                isSearchFocused = true
-            }
+            guard !hasFocusedSearch else { return }
+            hasFocusedSearch = true
+            isSearchFocused = true
         }
         .task(id: trimmedQuery) {
             let query = trimmedQuery
-            guard !query.isEmpty else {
+            // Returning from a record must keep the loaded pages and scroll position.
+            guard !query.isEmpty, !hasLoadedSearch else {
                 isPreparingSearch = false
                 return
             }
             isPreparingSearch = true
             try? await Task.sleep(nanoseconds: 300_000_000)
             if Task.isCancelled { return }
-            await store.searchRecords(groupId: group.id, query: query)
+            await store.searchRecordsIfNeeded(groupId: group.id, query: query)
             isPreparingSearch = false
         }
     }
@@ -308,11 +484,13 @@ private struct RecordSearchCanvas: View {
             LazyVStack(spacing: 0) {
                 if records.isEmpty && isSearching {
                     searchingRow
+                        .padding(.horizontal, rowHorizontalPadding)
                 } else if records.isEmpty && !isSearching && hasLoadedSearch {
                     Text(L("No matching records"))
                         .font(.subheadline)
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                        .padding(.horizontal, rowHorizontalPadding)
                 } else {
                     ForEach(records) { record in
                         ExpenseRow(
@@ -322,13 +500,15 @@ private struct RecordSearchCanvas: View {
                                 deleteCandidate = record
                             } : nil
                         ) {
+                            isSearchFocused = false
                             selectedRecord = record
                         }
 
                         if record.id != records.last?.id {
                             Divider()
                                 .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                .padding(.leading, 54)
+                                .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
+                                .padding(.trailing, rowHorizontalPadding)
                         }
                     }
 
@@ -336,13 +516,14 @@ private struct RecordSearchCanvas: View {
                         if !records.isEmpty {
                             Divider()
                                 .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                .padding(.leading, 54)
+                                .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
+                                .padding(.trailing, rowHorizontalPadding)
                         }
                         searchingRow
+                            .padding(.horizontal, rowHorizontalPadding)
                     }
                 }
             }
-            .padding(.horizontal, 14)
             .padding(.vertical, 4)
             .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
@@ -387,6 +568,10 @@ private struct GroupSummaryCard: View {
     }
 
     private var balances: [CurrencyBalanceSummary] {
+        store.filteredCurrencyBalances(allBalances, groupId: group.id)
+    }
+
+    private var allBalances: [CurrencyBalanceSummary] {
         let projections = group.hasCurrentUserBalanceSummary
             ? group.currentUserCurrencyBalances
             : currentMember?.currencyBalances ?? []
@@ -429,7 +614,7 @@ private struct GroupSummaryCard: View {
                     Text(L("Total balance"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    Text("—")
+                    Text("0")
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .foregroundStyle(SoftLedgerTheme.ink)
                 }
@@ -461,7 +646,18 @@ private struct GroupBalancesSection: View {
     let onSelect: (Member?) -> Void
 
     private var balances: [Member] {
-        store.balancesInServerOrder(for: group)
+        let filters = store.recordFilters(for: group.id)
+        let members = store.balancesInServerOrder(for: group)
+        guard !filters.currencyCodes.isEmpty else { return members }
+        return members.filter { member in
+            if !member.currencyBalances.isEmpty {
+                return member.currencyBalances.contains {
+                    filters.includesCurrency($0.currencyCode) && $0.hasLedgerActivity
+                }
+            }
+            return filters.includesCurrency(group.currencyCode)
+                && (member.recordCount > 0 || !Money.isZero(member.debtMinor) || !Money.isZero(member.costMinor))
+        }
     }
 
     private var visibleBalances: [Member] {
@@ -490,7 +686,9 @@ private struct GroupBalancesSection: View {
     @ViewBuilder
     var body: some View {
         if isSuggestionReady {
-            balancesContent
+            if !personalDebts.isEmpty || !balances.isEmpty {
+                balancesContent
+            }
         } else {
             loadingContent
         }
@@ -504,27 +702,27 @@ private struct GroupBalancesSection: View {
                 .padding(.top, 4)
 
             if !personalDebts.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(Array(personalDebts.enumerated()), id: \.element.id) { index, debt in
-                        PersonalSettlementPreviewRow(
-                            debt: debt,
-                            currentParticipantID: store.currentParticipantID(for: group),
-                            currencyCode: debt.currencyCode
-                        )
-                        if index < personalDebts.count - 1 {
-                            Divider()
-                                .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                                .padding(.leading, dividerLeadingPadding)
+                Button {
+                    onSelect(nil)
+                } label: {
+                    VStack(spacing: 0) {
+                        ForEach(Array(personalDebts.enumerated()), id: \.element.id) { index, debt in
+                            PersonalSettlementPreviewRow(
+                                debt: debt,
+                                currentParticipantID: store.currentParticipantID(for: group),
+                                currencyCode: debt.currencyCode
+                            )
+                            if index < personalDebts.count - 1 {
+                                Divider()
+                                    .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                                    .padding(.leading, dividerLeadingPadding)
+                            }
                         }
-                    }
 
-                    Divider()
-                        .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                        .padding(.leading, dividerLeadingPadding)
+                        Divider()
+                            .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                            .padding(.leading, dividerLeadingPadding)
 
-                    Button {
-                        onSelect(nil)
-                    } label: {
                         HStack(spacing: 8) {
                             Text(L("View details"))
                                 .font(.subheadline.weight(.semibold))
@@ -535,27 +733,22 @@ private struct GroupBalancesSection: View {
                                 .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
                         }
                         .frame(minHeight: detailRowMinHeight)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, rowHorizontalPadding)
+                    .padding(.vertical, rowVerticalPadding)
+                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 }
-                .padding(.horizontal, rowHorizontalPadding)
-                .padding(.vertical, rowVerticalPadding)
-                .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                }
+                .buttonStyle(.plain)
             } else {
                 VStack(spacing: 0) {
-                    if visibleBalances.isEmpty {
-                        Text(L("No balances"))
-                            .font(.subheadline)
-                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                    } else {
+                    if !visibleBalances.isEmpty {
                         ForEach(visibleBalances) { member in
-                            BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode) {
+                            BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode, currencyCodes: store.recordFilters(for: group.id).currencyCodes) {
                                 onSelect(member)
                             }
                             if member.id != visibleBalances.last?.id {
@@ -749,9 +942,14 @@ struct BalancePreviewRow: View {
     let member: Member
     let recordCount: Int
     let currencyCode: String
+    var currencyCodes: Set<String> = []
     let action: () -> Void
 
     private var displayBalances: [MemberCurrencyProjection] {
+        allDisplayBalances.filter { currencyCodes.isEmpty || currencyCodes.contains($0.currencyCode) }
+    }
+
+    private var allDisplayBalances: [MemberCurrencyProjection] {
         let actualBalances = member.currencyBalances
             .filter(\.hasLedgerActivity)
             .sorted { $0.currencyCode < $1.currencyCode }
@@ -792,7 +990,7 @@ struct BalancePreviewRow: View {
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(recordCount)"))
+                    Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(currencyCodes.isEmpty ? recordCount : displayBalances.reduce(0) { $0 + $1.recordCount })"))
                         .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 }
@@ -800,13 +998,7 @@ struct BalancePreviewRow: View {
 
                 Spacer()
 
-                if carouselBalances.isEmpty {
-                    Text("—")
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
-                        .layoutPriority(2)
-                } else {
+                if !carouselBalances.isEmpty {
                     CurrencyBalanceCarousel(
                         compactBalances: carouselBalances,
                         isAnimationEnabled: true,
@@ -829,7 +1021,13 @@ struct BalancePreviewRow: View {
     }
 }
 
-private struct GroupExpensesSection: View {
+private struct ExpenseDateSection: Identifiable {
+    var id: Date { date }
+    let date: Date
+    let records: [WalkRecord]
+}
+
+struct GroupExpensesSection: View {
     @EnvironmentObject private var store: WalkcalcStore
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
@@ -839,75 +1037,84 @@ private struct GroupExpensesSection: View {
 
     let group: WalkGroup
     let records: [WalkRecord]
+    @State private var sections: [ExpenseDateSection] = []
     let isLoadingMore: Bool
     let onDelete: (WalkRecord) -> Void
     let onEdit: (WalkRecord) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(L("Expenses"))
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.ink)
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            LazyVStack(alignment: .leading, spacing: 16) {
+                ForEach(sections) { section in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(TemporalDisplay.sectionTitle(for: section.date, now: context.date))
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(SoftLedgerTheme.ink)
+                            .accessibilityAddTraits(.isHeader)
 
-            VStack(spacing: 0) {
-                if records.isEmpty {
-                    Text(L("No expenses yet"))
-                        .font(.subheadline)
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .frame(maxWidth: .infinity, minHeight: rowMinHeight, alignment: .leading)
-                } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(records) { record in
-                            ExpenseRow(
-                                record: record,
-                                group: group,
-                                onDelete: store.canMutateRecord(record, in: group) ? {
-                                    onDelete(record)
-                                } : nil
-                            ) {
-                                onEdit(record)
+                        LazyVStack(spacing: 0) {
+                            ForEach(section.records) { record in
+                                ExpenseRow(
+                                    record: record,
+                                    group: group,
+                                    showsTimeOnly: true,
+                                    onDelete: store.canMutateRecord(record, in: group) ? {
+                                        onDelete(record)
+                                    } : nil
+                                ) {
+                                    onEdit(record)
+                                }
+                                if record.id != section.records.last?.id {
+                                    Divider()
+                                        .overlay(SoftLedgerTheme.rule.opacity(0.56))
+                                        .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
+                                        .padding(.trailing, rowHorizontalPadding)
+                                }
                             }
-                            if record.id != records.last?.id {
+                            if section.id == sections.last?.id && isLoadingMore {
                                 Divider()
                                     .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                    .padding(.leading, dividerLeadingPadding)
+                                    .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
+                                    .padding(.trailing, rowHorizontalPadding)
+                                LedgerPaginationLoadingView()
+                                    .padding(.horizontal, rowHorizontalPadding)
                             }
                         }
-
-                        if isLoadingMore {
-                            Divider()
-                                .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                .padding(.leading, dividerLeadingPadding)
-                            loadMoreFooter
+                        .padding(.vertical, rowVerticalPadding)
+                        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                                .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                         }
                     }
                 }
+
             }
-            .padding(.horizontal, rowHorizontalPadding)
-            .padding(.vertical, rowVerticalPadding)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
+            .onChange(of: records, initial: true) { _, _ in
+                rebuildSections(now: context.date)
+            }
+            .onChange(of: Calendar.autoupdatingCurrent.startOfDay(for: context.date)) { _, _ in
+                rebuildSections(now: context.date)
             }
         }
     }
 
-    private var loadMoreFooter: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-                .softLedgerProgressTint()
-            Text(L("Loading more..."))
-                .font(.subheadline)
-                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-            Spacer(minLength: 0)
+    private func rebuildSections(now: Date) {
+        let grouped = Dictionary(grouping: records) {
+            TemporalDisplay.sectionDate(for: $0.occurredAt.walkDate, now: now)
         }
-        .frame(maxWidth: .infinity, minHeight: rowMinHeight, alignment: .leading)
+        sections = grouped.keys.sorted(by: >).map { date in
+            ExpenseDateSection(date: date, records: (grouped[date] ?? []).sorted {
+                $0.occurredAt == $1.occurredAt ? $0.id < $1.id : $0.occurredAt > $1.occurredAt
+            })
+        }
     }
+
+
 }
 
 struct ExpenseRow: View {
+    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .subheadline) private var trailingColumnWidth = 106
     @ScaledMetric(relativeTo: .subheadline) private var iconSize = 30
     @ScaledMetric(relativeTo: .subheadline) private var iconFontSize = 14
@@ -919,12 +1126,14 @@ struct ExpenseRow: View {
 
     let record: WalkRecord
     let group: WalkGroup
+    let showsTimeOnly: Bool
     let onDelete: (() -> Void)?
     let action: () -> Void
 
-    init(record: WalkRecord, group: WalkGroup, onDelete: (() -> Void)? = nil, action: @escaping () -> Void) {
+    init(record: WalkRecord, group: WalkGroup, showsTimeOnly: Bool = false, onDelete: (() -> Void)? = nil, action: @escaping () -> Void) {
         self.record = record
         self.group = group
+        self.showsTimeOnly = showsTimeOnly
         self.onDelete = onDelete
         self.action = action
     }
@@ -946,7 +1155,9 @@ struct ExpenseRow: View {
     }
 
     private var compactCreatedAt: String {
-        TemporalDisplay.string(fromMilliseconds: record.occurredAt, context: .dense)
+        showsTimeOnly
+            ? TemporalDisplay.timeString(fromMilliseconds: record.occurredAt)
+            : TemporalDisplay.string(fromMilliseconds: record.occurredAt, context: .dense)
     }
 
     private var fullCreatedAt: String {
@@ -1002,6 +1213,7 @@ struct ExpenseRow: View {
                     .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
             }
             .frame(minHeight: rowMinHeight)
+            .padding(.horizontal, rowHorizontalPadding)
             .background(
                 SoftLedgerTheme.paper,
                 in: RoundedRectangle(cornerRadius: previewCornerRadius, style: .continuous)
@@ -1079,6 +1291,7 @@ struct RecordDeleteConfirmationModifier: ViewModifier {
         setDeleting(true)
         let result = await store.deleteRecordWithFeedback(groupId: groupId, recordId: candidate.recordId)
         if result.success {
+            SoftLedgerHaptics.success()
             onDeleted(candidate)
         }
         record = nil
@@ -1104,39 +1317,29 @@ extension View {
     }
 }
 
-private struct PeopleSetupEmptyState: View {
-    let action: () -> Void
-
+private struct GroupRecordsEmptyState: View {
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "person.2")
+            Image(systemName: "tray")
                 .font(.system(size: 30, weight: .semibold))
-                .softLedgerAccentForeground()
+                .foregroundStyle(.secondary)
                 .frame(width: 64, height: 64)
                 .background(SoftLedgerTheme.paper, in: Circle())
                 .overlay {
                     Circle().stroke(SoftLedgerTheme.rule.opacity(0.65), lineWidth: 1)
                 }
 
-            VStack(spacing: 6) {
-                Text(L("Add people"))
+            VStack(spacing: 8) {
+                Text(L("No records yet"))
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.ink)
 
-                Text(L("Add members or temporary members when this becomes a shared expense group."))
-                    .font(.callout)
+                Text(L("Add your first expense."))
+                    .font(.subheadline)
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            Button {
-                action()
-            } label: {
-                Label(L("Add people"), systemImage: "person.badge.plus")
-            }
-            .buttonStyle(.glass)
-            .controlSize(.regular)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18)

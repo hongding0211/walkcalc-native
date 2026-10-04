@@ -141,6 +141,7 @@
 "No matching members" = "No matching members";
 "No matching records" = "No matching records";
 "No records yet" = "No records yet";
+"Add your first expense." = "Add your first expense.";
 "No temporary members" = "No temporary members";
 "Opens group details" = "Opens group details";
 "Optional note" = "Optional note";
@@ -219,3 +220,31 @@
 "Settle this member's balance before removing them." = "Settle this member's balance before removing them.";
 "Unable to remove member" = "Unable to remove member";
 "Removes this member after confirmation" = "Removes this member after confirmation";
+
+"On this device" = "On this device";
+"Today" = "Today";
+"Yesterday" = "Yesterday";
+"No activity" = "No activity";
+"Your groups and expenses are saved on this device. Sign in below to share groups and split expenses with others." = "Your groups and expenses are saved on this device. Sign in below to share groups and split expenses with others.";
+
+"Couldn't load records" = "Couldn't load records";
+
+"Retry" = "Retry";
+
+"Loading records..." = "Loading records...";
+
+"Recently used" = "Recently used";
+
+"Loading" = "Loading";
+
+"Next currency" = "Next currency";
+
+"Filters" = "Filters";
+
+"All currencies" = "All currencies";
+
+"Related to me" = "Related to me";
+
+
+
+"Resolve shown transfers" = "Resolve shown transfers";

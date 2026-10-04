@@ -137,7 +137,7 @@ protocol LedgerDataSource {
 
     func home(page: Int, pageSize: Int, search: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerHomeSnapshot>
     func groups(page: Int, pageSize: Int, search: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkGroup>>
-    func groupDetail(groupId: String, recordPageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot>
+    func groupDetail(groupId: String, recordPageSize: Int, recordSearch: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot>
     func groupBalances(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[Member]>>
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>>
     func memberRecords(groupId: String, memberId: String, page: Int, pageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMemberRecordSnapshot>
@@ -194,11 +194,11 @@ struct RemoteLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func groupDetail(groupId: String, recordPageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
+    func groupDetail(groupId: String, recordPageSize: Int, recordSearch: RecordSearchRequest? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
         guard let token = context.accessToken else { return .failure(.authenticationRequired()) }
         do {
             async let groupResponse = api.group(code: groupId, token: token)
-            async let recordsResponse = api.records(groupCode: groupId, page: 1, pageSize: recordPageSize, token: token)
+            async let recordsResponse = api.records(groupCode: groupId, page: 1, pageSize: recordPageSize, recordSearch: recordSearch, token: token)
             let (group, records) = try await (groupResponse, recordsResponse)
             if let failure = failure(from: group) ?? failure(from: records) {
                 return .failure(failure)
@@ -400,7 +400,7 @@ struct RemoteLedgerDataSource: LedgerDataSource {
 
     private func failure<Value>(from response: APIEnvelope<Value>) -> LedgerOperationFailure? {
         guard !response.success else { return nil }
-        if response.failureKind == .authRefresh || response.statusCode == 401 || response.statusCode == 403 {
+        if response.statusCode == 401 || response.statusCode == 403 {
             return LedgerOperationFailure(kind: .unrecoverableAuth, message: response.message, statusCode: response.statusCode, errorData: response.errorData)
         }
         if response.statusCode.map({ $0 >= 400 }) == true {
@@ -413,7 +413,7 @@ struct RemoteLedgerDataSource: LedgerDataSource {
         guard let clientError = error as? APIClientError else {
             return LedgerOperationFailure(kind: .recoverableNetwork, message: nil, statusCode: nil, errorData: nil)
         }
-        if clientError.kind == .authRefresh || clientError.statusCode == 401 || clientError.statusCode == 403 {
+        if clientError.statusCode == 401 || clientError.statusCode == 403 {
             return LedgerOperationFailure(kind: .unrecoverableAuth, message: clientError.message, statusCode: clientError.statusCode, errorData: nil)
         }
         return LedgerOperationFailure(kind: .recoverableNetwork, message: clientError.message, statusCode: clientError.statusCode, errorData: nil)
@@ -437,8 +437,8 @@ final class LedgerRepository {
         await source(for: context).groups(page: page, pageSize: pageSize, search: search, context: context)
     }
 
-    func groupDetail(groupId: String, recordPageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
-        await source(for: context).groupDetail(groupId: groupId, recordPageSize: recordPageSize, context: context)
+    func groupDetail(groupId: String, recordPageSize: Int, recordSearch: RecordSearchRequest? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
+        await source(for: context).groupDetail(groupId: groupId, recordPageSize: recordPageSize, recordSearch: recordSearch, context: context)
     }
 
     func groupBalances(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[Member]>> {
@@ -449,8 +449,16 @@ final class LedgerRepository {
         await source(for: context).records(groupId: groupId, page: page, pageSize: pageSize, search: search, context: context)
     }
 
-    func memberRecords(groupId: String, memberId: String, page: Int, pageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMemberRecordSnapshot> {
-        await source(for: context).memberRecords(groupId: groupId, memberId: memberId, page: page, pageSize: pageSize, context: context)
+    func memberRecords(groupId: String, memberId: String, page: Int, pageSize: Int, currencyCodes: [String] = [], context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMemberRecordSnapshot> {
+        guard !currencyCodes.isEmpty else {
+            return await source(for: context).memberRecords(groupId: groupId, memberId: memberId, page: page, pageSize: pageSize, context: context)
+        }
+        let request = RecordSearchRequest(operator: "or", conditions: [], currencyCodes: currencyCodes, participantId: memberId)
+        switch await source(for: context).records(groupId: groupId, page: page, pageSize: pageSize, search: request, context: context) {
+        case .success(let result):
+            return .success(LedgerMemberRecordSnapshot(member: nil, records: result.items, pagination: result.pagination, source: result.source, refreshedToken: result.refreshedToken))
+        case .failure(let failure): return .failure(failure)
+        }
     }
 
     func settlementSuggestion(groupId: String, currencyCode: String? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>> {

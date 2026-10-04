@@ -243,6 +243,7 @@ struct CreateGroupSheet: View {
             currencyCode: selectedCurrencyCode
         )
         if result.success, let groupId = result.createdGroupId {
+            SoftLedgerHaptics.success()
             dismiss()
             onCreated(groupId)
         } else if result.success {
@@ -504,6 +505,32 @@ struct SettingsSheet: View {
 
     var body: some View {
         Form {
+            if !store.isLoggedIn {
+                Section {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "iphone")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20)
+                            .accessibilityHidden(true)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(L("On this device"))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+
+                            Text(L("Your groups and expenses are saved on this device. Sign in below to share groups and split expenses with others."))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+                }
+                .listRowBackground(SoftLedgerTheme.formPaper)
+            }
+
             Section(L("Account")) {
                 if let user = store.user {
                     HStack(spacing: accountRowSpacing) {
@@ -530,23 +557,10 @@ struct SettingsSheet: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                } else if store.isLoggedIn {
+                    Text(L("Account"))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 } else {
-                    HStack(spacing: accountRowSpacing) {
-                        Image(systemName: "internaldrive")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                            .frame(width: accountAvatarSize, height: accountAvatarSize)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L("On this device"))
-                                .font(.body)
-                                .foregroundStyle(SoftLedgerTheme.ink)
-                            Text(L("Local groups are stored on this device."))
-                                .font(.footnote)
-                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        }
-                        Spacer()
-                    }
-
                     Button {
                         showingSignIn = true
                     } label: {
@@ -867,7 +881,9 @@ struct ArchivedGroupsView: View {
         actionMessage = nil
         pendingAction = .delete(group.id)
         let result = await store.deleteGroupWithFeedback(group.id)
-        if !result.success {
+        if result.success {
+            SoftLedgerHaptics.success()
+        } else {
             actionMessage = result.message
         }
         pendingAction = nil
@@ -1203,6 +1219,7 @@ struct GroupSettingsSheet: View {
         pendingAction = .delete
         let result = await store.deleteGroupWithFeedback(group.id)
         if result.success {
+            SoftLedgerHaptics.success()
             dismiss()
             onDelete()
         } else {
@@ -1261,6 +1278,7 @@ private struct CurrencySelectionView: View {
     @Environment(\.dismiss) private var dismiss
 
     let group: WalkGroup?
+    let currencyGroupId: String?
     let initialSelectedCode: String?
     let selectionAction: ((CurrencyInfo) async -> StoreActionResult)?
 
@@ -1270,15 +1288,18 @@ private struct CurrencySelectionView: View {
 
     init(group: WalkGroup) {
         self.group = group
+        self.currencyGroupId = group.id
         self.initialSelectedCode = nil
         self.selectionAction = nil
     }
 
     init(
         selectedCode: String,
+        groupId: String? = nil,
         onSelect: @escaping (CurrencyInfo) async -> StoreActionResult
     ) {
         self.group = nil
+        self.currencyGroupId = groupId
         self.initialSelectedCode = selectedCode
         self.selectionAction = onSelect
     }
@@ -1296,13 +1317,21 @@ private struct CurrencySelectionView: View {
         CurrencyCatalog.currencies.filter { CurrencyCatalog.matches($0, query: query) }
     }
 
-    private var groupedCurrencies: [(key: String, values: [CurrencyInfo])] {
-        let grouped = Dictionary(grouping: currencies) { currency in
+    private var groupedCurrencies: [(key: String, indexTitle: String, values: [CurrencyInfo])] {
+        let matchingCurrencies = currencies
+        let recentCodes = store.recentlyUsedCurrencyCodes(for: currencyGroupId, including: selectedCode)
+        let recent = matchingCurrencies.filter { recentCodes.contains($0.code) }.sorted { $0.code < $1.code }
+        let grouped = Dictionary(grouping: matchingCurrencies) { currency in
             String(currency.name.prefix(1)).uppercased()
         }
-        return grouped.keys.sorted().map { key in
-            (key, grouped[key]?.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending } ?? [])
+        var sections: [(key: String, indexTitle: String, values: [CurrencyInfo])] = []
+        if !recent.isEmpty {
+            sections.append((L("Recently used"), "◷", recent))
         }
+        sections += grouped.keys.sorted().map { key in
+            (key, key, grouped[key]?.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending } ?? [])
+        }
+        return sections
     }
 
     var body: some View {
@@ -1363,7 +1392,7 @@ private struct CurrencySelectionView: View {
 }
 
 private struct CurrencyIndexedTableView: UIViewRepresentable {
-    let sections: [(key: String, values: [CurrencyInfo])]
+    let sections: [(key: String, indexTitle: String, values: [CurrencyInfo])]
     let selectedCode: String
     let savingCode: String?
     let isEnabled: Bool
@@ -1414,7 +1443,7 @@ private struct CurrencyIndexedTableView: UIViewRepresentable {
         }
 
         func sectionIndexTitles(for tableView: UITableView) -> [String]? {
-            parent.sections.map(\.key)
+            parent.sections.map(\.indexTitle)
         }
 
         func tableView(_ tableView: UITableView, sectionForSectionIndexTitle title: String, at index: Int) -> Int {
@@ -1937,6 +1966,7 @@ struct RecordEditorView: View {
     @State private var hasEditIntent: Bool
     @State private var isSubmitting = false
     @State private var isShowingCurrencyPicker = false
+    @State private var currencyFeedbackTrigger = 0
 
     init(groupId: String, record: WalkRecord? = nil, onDone: @escaping () -> Void) {
         self.groupId = groupId
@@ -1992,6 +2022,7 @@ struct RecordEditorView: View {
             Section {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Button {
+                        currencyFeedbackTrigger &+= 1
                         focusedField = nil
                         isShowingCurrencyPicker = true
                     } label: {
@@ -2076,13 +2107,17 @@ struct RecordEditorView: View {
             }
         }
         .disabled(isSubmitting)
+        .sensoryFeedback(SoftLedgerHaptics.tap(), trigger: currencyFeedbackTrigger)
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.interactively)
-        .background(SoftLedgerTheme.canvas)
+        .background {
+            // Cover the area exposed outside the keyboard's rounded corners.
+            SoftLedgerBackground()
+        }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $isShowingCurrencyPicker) {
-            CurrencySelectionView(selectedCode: selectedCurrencyCode) { currency in
+            CurrencySelectionView(selectedCode: selectedCurrencyCode, groupId: groupId) { currency in
                 selectedCurrencyCode = currency.code
                 store.rememberRecordCurrencyCode(currency.code, for: groupId)
                 beginEditing()
@@ -2216,6 +2251,9 @@ struct RecordEditorView: View {
 
         if result.success {
             store.rememberRecordCurrencyCode(selectedCurrencyCode, for: groupId)
+            if record == nil {
+                SoftLedgerHaptics.success()
+            }
             dismiss()
             onDone()
         } else {
@@ -2240,6 +2278,7 @@ private struct PaidByInlineEditor: View {
     let currentParticipantID: String?
     @Binding var selection: String
     let onEdit: () -> Void
+    @State private var feedbackTrigger = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: sectionSpacing) {
@@ -2250,6 +2289,7 @@ private struct PaidByInlineEditor: View {
                 let isMemberSelected = selection == member.uuid
 
                 Button {
+                    feedbackTrigger &+= 1
                     onEdit()
                     selection = member.uuid
                 } label: {
@@ -2272,6 +2312,7 @@ private struct PaidByInlineEditor: View {
             }
         }
         .padding(.vertical, verticalPadding)
+        .sensoryFeedback(SoftLedgerHaptics.tap(), trigger: feedbackTrigger)
     }
 
     private func displayName(for member: Member) -> String {
@@ -2299,6 +2340,8 @@ private struct SplitInlineEditor: View {
     let currentParticipantID: String?
     @Binding var selection: Set<String>
     let onEdit: () -> Void
+    @State private var feedbackTrigger = 0
+    @State private var allFeedbackTrigger = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: sectionSpacing) {
@@ -2306,6 +2349,7 @@ private struct SplitInlineEditor: View {
                 Text(L("Split"))
                 Spacer()
                 Button(L("All")) {
+                    allFeedbackTrigger &+= 1
                     onEdit()
                     if selection.count == members.count {
                         selection.removeAll()
@@ -2323,6 +2367,7 @@ private struct SplitInlineEditor: View {
                 let isMemberSelected = selection.contains(member.uuid)
 
                 Button {
+                    feedbackTrigger &+= 1
                     onEdit()
                     toggle(member)
                 } label: {
@@ -2345,6 +2390,8 @@ private struct SplitInlineEditor: View {
             }
         }
         .padding(.vertical, verticalPadding)
+        .sensoryFeedback(SoftLedgerHaptics.tap(), trigger: feedbackTrigger)
+        .sensoryFeedback(SoftLedgerHaptics.tap(emphasized: true), trigger: allFeedbackTrigger)
     }
 
     private func toggle(_ member: Member) {
@@ -2578,6 +2625,7 @@ struct BalancesWorkspace: View {
 
 private struct BalancesRootView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @State private var resolveFeedbackTrigger = 0
     @State private var showsResolveConfirmation = false
     @State private var pendingResolveMode = ResolveMode.all
     @State private var pendingResolveDebts: [ResolvedDebt] = []
@@ -2603,17 +2651,17 @@ private struct BalancesRootView: View {
     }
 
     private var debts: [ResolvedDebt] {
-        store.resolvedDebts(for: group)
+        store.visibleResolvedDebts(for: group)
     }
 
     private var resolveAllTitle: String {
-        L("Resolve all transfer")
+        L(store.recordFilters(for: group.id).currencyCodes.isEmpty ? "Resolve all transfer" : "Resolve shown transfers")
     }
 
     private var pendingResolveTitle: String {
         switch pendingResolveMode {
         case .all:
-            return L("Resolve all transfer")
+            return resolveAllTitle
         case .single:
             return L("Resolve transfer?")
         }
@@ -2683,7 +2731,7 @@ private struct BalancesRootView: View {
 
                         LazyVStack(spacing: 0) {
                             ForEach(members) { member in
-                                BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode) {
+                                BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode, currencyCodes: store.recordFilters(for: group.id).currencyCodes) {
                                     onSelect(member)
                                 }
                                 if member.id != members.last?.id {
@@ -2709,6 +2757,7 @@ private struct BalancesRootView: View {
 
             if !debts.isEmpty {
                 Button {
+                    resolveFeedbackTrigger &+= 1
                     pendingResolveMode = .all
                     pendingResolveDebts = debts
                     showsResolveConfirmation = true
@@ -2728,6 +2777,13 @@ private struct BalancesRootView: View {
                 .padding(.bottom, resolveButtonBottomPadding)
             }
         }
+        .safeAreaInset(edge: .top) {
+            if !store.recordFilters(for: group.id).currencyCodes.isEmpty {
+                Text(store.recordFilters(for: group.id).currencySummary)
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .sensoryFeedback(SoftLedgerHaptics.tap(), trigger: resolveFeedbackTrigger)
         .navigationTitle(L("Balances"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -2789,6 +2845,7 @@ private struct BalancesRootView: View {
         }
 
         if result.success {
+            SoftLedgerHaptics.success()
             resolvingMode = nil
             resolvingDebtID = nil
             onResolveSucceeded()
@@ -2854,12 +2911,17 @@ private struct SettlementPlanRow: View {
     let currentParticipantID: String?
     let isResolving: Bool
     let onResolve: () -> Void
+    @State private var feedbackTrigger = 0
 
     var body: some View {
-        Button(action: onResolve) {
+        Button {
+            feedbackTrigger &+= 1
+            onResolve()
+        } label: {
             rowContent
         }
         .buttonStyle(.plain)
+        .sensoryFeedback(SoftLedgerHaptics.tap(), trigger: feedbackTrigger)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(transferTitle), \(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode, style: .exact))")
         .accessibilityHint(L("Resolve this transfer"))
@@ -2970,12 +3032,9 @@ private struct SettlementPlanRow: View {
 private struct MemberBalanceDetailView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @ScaledMetric(relativeTo: .body) private var summaryPadding = 18
-    @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 10
     @ScaledMetric(relativeTo: .subheadline) private var emptyRowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
-    @ScaledMetric(relativeTo: .subheadline) private var compactRowHorizontalPadding = 12
-    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 48
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
     @ScaledMetric(relativeTo: .body) private var horizontalPadding = 20
     @ScaledMetric(relativeTo: .caption) private var topPadding = 8
@@ -3008,6 +3067,10 @@ private struct MemberBalanceDetailView: View {
     }
 
     private var displayBalances: [MemberCurrencyProjection] {
+        allDisplayBalances.filter { store.recordFilters(for: group.id).includesCurrency($0.currencyCode) }
+    }
+
+    private var allDisplayBalances: [MemberCurrencyProjection] {
         let actualBalances = currentMember.currencyBalances
             .filter(\.hasLedgerActivity)
             .sorted { $0.currencyCode < $1.currencyCode }
@@ -3032,16 +3095,16 @@ private struct MemberBalanceDetailView: View {
     }
 
     private var carouselBalances: [CurrencyBalanceSummary] {
-        displayBalances.map {
+        store.filteredCurrencyBalances(displayBalances.map {
             CurrencyBalanceSummary(
                 currencyCode: $0.currencyCode,
                 totalBalanceMinor: $0.debtMinor
             )
-        }
+        }, groupId: group.id)
     }
 
     private var memberDebts: [ResolvedDebt] {
-        return store.resolvedDebts(for: currentGroup).filter { debt in
+        return store.visibleResolvedDebts(for: currentGroup).filter { debt in
             debt.from.uuid == currentMember.uuid || debt.to.uuid == currentMember.uuid
         }
     }
@@ -3125,57 +3188,26 @@ private struct MemberBalanceDetailView: View {
                             .foregroundStyle(SoftLedgerTheme.negative)
                     }
 
-                    VStack(alignment: .leading, spacing: sectionSpacing) {
-                        Text(L("Records"))
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(SoftLedgerTheme.ink)
-
-                        if records.isEmpty {
-                            Text(L("No records yet"))
-                                .font(.subheadline)
-                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                                .frame(maxWidth: .infinity, minHeight: emptyRowMinHeight, alignment: .leading)
-                                .padding(.horizontal, rowHorizontalPadding)
-                                .padding(.vertical, rowVerticalPadding)
-                                .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                        .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                                }
-                        } else {
-                            LazyVStack(spacing: 0) {
-                                ForEach(records) { record in
-                                    ExpenseRow(
-                                        record: record,
-                                        group: currentGroup,
-                                        onDelete: store.canMutateRecord(record, in: currentGroup) ? {
-                                            deleteCandidate = record
-                                        } : nil
-                                    ) {
-                                        selectedRecord = record
-                                    }
-                                    if record.id != records.last?.id {
-                                        Divider()
-                                            .overlay(SoftLedgerTheme.rule.opacity(0.52))
-                                            .padding(.leading, dividerLeadingPadding)
-                                    }
-                                }
-
-                                if store.isLoadingMemberRecords(groupId: group.id, memberId: member.uuid) {
-                                    Divider()
-                                        .overlay(SoftLedgerTheme.rule.opacity(0.52))
-                                        .padding(.leading, dividerLeadingPadding)
-                                    memberLoadMoreFooter
-                                }
-                            }
-                            .padding(.horizontal, compactRowHorizontalPadding)
+                    if records.isEmpty {
+                        Text(L("No records yet"))
+                            .font(.subheadline)
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                            .frame(maxWidth: .infinity, minHeight: emptyRowMinHeight, alignment: .leading)
+                            .padding(.horizontal, rowHorizontalPadding)
                             .padding(.vertical, rowVerticalPadding)
                             .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                             }
-                        }
+                    } else {
+                        GroupExpensesSection(
+                            group: currentGroup,
+                            records: records,
+                            isLoadingMore: store.isLoadingMemberRecords(groupId: group.id, memberId: member.uuid),
+                            onDelete: { deleteCandidate = $0 },
+                            onEdit: { selectedRecord = $0 }
+                        )
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
@@ -3197,7 +3229,7 @@ private struct MemberBalanceDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {
-            async let recordsRefresh: Void = store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
+            async let recordsRefresh: Void = store.loadMemberRecordsIfNeeded(groupId: group.id, memberId: member.uuid)
             async let settlementRefresh: Void = store.refreshSettlementSuggestion(groupId: group.id)
             _ = await (recordsRefresh, settlementRefresh)
         }
@@ -3236,25 +3268,13 @@ private struct MemberBalanceDetailView: View {
 
         let result = await store.resolveSingleWithFeedback(groupId: group.id, debt: debt)
         if result.success {
+            SoftLedgerHaptics.success()
             await store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
             await store.refreshSettlementSuggestion(groupId: group.id)
         } else {
             resolveMessage = result.message
         }
         resolvingDebtID = nil
-    }
-
-    private var memberLoadMoreFooter: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-                .softLedgerProgressTint()
-            Text(L("Loading more..."))
-                .font(.subheadline)
-                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, minHeight: emptyRowMinHeight, alignment: .leading)
     }
 }
 

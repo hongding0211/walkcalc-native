@@ -32,7 +32,7 @@ The group detail page is a secondary page inside the Groups navigation flow. Its
 
 ### Top-Right Actions
 
-- Show one top-right action: `ellipsis`.
+- Show native filter and `ellipsis` actions at the top right.
 - The `ellipsis` opens `Group settings` directly.
 - The settings surface is specified in `docs/group-settings.md`.
 - Do not show a separate `Share` text button in the navigation bar.
@@ -45,6 +45,20 @@ Rules:
 - `Archive group` and `Delete group` belong inside `Group settings`, not in the top-level `ellipsis`.
 - `Delete group` uses destructive role styling.
 - High-frequency content creation does not belong in this menu; adding an expense remains a separate content action.
+
+### Filters
+
+- The filter action opens a native system Menu, like the Messages filter menu. Preserve the system typography, icons, spacing, width, and submenu navigation; do not replace it with a custom popover.
+- The root menu contains only two peer rows: a `Related to me` toggle and a `Currency` submenu. There is no `All records` option or `Filter by` heading. Related records include payments made by the current participant and records they participate in, including settlements.
+- `Currency` opens a nested list with multiple checkmarked selections. Keep the list open while selecting, and use its back button to return or tap outside to close.
+- Currency choices come from the whole group's currency projections plus its default currency and saved selections. They must not disappear when the current record page is filtered.
+- No selected currencies means all currencies. Changes apply immediately. Use a plain filter icon without a circular SF Symbol glyph. The filter and ellipsis must remain together in one shared native toolbar capsule in every state. Apply the selected fill only behind the filter glyph inside that capsule; do not use a prominent button style that splits it into a separate toolbar background. Do not show a numeric badge. Inactive filters use the same primary icon color as the adjacent ellipsis. Active filters use an Appearance-theme filled background and a contrasting icon; the monochrome theme adapts to light and dark mode. Keep the person and currency icons visible in their menu rows in both selected and unselected states; do not replace the currency icon with its selection checkmark. Turn off `Related to me` and uncheck currencies to restore the unrestricted scope; there is no `All currencies` row or clear-filter action. The Currency row always has a subtitle: `All currencies` when unrestricted, otherwise at most two codes followed by `… +N` for additional selections. Both menu levels always reserve a leading selection slot, including when no filters are selected. Show or hide the checkmark within that fixed space without moving icons or labels. Keep the native Menu presentation, typography, row sizing, and submenu navigation. Currency retains its native submenu icon and disclosure; its subtitle communicates the selected currencies, with checkmarks on individual currencies inside the submenu. Do not insert checkmarks into its title or replace the icon. Selecting either filter keeps the native menu open; tap outside to dismiss. Do not add a separate scope row. While filters refresh the first record page, show a separate untitled record card using the existing pagination loading indicator. Replace it with the results when loading finishes; an empty result remains empty.
+- Persist selections on the client by owner/account and group. Initial load, refresh, search, and pagination use the same query. Local and remote ledgers apply filters before pagination.
+- `Related to me` changes only the main record list and its search. Total balance and suggested payments are already personal.
+- Currency selection applies to records, Total balance, personal suggested payments, and balance details. Never sum amounts across currencies. A single selected currency has no carousel switching; multiple selections cycle only within that selection. Selected currencies without personal activity display a labeled zero.
+- Filtered empty records leave the list area empty. Do not show empty-result illustrations, instructions, or clear-filter buttons. With no suggested payments, preserve the original Balances fallback, limited to members with activity in the selected currencies. If neither suggestions nor matching balances exist, omit the section including its title and detail link.
+- Balance detail records retain the member's participation scope and selected currencies. `Resolve shown transfers` applies only to the displayed currency scope.
+- Query responses from a previous filter/cache revision must not overwrite current results.
 
 ### Visual Rules
 

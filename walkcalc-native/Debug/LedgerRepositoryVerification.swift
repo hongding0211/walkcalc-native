@@ -80,6 +80,7 @@ enum LedgerRepositoryVerification {
 
         await verifyRemoteContracts()
         await verifyRemoteAuthFailures()
+        NSLog("PASS: ledger repository and filtered request verification")
     }
 
     private static let mockBaseURL = URL(string: "https://ledger-verification.invalid/api")!
@@ -114,6 +115,13 @@ enum LedgerRepositoryVerification {
         _ = expectSuccess(await repository.addSettlementRecord(groupId: "AB12", fromId: "tmp-1", toId: "user-1", amountMinor: "600", note: "resolve", currencyCode: "USD", context: context), prefix: "remote-settlement-record")
         _ = expectSuccess(await repository.resolveDebts(groupId: "AB12", currencyCode: "USD", context: context), prefix: "remote-resolve-all")
         _ = expectSuccess(await repository.deleteGroup(code: "AB12", context: context), prefix: "remote-delete-group")
+
+        let filters = RecordSearchRequest(operator: "or", conditions: [], currencyCodes: ["CNY", "USD"], participantId: "user-1")
+        _ = expectSuccess(await repository.groupDetail(groupId: "AB12", recordPageSize: 10, recordSearch: filters, context: context), prefix: "remote-filter-first-page")
+        _ = expectSuccess(await repository.records(groupId: "AB12", page: 2, pageSize: 10, search: filters, context: context), prefix: "remote-filter-next-page")
+        let filteredRequests = MockLedgerURLProtocol.requests.filter { $0.path == "/api/walkcalc/groups/AB12/records" && $0.query["currencyCodes"] != nil }
+        expect(filteredRequests.count, equals: 2, prefix: "remote-filter-count")
+        expect(filteredRequests.allSatisfy { $0.query["currencyCodes"] == "CNY,USD" && $0.query["participantId"] == "user-1" && $0.query["search"] == nil }, equals: true, prefix: "remote-filter-query")
 
         let requests = MockLedgerURLProtocol.requests
         expect(requests.containsPath("/api/walkcalc/home/summary", method: "GET"), equals: true, prefix: "remote-home-summary-path")

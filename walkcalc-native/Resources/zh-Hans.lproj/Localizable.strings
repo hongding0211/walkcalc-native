@@ -141,6 +141,7 @@
 "No matching members" = "没有匹配成员";
 "No matching records" = "没有匹配记录";
 "No records yet" = "暂无记录";
+"Add your first expense." = "开始记录第一笔账单";
 "No temporary members" = "暂无临时成员";
 "Opens group details" = "打开群组详情";
 "Optional note" = "可选备注";
@@ -219,3 +220,31 @@
 "Settle this member's balance before removing them." = "请先结清该成员的余额，再将其移除。";
 "Unable to remove member" = "移除成员失败";
 "Removes this member after confirmation" = "确认后将此成员移出群组";
+
+"On this device" = "在此设备上";
+"Today" = "今天";
+"Yesterday" = "昨天";
+"No activity" = "暂无往来";
+"Your groups and expenses are saved on this device. Sign in below to share groups and split expenses with others." = "群组和账单目前保存在此设备上。通过下方登录，即可与朋友共享群组、一起记账分摊。";
+
+"Couldn't load records" = "暂时无法加载记录";
+
+"Retry" = "重试";
+
+"Loading records..." = "正在加载记录…";
+
+"Recently used" = "最近使用";
+
+"Loading" = "加载中";
+
+"Next currency" = "切换到下一个币种";
+
+"Filters" = "筛选";
+
+"All currencies" = "全部币种";
+
+"Related to me" = "与我相关";
+
+
+
+"Resolve shown transfers" = "结算当前显示的转账";

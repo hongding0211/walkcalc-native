@@ -9,6 +9,9 @@ enum AuthSessionVerification {
         await verifyForegroundActivationRefreshesSession()
         await verifyMissingRefreshCredentialFailsAsAuthRefresh()
         await verifyTransportFailureRemainsNonAuth()
+        await verifyRefreshFailuresPreserveSession()
+        await verifyRecoverableStartupAndProfileFailures()
+        print("AUTH_SESSION_VERIFICATION_PASSED")
     }
 
     private static func verifyCookieImportAndClear() async {
@@ -160,6 +163,7 @@ enum AuthSessionVerification {
 
             let store = WalkcalcStore()
             store.token = "expired-token"
+            store.setPreferredLedgerSource(.remote)
             store.user = UserProfile(uuid: "user-1", name: "Old User", avatar: "")
             store.finishStartup(.authenticated)
             await store.handleForegroundActivation()
@@ -206,6 +210,75 @@ enum AuthSessionVerification {
             } catch {
                 assertionFailure("auth-session-transport: unexpected error \(error)")
             }
+        }
+    }
+
+    private static func verifyRefreshFailuresPreserveSession() async {
+        for status in [0, 503, 200, 401, 403] {
+            await withMockProtocol { _ in
+                NativeAuthSession.storeRefreshToken("valid-refresh", for: APIClient().baseURL)
+                MockURLProtocol.requestHandler = { request in
+                    if request.url?.path == "/auth/refreshToken" {
+                        if status == 0 { throw URLError(.timedOut) }
+                        return httpResponse(status: status, url: request.url!)
+                    }
+                    return httpResponse(status: 401, url: request.url!)
+                }
+                let store = WalkcalcStore()
+                store.token = "expired-token"
+                store.user = UserProfile(uuid: "user-1", name: "Cached User", avatar: "")
+                store.finishStartup(.authenticated)
+                await store.handleForegroundActivation()
+                let rejected = status == 401 || status == 403
+                expect(store.isLoggedIn, equals: !rejected, prefix: "refresh-\(status)-session")
+                expect(store.user?.name, equals: rejected ? nil : "Cached User", prefix: "refresh-\(status)-profile")
+                expect(NativeAuthSession.hasRefreshCredential(for: APIClient().baseURL), equals: !rejected, prefix: "refresh-\(status)-credential")
+            }
+        }
+    }
+
+    private static func verifyRecoverableStartupAndProfileFailures() async {
+        await withMockProtocol { _ in
+            let cachedUser = UserProfile(uuid: "user-1", name: "Cached User", avatar: "")
+            UserDefaults.standard.set("saved-token", forKey: "walkcalc.token")
+            UserDefaults.standard.set(try? JSONEncoder().encode(cachedUser), forKey: "walkcalc.cachedUser")
+            defer {
+                UserDefaults.standard.removeObject(forKey: "walkcalc.token")
+                UserDefaults.standard.removeObject(forKey: "walkcalc.cachedUser")
+            }
+            MockURLProtocol.requestHandler = { request in
+                return httpResponse(status: 503, url: request.url!)
+            }
+            let store = WalkcalcStore()
+            await store.bootstrap()
+            expect(store.token, equals: "saved-token", prefix: "startup-503-token")
+            expect(store.user, equals: cachedUser, prefix: "startup-503-user")
+            expect(store.preferredLedgerSource, equals: .remote, prefix: "startup-503-source")
+            await store.reconcileSessionAfterProfileDismiss()
+            expect(store.isLoggedIn, equals: true, prefix: "profile-503-session")
+
+            let reopened = WalkcalcStore()
+            await reopened.bootstrap()
+            expect(reopened.isLoggedIn, equals: true, prefix: "reopened-503-session")
+            expect(reopened.user, equals: cachedUser, prefix: "reopened-503-user")
+
+            MockURLProtocol.requestHandler = { request in
+                if request.url?.path == "/auth/info" {
+                    return httpResponse(status: 200, url: request.url!, json: [
+                        "success": true,
+                        "data": ["userId": "user-1", "profile": ["name": "Recovered User"]]
+                    ])
+                }
+                return httpResponse(status: 200, url: request.url!, json: ["success": true, "data": [:]])
+            }
+            await reopened.handleForegroundActivation()
+            expect(reopened.user?.name, equals: "Recovered User", prefix: "reopened-recovered-user")
+
+            MockURLProtocol.requestHandler = { _ in throw URLError(.notConnectedToInternet) }
+            let signingIn = WalkcalcStore()
+            await signingIn.signIn(token: "new-session-token")
+            expect(signingIn.token, equals: "new-session-token", prefix: "signin-offline-token")
+            expect(UserDefaults.standard.string(forKey: "walkcalc.token"), equals: "new-session-token", prefix: "signin-offline-persisted")
         }
     }
 

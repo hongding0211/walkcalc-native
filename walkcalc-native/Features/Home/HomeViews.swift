@@ -2,6 +2,7 @@ import AuthenticationServices
 import CryptoKit
 import Security
 import SwiftUI
+import UIKit
 
 enum Route: Hashable {
     case group(String)
@@ -470,6 +471,9 @@ struct RootHomeView: View {
 
     private static func initialPath() -> [Route] {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-fixture-scroll") {
+            return [.group("stress-0")]
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-open-appstore-group") {
             return [.group("appstore-tokyo")]
         }
@@ -570,10 +574,7 @@ struct RootHomeView: View {
                                 }
 
                                 if store.isLoadingMoreGroups {
-                                    ProgressView()
-                                        .softLedgerProgressTint()
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 8)
+                                    LedgerPaginationLoadingView()
                                 }
                             }
                         }
@@ -609,6 +610,15 @@ struct RootHomeView: View {
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        if !store.isLoggedIn {
+                            Button {
+                                activeSheet = .signIn
+                            } label: {
+                                Label(L("Sign in"), systemImage: "person.crop.circle")
+                            }
+                            Divider()
+                        }
+
                         Button {
                             activeSheet = .archivedGroups
                         } label: {
@@ -765,7 +775,10 @@ struct RootHomeView: View {
         guard group.canCurrentUserDelete else { return }
         guard pendingGroupAction == nil else { return }
         pendingGroupAction = .delete(group.id)
-        _ = await store.deleteGroupWithFeedback(group.id)
+        let result = await store.deleteGroupWithFeedback(group.id)
+        if result.success {
+            SoftLedgerHaptics.success()
+        }
         pendingGroupAction = nil
     }
 
@@ -873,6 +886,7 @@ private struct JoinGroupSheet: View {
         Task {
             let result = await store.joinGroupWithFeedback(code: code)
             if result.success {
+                SoftLedgerHaptics.success()
                 dismiss()
                 onDone()
             } else {
@@ -947,7 +961,7 @@ private struct HomeBalanceCard: View {
                     Text(L("Total balance"))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    Text("—")
+                    Text("0")
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .foregroundStyle(SoftLedgerTheme.ink)
                 }
@@ -963,6 +977,11 @@ private struct HomeBalanceCard: View {
 }
 
 struct CurrencyBalanceCarousel: View {
+    private enum AdvanceSource {
+        case interaction
+        case automatic
+    }
+
     private enum Direction: Int {
         case previous = -1
         case next = 1
@@ -986,12 +1005,17 @@ struct CurrencyBalanceCarousel: View {
     let onTap: ((CurrencyBalanceSummary) -> Void)?
     private let presentation: Presentation
     private let amountColor: (CurrencyBalanceSummary) -> Color
+    private var showsSettledText = false
 
     @State private var selection = 0
     @State private var dragOffset: CGFloat = 0
+    @State private var dragStartSelection: Int?
     @State private var isSettling = false
     @State private var hasUserInteracted = false
     @State private var settleTask: Task<Void, Never>?
+    @State private var selectionFeedbackTrigger = 0
+    @State private var feedbackSessionID: UUID?
+    @State private var lastFeedbackDirection: Direction?
 
     init(
         balances: [CurrencyBalanceSummary],
@@ -1043,6 +1067,7 @@ struct CurrencyBalanceCarousel: View {
     init(
         compactBalances balances: [CurrencyBalanceSummary],
         isAnimationEnabled: Bool,
+        showsSettledText: Bool = false,
         amountColor: @escaping (CurrencyBalanceSummary) -> Color
     ) {
         self.balances = balances
@@ -1052,6 +1077,7 @@ struct CurrencyBalanceCarousel: View {
         self.subtitle = nil
         self.onTap = nil
         self.presentation = .compact
+        self.showsSettledText = showsSettledText
         self.amountColor = amountColor
     }
 
@@ -1083,22 +1109,40 @@ struct CurrencyBalanceCarousel: View {
     var body: some View {
         carouselContent
             .frame(maxWidth: contentMaxWidth, alignment: presentation == .card ? .leading : .trailing)
+            .sensoryFeedback(SoftLedgerHaptics.selection, trigger: selectionFeedbackTrigger)
+            .modifier(CurrencyRollFeedbackObserver(
+                progress: dragOffset / amountPageHeight,
+                sessionID: feedbackSessionID,
+                onApproach: playSelectionFeedback
+            ))
             .contentShape(Rectangle())
+            .highPriorityGesture(
+                dragGesture(pageHeight: amountPageHeight),
+                including: presentation == .card && balances.count > 1 ? .all : .none
+            )
             .onTapGesture {
                 onTap?(selectedBalance)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint(onTap == nil ? "" : L("View details"))
+            .accessibilityActions {
+                if presentation == .card && balances.count > 1 {
+                    Button(L("Next currency")) { advanceCurrency() }
+                }
+                if let onTap {
+                    Button(L("View details")) { onTap(selectedBalance) }
+                }
+            }
             .accessibilityValue(balances.count > 1 ? "\(selection + 1) / \(balances.count)" : "")
             .accessibilityAdjustableAction { direction in
                 guard balances.count > 1 else { return }
                 stopAutoPlay()
                 switch direction {
                 case .increment:
-                    settle(.next, pageHeight: amountPageHeight)
+                    settle(.next, pageHeight: amountPageHeight, source: .interaction)
                 case .decrement:
-                    settle(.previous, pageHeight: amountPageHeight)
+                    settle(.previous, pageHeight: amountPageHeight, source: .interaction)
                 @unknown default:
                     break
                 }
@@ -1115,7 +1159,7 @@ struct CurrencyBalanceCarousel: View {
                           !isSettling,
                           isAnimationEnabled,
                           scenePhase == .active else { return }
-                    settle(.next, pageHeight: amountPageHeight)
+                    settle(.next, pageHeight: amountPageHeight, source: .automatic)
                 }
             }
             .onChange(of: balances.map(\.currencyCode)) { oldCodes, newCodes in
@@ -1123,11 +1167,23 @@ struct CurrencyBalanceCarousel: View {
                 let selectedCode = oldCodes[safe: selection]
                 selection = selectedCode.flatMap { newCodes.firstIndex(of: $0) } ?? 0
                 dragOffset = 0
+                dragStartSelection = nil
                 isSettling = false
                 settleTask?.cancel()
+                feedbackSessionID = nil
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active { feedbackSessionID = nil }
+            }
+            .onChange(of: isAnimationEnabled) { _, enabled in
+                if !enabled { feedbackSessionID = nil }
             }
             .onDisappear {
                 settleTask?.cancel()
+                dragOffset = 0
+                dragStartSelection = nil
+                isSettling = false
+                feedbackSessionID = nil
             }
             .allowsHitTesting(presentation == .card)
     }
@@ -1209,19 +1265,31 @@ struct CurrencyBalanceCarousel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
                 .contentShape(Rectangle())
-                .highPriorityGesture(dragGesture(pageHeight: height))
             } else {
                 balancePage(selectedBalance)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(height: amountPageHeight)
+        .contentShape(Rectangle())
+        .highPriorityGesture(
+            TapGesture().onEnded { advanceCurrency() },
+            including: presentation == .card && balances.count > 1 ? .all : .none
+        )
+    }
+
+    private func advanceCurrency() {
+        guard balances.count > 1, !isSettling, dragStartSelection == nil else { return }
+        stopAutoPlay()
+        settle(.next, pageHeight: amountPageHeight, source: .interaction)
     }
 
     private func balancePage(_ balance: CurrencyBalanceSummary) -> some View {
         Group {
             if presentation == .compact {
-                Text(signedMoney(balance.totalBalanceMinor, currencyCode: balance.currencyCode))
+                Text(showsSettledText && Money.isZero(balance.totalBalanceMinor)
+                     ? L("Settled")
+                     : signedMoney(balance.totalBalanceMinor, currencyCode: balance.currencyCode))
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                     .foregroundStyle(amountColor(balance))
                     .minimumScaleFactor(0.82)
@@ -1257,17 +1325,26 @@ struct CurrencyBalanceCarousel: View {
                       !isSettling,
                       abs(value.translation.height) > abs(value.translation.width) else { return }
                 stopAutoPlay()
+                if dragStartSelection == nil {
+                    dragStartSelection = selection
+                    beginSelectionFeedback()
+                }
                 dragOffset = interactiveDragOffset(value.translation.height, pageHeight: pageHeight)
+                if let feedbackSessionID, abs(dragOffset / pageHeight) >= CurrencyRollFeedbackObserver.approachThreshold {
+                    playSelectionFeedback(progress: dragOffset / pageHeight, sessionID: feedbackSessionID)
+                }
             }
             .onEnded { value in
-                guard balances.count > 1, !isSettling else { return }
-                let projectedOffset = value.predictedEndTranslation.height
-                let threshold = pageHeight * 0.24
+                guard balances.count > 1, !isSettling, dragStartSelection != nil else { return }
+                dragStartSelection = nil
+                let projectedOffset = dragOffset + value.predictedEndTranslation.height - value.translation.height
+                let threshold = pageHeight * 0.5
                 if projectedOffset <= -threshold {
-                    settle(.next, pageHeight: pageHeight)
+                    settle(.next, pageHeight: pageHeight, source: .interaction)
                 } else if projectedOffset >= threshold {
-                    settle(.previous, pageHeight: pageHeight)
+                    settle(.previous, pageHeight: pageHeight, source: .interaction)
                 } else {
+                    feedbackSessionID = nil
                     withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.28)) {
                         dragOffset = 0
                     }
@@ -1282,21 +1359,35 @@ struct CurrencyBalanceCarousel: View {
     }
 
     private func interactiveDragOffset(_ translation: CGFloat, pageHeight: CGFloat) -> CGFloat {
-        let direction: CGFloat = translation < 0 ? -1 : 1
+        guard pageHeight > 0 else { return 0 }
         let distance = abs(translation)
-        let linearLimit = pageHeight * 0.56
+        let linearLimit = pageHeight * 0.65
         guard distance > linearLimit else { return translation }
-        let resistedDistance = linearLimit + (distance - linearLimit) * 0.24
-        return direction * min(resistedDistance, pageHeight * 0.8)
+        let remaining = pageHeight - linearLimit
+        let excess = distance - linearLimit
+        let resisted = linearLimit + remaining * excess / (remaining + excess)
+        return translation < 0 ? -resisted : resisted
     }
 
-    private func settle(_ direction: Direction, pageHeight: CGFloat) {
+    private func settle(_ direction: Direction, pageHeight: CGFloat, source: AdvanceSource) {
         guard balances.count > 1, !isSettling else { return }
         settleTask?.cancel()
+
+        if source == .interaction {
+            if feedbackSessionID == nil {
+                beginSelectionFeedback()
+            }
+        } else {
+            feedbackSessionID = nil
+        }
 
         if reduceMotion {
             selection = (selection + direction.rawValue + balances.count) % balances.count
             dragOffset = 0
+            if let feedbackSessionID {
+                playSelectionFeedback(progress: direction == .next ? -1 : 1, sessionID: feedbackSessionID)
+            }
+            feedbackSessionID = nil
             return
         }
 
@@ -1307,6 +1398,7 @@ struct CurrencyBalanceCarousel: View {
         }
 
         settleTask = Task { @MainActor in
+            // This delay only rebases the pages. Haptics follow rendered progress.
             try? await Task.sleep(for: .milliseconds(460))
             guard !Task.isCancelled else { return }
             var transaction = Transaction()
@@ -1314,13 +1406,28 @@ struct CurrencyBalanceCarousel: View {
             withTransaction(transaction) {
                 selection = (selection + direction.rawValue + balances.count) % balances.count
                 dragOffset = 0
+                dragStartSelection = nil
                 isSettling = false
+                feedbackSessionID = nil
             }
         }
     }
 
+    private func beginSelectionFeedback() {
+        feedbackSessionID = UUID()
+        lastFeedbackDirection = nil
+    }
+
+    private func playSelectionFeedback(progress: CGFloat, sessionID: UUID) {
+        guard feedbackSessionID == sessionID, scenePhase == .active, isAnimationEnabled else { return }
+        let direction: Direction = progress < 0 ? .next : .previous
+        guard lastFeedbackDirection != direction else { return }
+        lastFeedbackDirection = direction
+        selectionFeedbackTrigger &+= 1
+    }
+
     private var accessibilityLabel: String {
-        var components = [title, signedMoney(selectedBalance.totalBalanceMinor, style: .exact, currencyCode: selectedBalance.currencyCode)]
+        var components = [title, showsSettledText && Money.isZero(selectedBalance.totalBalanceMinor) ? L("Settled") : signedMoney(selectedBalance.totalBalanceMinor, style: .exact, currencyCode: selectedBalance.currencyCode)]
         if let subtitle {
             components.append(subtitle(selectedBalance))
         } else if scopeCount != nil {
@@ -1463,6 +1570,31 @@ private struct CurrencyPageIndicator: View {
     }
 }
 
+/// Observes the interpolated roll rather than the target offset set by withAnimation.
+private struct CurrencyRollFeedbackObserver: AnimatableModifier {
+    static let approachThreshold: CGFloat = 0.72
+
+    var progress: CGFloat
+    let sessionID: UUID?
+    let onApproach: (CGFloat, UUID) -> Void
+
+    var animatableData: CGFloat {
+        get { progress }
+        set {
+            progress = newValue
+            guard let sessionID, abs(newValue) >= Self.approachThreshold else { return }
+            let renderedProgress = newValue
+            let notifyApproach = onApproach
+            // Deliver outside SwiftUI's render pass; the session rejects stale frames.
+            DispatchQueue.main.async {
+                notifyApproach(renderedProgress, sessionID)
+            }
+        }
+    }
+
+    func body(content: Content) -> some View { content }
+}
+
 private struct CurrencyCylinderRollEffect: ViewModifier {
     let position: CGFloat
     let travelHeight: CGFloat
@@ -1510,9 +1642,7 @@ private struct GroupSummaryRow: View {
     @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
     @ScaledMetric(relativeTo: .caption) private var titleSpacing = 6
     @ScaledMetric(relativeTo: .caption) private var metadataSpacing = 8
-    @ScaledMetric(relativeTo: .caption) private var statusInset = 12
-    @ScaledMetric(relativeTo: .caption) private var statusWidth = 3
-    @ScaledMetric(relativeTo: .subheadline) private var amountWidth = 82
+    @ScaledMetric(relativeTo: .subheadline) private var amountWidth = 100
     @ScaledMetric(relativeTo: .subheadline) private var amountHeight = 24
 
     let group: WalkGroup
@@ -1557,15 +1687,29 @@ private struct GroupSummaryRow: View {
         )]
     }
 
-    private var accessibilityBalanceText: String {
-        guard !carouselBalances.isEmpty else { return "—" }
-        return carouselBalances
-            .map { signedMoney($0.totalBalanceMinor, currencyCode: $0.currencyCode) }
-            .joined(separator: ", ")
+    private var zeroBalanceText: String {
+        let hasActivity: Bool
+        if group.hasCurrentUserBalanceSummary {
+            hasActivity = group.currentUserRecordCount > 0
+                || group.currentUserCurrencyBalances.contains(where: \.hasLedgerActivity)
+                || !Money.isZero(group.currentUserExpenseShareMinor)
+                || !Money.isZero(group.currentUserPaidTotalMinor)
+        } else if let currentMember {
+            hasActivity = currentMember.recordCount > 0
+                || currentMember.currencyBalances.contains(where: \.hasLedgerActivity)
+                || !Money.isZero(currentMember.costMinor)
+        } else {
+            // Without a participant summary, don't claim there are no records.
+            return L("Settled")
+        }
+        return hasActivity ? L("Settled") : L("No activity")
     }
 
-    private var balanceIndicatorColor: Color {
-        moneyColor(myBalance).opacity(Money.isZero(myBalance) ? 0.32 : 0.58)
+    private var accessibilityBalanceText: String {
+        guard !carouselBalances.isEmpty else { return zeroBalanceText }
+        return carouselBalances
+            .map { Money.isZero($0.totalBalanceMinor) ? L("Settled") : signedMoney($0.totalBalanceMinor, currencyCode: $0.currencyCode) }
+            .joined(separator: ", ")
     }
 
     var body: some View {
@@ -1586,7 +1730,7 @@ private struct GroupSummaryRow: View {
             Spacer()
 
             if carouselBalances.isEmpty {
-                Text("—")
+                Text(zeroBalanceText)
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
                     .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
@@ -1595,6 +1739,7 @@ private struct GroupSummaryRow: View {
                 CurrencyBalanceCarousel(
                     compactBalances: carouselBalances,
                     isAnimationEnabled: isAnimationEnabled,
+                    showsSettledText: true,
                     amountColor: { moneyColor($0.totalBalanceMinor) }
                 )
                 .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
@@ -1616,12 +1761,6 @@ private struct GroupSummaryRow: View {
         .frame(minHeight: rowMinHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(balanceIndicatorColor)
-                .frame(width: statusWidth)
-                .padding(.vertical, statusInset)
-        }
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
@@ -1677,6 +1816,7 @@ private struct GroupsEmptyState: View {
                     .controlSize(.regular)
                 }
             }
+
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18)

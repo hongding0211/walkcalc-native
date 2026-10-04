@@ -15,6 +15,46 @@ enum TemporalDisplayBucket {
 }
 
 enum TemporalDisplay {
+    static func timeString(
+        fromMilliseconds milliseconds: TimeInterval,
+        locale: Locale = appLocale,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String {
+        TemporalDisplayLanguage(locale: locale).timeString(from: milliseconds.walkDate, calendar: calendar)
+    }
+
+    // Recent records use day sections; older years share a year section.
+    static func sectionDate(for date: Date, now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) -> Date {
+        let bucket = bucket(for: date, now: now, calendar: calendar)
+        if bucket != .today && bucket != .yesterday && !calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            return calendar.dateInterval(of: .year, for: date)?.start ?? calendar.startOfDay(for: date)
+        }
+        return calendar.startOfDay(for: date)
+    }
+
+    static func sectionTitle(
+        for date: Date,
+        now: Date = Date(),
+        locale: Locale = appLocale,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String {
+        let bucket = bucket(for: date, now: now, calendar: calendar)
+        if bucket == .today || bucket == .yesterday {
+            // DateFormatter's relative labels use the real clock; use localized labels
+            // explicitly so injected dates and year-boundary tests remain deterministic.
+            let bundle = Bundle.main.path(forResource: locale.language.languageCode?.identifier == "zh" ? "zh-Hans" : "en", ofType: "lproj")
+                .flatMap { Bundle(path: $0) } ?? .main
+            let key = bucket == .today ? "Today" : "Yesterday"
+            return bundle.localizedString(forKey: key, value: locale.identifier.hasPrefix("zh") ? (bucket == .today ? "今天" : "昨天") : key, table: nil)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate(calendar.isDate(date, equalTo: now, toGranularity: .year) ? "MMMd" : "y")
+        return formatter.string(from: date)
+    }
+
     static func string(
         from date: Date,
         context: TemporalDisplayContext,

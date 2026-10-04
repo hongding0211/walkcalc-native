@@ -34,7 +34,7 @@ struct Pagination: Equatable {
     var total: Int
 }
 
-struct UserProfile: Identifiable, Hashable {
+struct UserProfile: Identifiable, Hashable, Codable {
     var id: String { uuid }
     var uuid: String
     var name: String
@@ -179,9 +179,44 @@ struct WalkRecord: Identifiable, Hashable {
     var currencyCode: String? = nil
 }
 
+struct GroupRecordFilters: Codable, Hashable {
+    var currencyCodes: Set<String> = []
+    var onlyRelatedToMe = false
+
+    var isActive: Bool { onlyRelatedToMe || !currencyCodes.isEmpty }
+    var currencySummary: String {
+        currencyCodes.isEmpty ? L("All currencies") : currencyCodes.sorted().joined(separator: ", ")
+    }
+    var summary: String {
+        [currencyCodes.isEmpty ? nil : currencySummary, onlyRelatedToMe ? L("Related to me") : nil]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+    func includesCurrency(_ code: String?) -> Bool {
+        currencyCodes.isEmpty || currencyCodes.contains(CurrencyCatalog.normalizedCode(code))
+    }
+}
+
 struct RecordSearchRequest: Encodable, Hashable {
     var `operator`: String
     var conditions: [RecordSearchCondition]
+    var currencyCodes: [String] = []
+    var participantId: String? = nil
+
+    private enum CodingKeys: String, CodingKey { case `operator`, conditions }
+
+    func matches(_ record: WalkRecord, defaultCurrency: String?) -> Bool {
+        guard currencyCodes.isEmpty || currencyCodes.contains(CurrencyCatalog.normalizedCode(record.currencyCode ?? defaultCurrency)) else { return false }
+        if let participantId, record.who != participantId && !record.forWhom.contains(participantId) { return false }
+        guard !conditions.isEmpty else { return true }
+        let matches = conditions.map { condition in
+            switch condition.field {
+            case "note": record.text.localizedCaseInsensitiveContains(condition.query)
+            case "categoryName": L(expenseCategory(for: record).titleKey).localizedCaseInsensitiveContains(condition.query)
+            default: false
+            }
+        }
+        return `operator` == "and" ? matches.allSatisfy { $0 } : matches.contains(true)
+    }
 
     static func noteOrCategoryName(query: String) -> RecordSearchRequest {
         RecordSearchRequest(

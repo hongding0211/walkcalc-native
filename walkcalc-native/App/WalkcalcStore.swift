@@ -106,6 +106,8 @@ final class WalkcalcStore: ObservableObject {
     private var ledgerRepository: LedgerRepository
     private let localOwnerId: String
     private let groupPageSize = 20
+    @Published private var recordFiltersByScope: [String: GroupRecordFilters] = [:]
+    private var recordCacheRevisions: [String: Int] = [:]
     private let recordPageSize = 10
     private var groupsPage = 0
     private var groupSearchQuery = ""
@@ -124,7 +126,7 @@ final class WalkcalcStore: ObservableObject {
     }
 
     var isLoggedIn: Bool {
-        token != nil && user != nil
+        token != nil
     }
 
     init(ledgerRepository: LedgerRepository? = nil, localOwnerId: String? = nil) {
@@ -136,6 +138,8 @@ final class WalkcalcStore: ObservableObject {
         token = UserDefaults.standard.string(forKey: "walkcalc.token")
         if token == nil {
             preferredLedgerSource = .local
+        } else if let data = UserDefaults.standard.data(forKey: "walkcalc.cachedUser") {
+            user = try? JSONDecoder().decode(UserProfile.self, from: data)
         }
         NotificationCenter.default.publisher(for: .walkcalcAPNsTokenDidChange)
             .compactMap { $0.object as? String }
@@ -173,17 +177,8 @@ final class WalkcalcStore: ObservableObject {
         async let homeBootstrap = bootstrapHomeIfNeeded(token: token)
         let signedInUser = await userProfile
         let homeBootstrapResult = await homeBootstrap
-        guard let signedInUser else {
-            resetLedgerState()
-            preferredLedgerSource = .local
-            _ = await refreshHome()
-            startupRoute = .authenticated
-            return
-        }
-        if homeBootstrapResult == .unrecoverableAuthFailure {
-            return
-        }
-        user = signedInUser
+        guard self.token != nil, homeBootstrapResult != .unrecoverableAuthFailure else { return }
+        if let signedInUser { cacheUser(signedInUser) }
         await registerPushDeviceIfPossible(reason: "app_open")
         startupRoute = .authenticated
     }
@@ -215,7 +210,7 @@ final class WalkcalcStore: ObservableObject {
             let response = try await api.userInfo(token: token)
             applyRefreshedToken(response)
             if response.success, let data = response.data {
-                user = data
+                cacheUser(data)
             } else {
                 recordFailure(operation: "foreground.userInfo", intent: .foregroundRefresh, disposition: .silent, response: response)
                 return
@@ -240,16 +235,11 @@ final class WalkcalcStore: ObservableObject {
             applyRefreshedToken(response)
             guard response.success, let data = response.data else {
                 recordFailure(operation: "profileDismiss.userInfo", intent: .foregroundRefresh, disposition: .silent, response: response)
-                logout()
                 return
             }
-            user = data
+            cacheUser(data)
         } catch {
-            if isUnrecoverableAuthFailure(error) {
-                logout()
-            } else {
-                recordFailure(operation: "profileDismiss.userInfo", intent: .foregroundRefresh, disposition: .silent, error: error)
-            }
+            recordFailure(operation: "profileDismiss.userInfo", intent: .foregroundRefresh, disposition: .silent, error: error)
         }
     }
 
@@ -299,6 +289,10 @@ final class WalkcalcStore: ObservableObject {
     }
 
     private func completeSignIn(token: String, prefetchedUser: UserProfile? = nil) async {
+        if self.token != token {
+            user = nil
+            UserDefaults.standard.removeObject(forKey: "walkcalc.cachedUser")
+        }
         self.token = token
         preferredLedgerSource = .remote
         UserDefaults.standard.set(token, forKey: "walkcalc.token")
@@ -310,16 +304,8 @@ final class WalkcalcStore: ObservableObject {
             resolvedUser = await fetchUser(token: token)
         }
 
-        guard let signedInUser = resolvedUser else {
-            self.token = nil
-            preferredLedgerSource = .local
-            UserDefaults.standard.removeObject(forKey: "walkcalc.token")
-            _ = await refreshHome()
-            startupRoute = .authenticated
-            return
-        }
-
-        user = signedInUser
+        guard self.token != nil else { return }
+        if let signedInUser = resolvedUser { cacheUser(signedInUser) }
         await registerPushDeviceIfPossible(reason: "sign_in")
         if await bootstrapHomeIfNeeded(token: token) == .unrecoverableAuthFailure {
             return
@@ -336,6 +322,7 @@ final class WalkcalcStore: ObservableObject {
         startupRoute = .authenticated
         NativeAuthSession.clearAuthCookies(baseURL: api.baseURL, webBaseURL: api.webBaseURL)
         UserDefaults.standard.removeObject(forKey: "walkcalc.token")
+        UserDefaults.standard.removeObject(forKey: "walkcalc.cachedUser")
         Task { @MainActor in
             _ = await refreshHome()
         }
@@ -365,7 +352,16 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func loadUser(token: String) async {
-        user = await fetchUser(token: token)
+        if let profile = await fetchUser(token: token), self.token != nil {
+            cacheUser(profile)
+        }
+    }
+
+    private func cacheUser(_ profile: UserProfile) {
+        user = profile
+        if let data = try? JSONEncoder().encode(profile) {
+            UserDefaults.standard.set(data, forKey: "walkcalc.cachedUser")
+        }
     }
 
     private func fetchUser(token: String) async -> UserProfile? {
@@ -375,7 +371,7 @@ final class WalkcalcStore: ObservableObject {
             if response.success, let data = response.data {
                 return data
             } else {
-                logout()
+                recordFailure(operation: "fetchUser", intent: .bootstrapAuth, disposition: .silent, response: response)
                 return nil
             }
         } catch {
@@ -718,6 +714,61 @@ final class WalkcalcStore: ObservableObject {
         )
     }
 
+    /// Use the same group-scoped projections as its Total Balance card.
+    /// No record scanning or cross-group currency history is needed.
+    func recentlyUsedCurrencyCodes(for groupId: String?, including selectedCode: String) -> Set<String> {
+        var codes: Set<String> = [CurrencyCatalog.normalizedCode(selectedCode)]
+        guard let groupId, let group = group(id: groupId) else { return codes }
+        codes.insert(CurrencyCatalog.normalizedCode(group.currencyCode))
+        let currentMember = group.allMembers.first { $0.uuid == currentParticipantID(for: group) }
+        let projections = group.hasCurrentUserBalanceSummary
+            ? group.currentUserCurrencyBalances
+            : currentMember?.currencyBalances ?? []
+        codes.formUnion(projections.map(\.currencyCode))
+        return codes
+    }
+
+    private func recordFilterPreferenceKey(_ groupId: String) -> String {
+        let owner = isLocalLedgerGroup(groupId) ? localOwner.uuid : user?.uuid ?? "anonymous"
+        return "walkcalc.recordFilters.\(owner).\(groupId)"
+    }
+
+    func recordFilters(for groupId: String) -> GroupRecordFilters {
+        let key = recordFilterPreferenceKey(groupId)
+        if let cached = recordFiltersByScope[key] { return cached }
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let filters = try? JSONDecoder().decode(GroupRecordFilters.self, from: data) else { return GroupRecordFilters() }
+        return filters
+    }
+
+    func setRecordFilters(_ filters: GroupRecordFilters, for groupId: String) {
+        guard filters != recordFilters(for: groupId) else { return }
+        let key = recordFilterPreferenceKey(groupId)
+        UserDefaults.standard.set(try? JSONEncoder().encode(filters), forKey: key)
+        recordFiltersByScope[key] = filters
+        groupContentRefreshTasks[groupId]?.cancel()
+        groupContentRefreshTasks[groupId] = nil
+        clearRecordCaches(for: groupId)
+        if !isFixtureMode {
+            recordsByGroup[groupId] = nil
+            recordTotals[groupId] = nil
+        }
+    }
+
+    func filteredCurrencyBalances(_ balances: [CurrencyBalanceSummary], groupId: String) -> [CurrencyBalanceSummary] {
+        let codes = recordFilters(for: groupId).currencyCodes
+        guard !codes.isEmpty else { return balances }
+        // A selected currency with no personal activity still has a labeled zero balance.
+        return codes.sorted().map { code in
+            balances.first { $0.currencyCode == code }
+                ?? CurrencyBalanceSummary(currencyCode: code, totalBalanceMinor: "0")
+        }
+    }
+
+    func visibleResolvedDebts(for group: WalkGroup) -> [ResolvedDebt] {
+        resolvedDebts(for: group).filter { recordFilters(for: group.id).includesCurrency($0.currencyCode) }
+    }
+
     func preloadGroupContent(_ id: String) {
         guard groupContentRefreshTasks[id] == nil else { return }
         groupContentRefreshTasks[id] = Task { [weak self] in
@@ -726,7 +777,7 @@ final class WalkcalcStore: ObservableObject {
             async let balancesRefresh: Void = refreshGroupBalances(id)
             async let settlementRefresh: Void = refreshSettlementSuggestion(groupId: id)
             _ = await (groupRefresh, balancesRefresh, settlementRefresh)
-            groupContentRefreshTasks[id] = nil
+            if !Task.isCancelled { groupContentRefreshTasks[id] = nil }
         }
     }
 
@@ -748,7 +799,9 @@ final class WalkcalcStore: ObservableObject {
         if isFixtureMode { return }
         guard api.ledgerAPIEnabled else { return }
         let context = context(for: id)
-        let result = await ledgerRepository.groupDetail(groupId: id, recordPageSize: recordPageSize, context: context)
+        let filters = recordFilters(for: id)
+        let result = await ledgerRepository.groupDetail(groupId: id, recordPageSize: recordPageSize, recordSearch: recordSearchRequest(for: "", groupId: id), context: context)
+        guard !Task.isCancelled, filters == recordFilters(for: id) else { return }
         switch result {
         case .success(let snapshot):
             applyRefreshedToken(snapshot.refreshedToken)
@@ -804,21 +857,20 @@ final class WalkcalcStore: ObservableObject {
             groupId: groupId,
             page: page,
             pageSize: recordPageSize,
-            search: recordSearchRequest(for: query),
+            search: recordSearchRequest(for: query, groupId: groupId),
             context: context(for: groupId)
         )
+        guard !Task.isCancelled, key == recordListKey(groupId: groupId, search: query) else { return }
         switch result {
         case .success(let page):
             applyRefreshedToken(page.refreshedToken)
             trackSource(page.source, forGroupId: groupId)
-            let localMatches = query.isEmpty ? [] : localSearchMatches(groupId: groupId, query: query)
             if query.isEmpty {
                 recordsByGroup[groupId] = current + page.items
                 recordTotals[groupId] = page.pagination?.total ?? total
             } else {
-                let merged = mergedRecords(current + page.items, with: localMatches)
-                recordSearchResultsByKey[key] = merged
-                recordSearchTotalsByKey[key] = max(page.pagination?.total ?? total, merged.count)
+                recordSearchResultsByKey[key] = current + page.items
+                recordSearchTotalsByKey[key] = page.pagination?.total ?? total
             }
         case .failure(let failure):
             recordFailure(operation: "loadMoreRecords", intent: .pagination, disposition: .silent, failure: failure)
@@ -828,12 +880,12 @@ final class WalkcalcStore: ObservableObject {
     func records(groupId: String, search: String = "") -> [WalkRecord] {
         let query = normalizedQuery(search)
         guard !query.isEmpty else {
-            return recordsByGroup[groupId] ?? []
+            return (recordsByGroup[groupId] ?? []).filter { recordSearchRequest(for: "", groupId: groupId)?.matches($0, defaultCurrency: group(id: groupId)?.currencyCode) ?? true }
         }
         let key = recordListKey(groupId: groupId, search: query)
         let localMatches = localSearchMatches(groupId: groupId, query: query)
         if let remote = recordSearchResultsByKey[key] {
-            return mergedRecords(remote, with: localMatches)
+            return remote
         }
         return localMatches
     }
@@ -854,12 +906,17 @@ final class WalkcalcStore: ObservableObject {
         return recordSearchResultsByKey[recordListKey(groupId: groupId, search: query)] != nil
     }
 
+    func searchRecordsIfNeeded(groupId: String, query: String) async {
+        guard !hasLoadedSearchRecords(groupId: groupId, search: query) else { return }
+        await searchRecords(groupId: groupId, query: query)
+    }
+
     func searchRecords(groupId: String, query rawQuery: String) async {
         let query = normalizedQuery(rawQuery)
         guard !query.isEmpty else { return }
         let key = recordListKey(groupId: groupId, search: query)
         if isFixtureMode {
-            let matches = (recordsByGroup[groupId] ?? []).filter { localRecordMatches($0, query: query) }
+            let matches = localSearchMatches(groupId: groupId, query: query)
             recordSearchResultsByKey[key] = matches
             recordSearchTotalsByKey[key] = matches.count
             return
@@ -872,16 +929,16 @@ final class WalkcalcStore: ObservableObject {
             groupId: groupId,
             page: 1,
             pageSize: recordPageSize,
-            search: recordSearchRequest(for: query),
+            search: recordSearchRequest(for: query, groupId: groupId),
             context: context(for: groupId)
         )
+        guard !Task.isCancelled, key == recordListKey(groupId: groupId, search: query) else { return }
         switch result {
         case .success(let page):
             applyRefreshedToken(page.refreshedToken)
             trackSource(page.source, forGroupId: groupId)
-            let merged = mergedRecords(page.items, with: localSearchMatches(groupId: groupId, query: query))
-            recordSearchResultsByKey[key] = merged
-            recordSearchTotalsByKey[key] = max(page.pagination?.total ?? page.items.count, merged.count)
+            recordSearchResultsByKey[key] = page.items
+            recordSearchTotalsByKey[key] = page.pagination?.total ?? page.items.count
         case .failure(let failure):
             recordFailure(operation: "searchRecords", intent: .secondaryLoad, disposition: .silent, failure: failure)
         }
@@ -908,6 +965,13 @@ final class WalkcalcStore: ObservableObject {
         memberRecords(groupId: groupId, memberId: memberId).count < memberRecordTotal(groupId: groupId, memberId: memberId)
     }
 
+    /// Navigation back to a member keeps every loaded page; mutations explicitly refresh.
+    func loadMemberRecordsIfNeeded(groupId: String, memberId: String) async {
+        let key = memberRecordKey(groupId: groupId, memberId: memberId)
+        guard memberRecordsByKey[key] == nil else { return }
+        await refreshMemberRecords(groupId: groupId, memberId: memberId)
+    }
+
     func refreshMemberRecords(groupId: String, memberId: String) async {
         let key = memberRecordKey(groupId: groupId, memberId: memberId)
         if isFixtureMode {
@@ -925,8 +989,10 @@ final class WalkcalcStore: ObservableObject {
             memberId: memberId,
             page: 1,
             pageSize: recordPageSize,
+            currencyCodes: recordFilters(for: groupId).currencyCodes.sorted(),
             context: context(for: groupId)
         )
+        guard !Task.isCancelled, key == memberRecordKey(groupId: groupId, memberId: memberId) else { return }
         switch result {
         case .success(let snapshot):
             applyRefreshedToken(snapshot.refreshedToken)
@@ -957,8 +1023,10 @@ final class WalkcalcStore: ObservableObject {
             memberId: memberId,
             page: page,
             pageSize: recordPageSize,
+            currencyCodes: recordFilters(for: groupId).currencyCodes.sorted(),
             context: context(for: groupId)
         )
+        guard !Task.isCancelled, key == memberRecordKey(groupId: groupId, memberId: memberId) else { return }
         switch result {
         case .success(let snapshot):
             applyRefreshedToken(snapshot.refreshedToken)
@@ -1062,6 +1130,12 @@ final class WalkcalcStore: ObservableObject {
             }
             _ = await refreshHome(search: groupSearchQuery)
             if let createdGroupId {
+                // A newly created group is empty before its first detail refresh.
+                // Preserve any records that may already have been loaded meanwhile.
+                if recordsByGroup[createdGroupId] == nil {
+                    recordsByGroup[createdGroupId] = []
+                    recordTotals[createdGroupId] = 0
+                }
                 return .success(createdGroupId: createdGroupId)
             }
             return .success
@@ -1557,7 +1631,7 @@ final class WalkcalcStore: ObservableObject {
 
     func personalResolvedDebts(for group: WalkGroup) -> [ResolvedDebt] {
         BalancePresentation.personalDebts(
-            resolvedDebts(for: group),
+            visibleResolvedDebts(for: group),
             participantID: currentParticipantID(for: group)
         )
     }
@@ -1761,6 +1835,7 @@ final class WalkcalcStore: ObservableObject {
     }
 
     private func clearRecordCaches(for groupId: String) {
+        recordCacheRevisions[groupId, default: 0] += 1
         recordSearchResultsByKey = recordSearchResultsByKey.filter { !$0.key.hasPrefix("\(groupId)::records::") }
         recordSearchTotalsByKey = recordSearchTotalsByKey.filter { !$0.key.hasPrefix("\(groupId)::records::") }
         memberRecordsByKey = memberRecordsByKey.filter { !$0.key.hasPrefix("\(groupId)::member::") }
@@ -1784,11 +1859,11 @@ final class WalkcalcStore: ObservableObject {
     }
 
     private func recordListKey(groupId: String, search: String) -> String {
-        "\(groupId)::records::\(search)"
+        "\(groupId)::records::\(recordCacheRevisions[groupId, default: 0])::\(recordFilters(for: groupId).currencyCodes.sorted().joined(separator: ","))::\(recordFilters(for: groupId).onlyRelatedToMe)::\(search)"
     }
 
     private func memberRecordKey(groupId: String, memberId: String) -> String {
-        "\(groupId)::member::\(memberId)"
+        "\(groupId)::member::\(recordCacheRevisions[groupId, default: 0])::\(memberId)::\(recordFilters(for: groupId).currencyCodes.sorted().joined(separator: ","))"
     }
 
     private func normalizedQuery(_ query: String?) -> String {
@@ -1799,12 +1874,21 @@ final class WalkcalcStore: ObservableObject {
         query.isEmpty ? nil : query
     }
 
-    private func recordSearchRequest(for query: String) -> RecordSearchRequest? {
-        query.isEmpty ? nil : .noteOrCategoryName(query: query)
+    private func recordSearchRequest(for query: String, groupId: String) -> RecordSearchRequest? {
+        let filters = recordFilters(for: groupId)
+        guard !query.isEmpty || filters.isActive else { return nil }
+        var request = query.isEmpty ? RecordSearchRequest(operator: "or", conditions: []) : .noteOrCategoryName(query: query)
+        request.currencyCodes = filters.currencyCodes.sorted()
+        if filters.onlyRelatedToMe {
+            request.participantId = group(id: groupId).flatMap { currentParticipantID(for: $0) }
+        }
+        return request
     }
 
     private func localSearchMatches(groupId: String, query: String) -> [WalkRecord] {
-        (recordsByGroup[groupId] ?? []).filter { localRecordMatches($0, query: query) }
+        (recordsByGroup[groupId] ?? []).filter {
+            recordSearchRequest(for: query, groupId: groupId)?.matches($0, defaultCurrency: group(id: groupId)?.currencyCode) ?? true
+        }
     }
 
     private func mergedRecords(_ primary: [WalkRecord], with secondary: [WalkRecord]) -> [WalkRecord] {
@@ -1944,18 +2028,19 @@ final class WalkcalcStore: ObservableObject {
         startupRoute = .authenticated
         NativeAuthSession.clearAuthCookies(baseURL: api.baseURL, webBaseURL: api.webBaseURL)
         UserDefaults.standard.removeObject(forKey: "walkcalc.token")
+        UserDefaults.standard.removeObject(forKey: "walkcalc.cachedUser")
         Task { @MainActor in
             _ = await refreshHome()
         }
     }
 
     private func isUnrecoverableAuthFailure<T>(_ response: APIEnvelope<T>) -> Bool {
-        response.failureKind == .authRefresh || response.statusCode == 401 || response.statusCode == 403
+        response.statusCode == 401 || response.statusCode == 403
     }
 
     private func isUnrecoverableAuthFailure(_ error: Error) -> Bool {
         guard let clientError = error as? APIClientError else { return false }
-        return clientError.kind == .authRefresh || clientError.statusCode == 401 || clientError.statusCode == 403
+        return clientError.statusCode == 401 || clientError.statusCode == 403
     }
 
     private func withLoadingResult(operation: String, _ action: () async throws -> StoreActionResult) async -> StoreActionResult {

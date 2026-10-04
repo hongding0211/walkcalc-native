@@ -6,8 +6,12 @@ enum LocalLedgerUIFlowVerification {
     static func assertAllCasesPass() async {
         await verifyNoTokenBootstrapUsesLocalHome()
         await verifyStoreLocalOperations()
+        await verifyMemberPaginationSurvivesNavigation()
+        await verifySearchPaginationSurvivesNavigation()
+        await verifyRecordFilters()
         await verifyStorePersistenceThroughSourceRecreation()
         await verifyRemoteOnlyOperationsAreGated()
+        NSLog("PASS: local ledger UI flow verification")
     }
 
     private static func verifyNoTokenBootstrapUsesLocalHome() async {
@@ -54,6 +58,8 @@ enum LocalLedgerUIFlowVerification {
         )
         expect(store.groups.count, equals: 1, prefix: "local-ui-home-count")
         let groupId = store.groups.first?.id ?? ""
+        expect(store.recordsByGroup[groupId]?.isEmpty, equals: Optional(true), prefix: "local-ui-created-group-immediately-empty")
+        expect(store.recordTotals[groupId], equals: Optional(0), prefix: "local-ui-created-group-empty-total")
         let preferenceKey = "walkcalc.recordCurrency.\(groupId)"
         UserDefaults.standard.removeObject(forKey: preferenceKey)
         defer { UserDefaults.standard.removeObject(forKey: preferenceKey) }
@@ -104,6 +110,168 @@ enum LocalLedgerUIFlowVerification {
         expect(await store.unarchiveGroupWithFeedback(groupId).success, equals: true, prefix: "local-ui-unarchive")
         expect(await store.deleteGroupWithFeedback(groupId).success, equals: true, prefix: "local-ui-delete-group")
         expect(store.groups.isEmpty, equals: true, prefix: "local-ui-group-deleted")
+    }
+
+    private static func verifyRecordFilters() async {
+        let source = expectNoThrow({ try SwiftDataLedgerDataSource.inMemory() }, prefix: "filter-source")
+        let repository = LedgerRepository(remoteSource: InMemoryLedgerDataSource(), localSource: source)
+        let store = WalkcalcStore(ledgerRepository: repository, localOwnerId: "filter-owner")
+        store.setPreferredLedgerSource(.local)
+        expect(await store.createGroupWithFeedback(name: "Filter trip", users: [], tempUsers: ["Guest"], currencyCode: "USD").success, equals: true, prefix: "filter-create")
+        let groupId = store.groups.first!.id
+        let owner = store.localOwner
+        let guest = store.groups.first!.tempUsers.first!.uuid
+        let context = LedgerSessionContext.local(owner: owner)
+        defer { UserDefaults.standard.removeObject(forKey: "walkcalc.recordFilters.\(owner.uuid).\(groupId)") }
+        for index in 0..<25 {
+            let result = await source.addRecord(groupId: groupId, who: index == 24 ? guest : owner.uuid,
+                paidMinor: "100", forWhom: index == 24 ? [guest] : [owner.uuid, guest], type: "food", text: "Dinner \(index)",
+                long: "", lat: "", occurredAt: 1_710_000_000_000 + Double(index), currencyCode: index < 12 ? "CNY" : "USD", context: context)
+            guard case .success = result else { fail("filter-seed") }
+        }
+        let selection = GroupRecordFilters(currencyCodes: ["USD"], onlyRelatedToMe: true)
+        store.setRecordFilters(selection, for: groupId)
+        await store.refreshGroup(groupId)
+        expect(store.records(groupId: groupId).count, equals: 10, prefix: "filter-first-page")
+        await store.loadMoreRecords(groupId: groupId)
+        expect(store.records(groupId: groupId).count, equals: 12, prefix: "filter-next-page")
+        expect(store.records(groupId: groupId).allSatisfy { $0.currencyCode == "USD" && $0.who == owner.uuid }, equals: true, prefix: "filter-all-rows")
+        expect(store.canLoadMoreRecords(groupId: groupId), equals: false, prefix: "filter-end")
+        await store.searchRecords(groupId: groupId, query: "Dinner")
+        expect(store.records(groupId: groupId, search: "Dinner").count, equals: 10, prefix: "filter-search-page")
+        await store.loadMoreRecords(groupId: groupId, search: "Dinner")
+        expect(store.records(groupId: groupId, search: "Dinner").count, equals: 12, prefix: "filter-search-end")
+        await store.refreshSettlementSuggestion(groupId: groupId)
+        let group = store.group(id: groupId)!
+        expect(store.personalResolvedDebts(for: group).map(\.currencyCode), equals: ["USD"], prefix: "filter-suggestions")
+        store.setRecordFilters(GroupRecordFilters(currencyCodes: ["USD"]), for: groupId)
+        expect(store.personalResolvedDebts(for: group).map(\.currencyCode), equals: ["USD"], prefix: "filter-personal-switch-does-not-affect-suggestions")
+        await store.refreshGroup(groupId)
+        await store.loadMoreRecords(groupId: groupId)
+        expect(store.records(groupId: groupId).count, equals: 13, prefix: "filter-includes-other-people")
+        await store.refreshMemberRecords(groupId: groupId, memberId: guest)
+        await store.loadMoreMemberRecords(groupId: groupId, memberId: guest)
+        expect(store.memberRecordTotal(groupId: groupId, memberId: guest), equals: 13, prefix: "filter-member-total")
+        expect(store.memberRecords(groupId: groupId, memberId: guest).allSatisfy { $0.currencyCode == "USD" }, equals: true, prefix: "filter-member-currency")
+        let recreated = WalkcalcStore(ledgerRepository: repository, localOwnerId: owner.uuid)
+        recreated.setPreferredLedgerSource(.local)
+        _ = await recreated.refreshHome()
+        expect(recreated.recordFilters(for: groupId), equals: GroupRecordFilters(currencyCodes: ["USD"]), prefix: "filter-persisted")
+        let otherOwner = WalkcalcStore(ledgerRepository: repository, localOwnerId: "other-filter-owner")
+        otherOwner.setPreferredLedgerSource(.local)
+        expect(otherOwner.recordFilters(for: groupId).isActive, equals: false, prefix: "filter-owner-isolation")
+        store.setRecordFilters(GroupRecordFilters(currencyCodes: ["EUR"]), for: groupId)
+        await store.refreshGroup(groupId)
+        expect(store.records(groupId: groupId).isEmpty, equals: true, prefix: "filter-empty")
+        expect(store.personalResolvedDebts(for: group).isEmpty, equals: true, prefix: "filter-empty-suggestions")
+        expect(store.filteredCurrencyBalances([], groupId: groupId), equals: [CurrencyBalanceSummary(currencyCode: "EUR", totalBalanceMinor: "0")], prefix: "filter-labeled-zero")
+        store.setRecordFilters(GroupRecordFilters(currencyCodes: ["USD", "CNY"]), for: groupId)
+        await store.refreshGroup(groupId)
+        await store.loadMoreRecords(groupId: groupId)
+        await store.loadMoreRecords(groupId: groupId)
+        expect(store.records(groupId: groupId).count, equals: 25, prefix: "filter-multiple-currencies")
+        store.setRecordFilters(GroupRecordFilters(), for: groupId)
+        await store.refreshGroup(groupId)
+        await store.loadMoreRecords(groupId: groupId)
+        await store.loadMoreRecords(groupId: groupId)
+        expect(store.records(groupId: groupId).count, equals: 25, prefix: "filter-clear")
+        NSLog("PASS: record filters verification")
+    }
+
+    private static func verifyMemberPaginationSurvivesNavigation() async {
+        let source = InMemoryLedgerDataSource()
+        let store = WalkcalcStore(
+            ledgerRepository: LedgerRepository(remoteSource: InMemoryLedgerDataSource(), localSource: source),
+            localOwnerId: "member-pagination-owner"
+        )
+        store.setPreferredLedgerSource(.local)
+        expect(await store.createGroupWithFeedback(name: "Pagination", users: [], tempUsers: []).success,
+               equals: true, prefix: "member-pagination-create")
+        let groupId = store.groups.first!.id
+        let memberId = store.localOwner.uuid
+        let context = LedgerSessionContext.local(owner: store.localOwner)
+        for index in 0..<25 {
+            let result = await source.addRecord(
+                groupId: groupId, who: memberId, paidMinor: "100", forWhom: [memberId],
+                type: "food", text: "Record \(index)", long: "", lat: "",
+                occurredAt: 1_710_000_000_000 + Double(index), currencyCode: "USD", context: context
+            )
+            guard case .success = result else { fail("member-pagination-seed") }
+        }
+
+        await store.loadMemberRecordsIfNeeded(groupId: groupId, memberId: memberId)
+        expect(store.memberRecords(groupId: groupId, memberId: memberId).count, equals: 10, prefix: "member-pagination-first-page")
+        await store.loadMoreMemberRecords(groupId: groupId, memberId: memberId)
+        let loadedRecords = store.memberRecords(groupId: groupId, memberId: memberId)
+        expect(loadedRecords.count, equals: 20, prefix: "member-pagination-second-page")
+
+        // SwiftUI reruns the screen task after returning from a record's detail.
+        await store.loadMemberRecordsIfNeeded(groupId: groupId, memberId: memberId)
+        expect(store.memberRecords(groupId: groupId, memberId: memberId), equals: loadedRecords, prefix: "member-pagination-return-preserves-records")
+        expect(store.memberRecordTotal(groupId: groupId, memberId: memberId), equals: 25, prefix: "member-pagination-return-preserves-total")
+        expect(store.canLoadMoreMemberRecords(groupId: groupId, memberId: memberId), equals: true, prefix: "member-pagination-return-can-continue")
+        await store.loadMoreMemberRecords(groupId: groupId, memberId: memberId)
+        let allRecords = store.memberRecords(groupId: groupId, memberId: memberId)
+        expect(allRecords.count, equals: 25, prefix: "member-pagination-final-page")
+        expect(Set(allRecords.map(\.recordId)).count, equals: 25, prefix: "member-pagination-no-duplicates")
+        await store.loadMemberRecordsIfNeeded(groupId: groupId, memberId: memberId)
+        expect(store.memberRecords(groupId: groupId, memberId: memberId), equals: allRecords, prefix: "member-pagination-return-at-end")
+        expect(store.canLoadMoreMemberRecords(groupId: groupId, memberId: memberId), equals: false, prefix: "member-pagination-complete")
+
+        // Explicit refreshes after a mutation must still replace stale records.
+        await store.refreshMemberRecords(groupId: groupId, memberId: memberId)
+        expect(store.memberRecords(groupId: groupId, memberId: memberId).count, equals: 10, prefix: "member-pagination-explicit-refresh")
+        NSLog("PASS: member pagination survives navigation and continues through all 25 records")
+    }
+
+    private static func verifySearchPaginationSurvivesNavigation() async {
+        let source = InMemoryLedgerDataSource()
+        let store = WalkcalcStore(
+            ledgerRepository: LedgerRepository(remoteSource: InMemoryLedgerDataSource(), localSource: source),
+            localOwnerId: "search-pagination-owner"
+        )
+        store.setPreferredLedgerSource(.local)
+        expect(await store.createGroupWithFeedback(name: "Search pagination", users: [], tempUsers: []).success,
+               equals: true, prefix: "search-pagination-create")
+        let groupId = store.groups.first!.id
+        let memberId = store.localOwner.uuid
+        let context = LedgerSessionContext.local(owner: store.localOwner)
+        for index in 0..<25 {
+            let result = await source.addRecord(
+                groupId: groupId, who: memberId, paidMinor: "100", forWhom: [memberId],
+                type: "food", text: "Dinner \(index)", long: "", lat: "",
+                occurredAt: 1_710_000_000_000 + Double(index), currencyCode: "USD", context: context
+            )
+            guard case .success = result else { fail("search-pagination-seed") }
+        }
+
+        await store.searchRecordsIfNeeded(groupId: groupId, query: "Dinner")
+        expect(store.records(groupId: groupId, search: "Dinner").count, equals: 10, prefix: "search-first-page")
+        await store.loadMoreRecords(groupId: groupId, search: "Dinner")
+        let loadedRecords = store.records(groupId: groupId, search: "Dinner")
+        expect(loadedRecords.count, equals: 20, prefix: "search-second-page")
+
+        // Reappearing tasks must not replace all loaded pages with page one.
+        await store.searchRecordsIfNeeded(groupId: groupId, query: " Dinner ")
+        expect(store.records(groupId: groupId, search: "Dinner"), equals: loadedRecords, prefix: "search-return-preserves-pages")
+        expect(store.canLoadMoreRecords(groupId: groupId, search: "Dinner"), equals: true, prefix: "search-return-can-continue")
+        await store.loadMoreRecords(groupId: groupId, search: "Dinner")
+        await store.searchRecordsIfNeeded(groupId: groupId, query: "Dinner")
+        let allRecords = store.records(groupId: groupId, search: "Dinner")
+        expect(allRecords.count, equals: 25, prefix: "search-return-preserves-last-page")
+        expect(Set(allRecords.map(\.recordId)).count, equals: 25, prefix: "search-no-duplicates")
+        expect(store.canLoadMoreRecords(groupId: groupId, search: "Dinner"), equals: false, prefix: "search-complete")
+
+        await store.searchRecordsIfNeeded(groupId: groupId, query: "No match")
+        expect(store.hasLoadedSearchRecords(groupId: groupId, search: "No match"), equals: true, prefix: "search-empty-cached")
+        expect(store.records(groupId: groupId, search: "No match").isEmpty, equals: true, prefix: "search-new-query")
+
+        // Refreshing after a ledger mutation invalidates the search cache.
+        await store.refreshGroup(groupId)
+        expect(store.hasLoadedSearchRecords(groupId: groupId, search: "Dinner"), equals: false, prefix: "search-refresh-invalidates")
+        await store.searchRecordsIfNeeded(groupId: groupId, query: "Dinner")
+        expect(store.records(groupId: groupId, search: "Dinner").count, equals: 10, prefix: "search-refresh-reloads")
+        NSLog("PASS: search pagination survives navigation and reloads after invalidation")
     }
 
     private static func verifyStorePersistenceThroughSourceRecreation() async {

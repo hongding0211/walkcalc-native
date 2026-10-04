@@ -1,6 +1,20 @@
 import SwiftUI
 import UIKit
 
+/// Keep navigation touches quiet while successful writes remain distinct.
+@MainActor
+enum SoftLedgerHaptics {
+    static func tap(emphasized: Bool = false) -> SensoryFeedback {
+        .impact(weight: .light, intensity: emphasized ? 0.85 : 0.65)
+    }
+
+    static let selection = SensoryFeedback.impact(weight: .light, intensity: 0.55)
+
+    static func success() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
 enum SoftLedgerTheme {
     static let canvas = SoftLedgerThemeConfig.neutral.canvas.color
     static let paper = SoftLedgerThemeConfig.neutral.paper.color
@@ -151,6 +165,28 @@ extension View {
 struct SoftLedgerBackground: View {
     var body: some View {
         SoftLedgerTheme.canvas.ignoresSafeArea()
+    }
+}
+
+/// Inline pagination row; its parent supplies the surrounding card and insets.
+struct LedgerPaginationLoadingView: View {
+    @ScaledMetric(relativeTo: .subheadline) private var iconSize = 30
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(SoftLedgerTheme.secondaryInk)
+                .frame(width: iconSize, height: iconSize)
+            Text(L("Loading"))
+                .font(.subheadline)
+                .foregroundStyle(SoftLedgerTheme.secondaryInk)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: rowMinHeight, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L("Loading"))
     }
 }
 

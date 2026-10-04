@@ -6,6 +6,7 @@ enum WalkcalcDebugFixture: String {
     case peopleSetup = "--ui-fixture-people-empty"
     case emptyBalance = "--ui-fixture-empty-balance"
     case stress = "--ui-fixture-stress"
+    case scroll = "--ui-fixture-scroll"
     case edge = "--ui-fixture-edge"
     case appStore = "--ui-fixture-appstore"
 
@@ -80,6 +81,27 @@ extension WalkcalcStore {
             recordTotals["empty-balance"] = 0
         case .stress:
             applyStressFixture()
+        case .scroll:
+            applyStressFixture()
+            groups = Array(groups.prefix(1))
+            groups[0].name = "Scroll verification"
+            let balances = ["CNY", "EUR", "USD"].enumerated().map { index, code in
+                MemberCurrencyProjection(currencyCode: code, debtMinor: "\((index + 1) * 100)",
+                    costMinor: "100", paidTotalMinor: "200", recordCount: 60,
+                    settlementInMinor: "0", settlementOutMinor: "0")
+            }
+            groups[0].hasCurrentUserBalanceSummary = true
+            groups[0].currentUserCurrencyBalances = balances
+            groups[0].currentUserRecordCount = 180
+            groups[0].membersInfo[0].currencyBalances = balances
+            let calendar = Calendar.autoupdatingCurrent
+            let today = calendar.startOfDay(for: Date())
+            recordsByGroup["stress-0"] = (recordsByGroup["stress-0"] ?? []).enumerated().map { index, record in
+                var record = record
+                let day = calendar.date(byAdding: .day, value: -(index / 6), to: today) ?? today
+                record.occurredAt = day.addingTimeInterval(Double(6 - index % 6) * 600).timeIntervalSince1970 * 1000
+                return record
+            }
         case .edge:
             applyEdgeFixture()
         case .appStore:

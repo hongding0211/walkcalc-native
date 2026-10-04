@@ -226,11 +226,15 @@ struct APIClient: Sendable {
             "page": "\(page)",
             "pageSize": "\(pageSize)"
         ]
-        if let recordSearch, let encodedSearch = encodedRecordSearch(recordSearch) {
+        if let recordSearch, !recordSearch.conditions.isEmpty, let encodedSearch = encodedRecordSearch(recordSearch) {
             query["search"] = encodedSearch
         } else if let search, !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             query["search"] = search
         }
+        if let codes = recordSearch?.currencyCodes, !codes.isEmpty {
+            query["currencyCodes"] = codes.joined(separator: ",")
+        }
+        if let participantId = recordSearch?.participantId { query["participantId"] = participantId }
         return try await request(.get, path: "/walkcalc/groups/\(groupCode)/records", query: query, token: token) { raw in
             arrayPayload(raw).map(mapRecord)
         }
@@ -367,21 +371,17 @@ struct APIClient: Sendable {
         var response = try await execute(method, path: path, query: query, token: token, body: body)
         var refreshedToken: String?
         if response.status == 401 || response.status == 403 {
-            do {
-                guard let nextToken = try await AuthRefreshCoordinator.shared.refresh({ try await refreshAccessToken() }) else {
-                    throw APIClientError(kind: .authRefresh, statusCode: response.status, message: nil)
-                }
-                refreshedToken = nextToken
-                response = try await execute(method, path: path, query: query, token: nextToken, body: body)
-                if response.status == 401 || response.status == 403 {
-                    throw APIClientError(kind: .authRefresh, statusCode: response.status, message: nil)
-                }
-            } catch let error as APIClientError {
-                if error.kind == .authRefresh {
-                    throw error
-                }
-                throw APIClientError(kind: .authRefresh, statusCode: response.status, message: error.message)
-            } catch {
+            // An expired access token can recover via refresh. A timeout or 5xx
+            // during that refresh says nothing about the refresh credential's validity.
+            guard NativeAuthSession.hasRefreshCredential(for: baseURL) else {
+                throw APIClientError(kind: .authRefresh, statusCode: response.status, message: nil)
+            }
+            guard let nextToken = try await AuthRefreshCoordinator.shared.refresh({ try await refreshAccessToken() }) else {
+                throw APIClientError(kind: .serverEnvelope, statusCode: nil, message: nil)
+            }
+            refreshedToken = nextToken
+            response = try await execute(method, path: path, query: query, token: nextToken, body: body)
+            if response.status == 401 || response.status == 403 {
                 throw APIClientError(kind: .authRefresh, statusCode: response.status, message: nil)
             }
         }
@@ -451,14 +451,22 @@ struct APIClient: Sendable {
         let body = NativeAuthSession.refreshToken(for: baseURL).map { ["refreshToken": $0] }
         let response = try await execute(.post, path: "/auth/refreshToken", query: [:], token: nil, body: body)
         guard response.status >= 200, response.status < 300 else {
-            return nil
+            throw APIClientError(
+                kind: response.status == 401 || response.status == 403 ? .authRefresh : .httpStatus,
+                statusCode: response.status,
+                message: nil
+            )
         }
         let envelope = response.raw as? [String: Any] ?? [:]
         let data = payload(from: envelope) as? [String: Any] ?? [:]
         if let refreshToken = data["refreshToken"] as? String, !refreshToken.isEmpty {
             NativeAuthSession.storeRefreshToken(refreshToken, for: baseURL)
         }
-        return data["accessToken"] as? String ?? data["token"] as? String
+        guard let token = data["accessToken"] as? String ?? data["token"] as? String,
+              !token.isEmpty else {
+            throw APIClientError(kind: .serverEnvelope, statusCode: response.status, message: nil)
+        }
+        return token
     }
 }
 

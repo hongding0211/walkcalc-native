@@ -76,12 +76,12 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         }
     }
 
-    func groupDetail(groupId: String, recordPageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
+    func groupDetail(groupId: String, recordPageSize: Int, recordSearch: RecordSearchRequest? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext) else { return .failure(.sourceUnavailable()) }
-            let records = sortedRecords(group.records)
+            let records = sortedRecords(group.records).filter { recordSearch?.matches(projectRecord($0), defaultCurrency: group.currencyCode) ?? true }
             let slice = pageSlice(records, page: 1, pageSize: recordPageSize)
             return .success(LedgerGroupSnapshot(
                 group: projectGroup(group),
@@ -113,9 +113,8 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext) else { return .failure(.sourceUnavailable()) }
-            let filtered = sortedRecords(group.records).filter { record in
-                guard let search else { return true }
-                return search.conditions.contains { conditionMatches(record: record, condition: $0) }
+            let filtered = sortedRecords(group.records).filter {
+                search?.matches(projectRecord($0), defaultCurrency: group.currencyCode) ?? true
             }
             let slice = pageSlice(filtered, page: page, pageSize: pageSize)
             return .success(LedgerPage(

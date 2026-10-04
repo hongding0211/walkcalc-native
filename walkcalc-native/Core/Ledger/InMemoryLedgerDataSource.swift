@@ -34,10 +34,10 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         return .success(LedgerPage(items: slice.items, pagination: Pagination(page: page, size: pageSize, total: filtered.count), source: .local(), refreshedToken: nil))
     }
 
-    func groupDetail(groupId: String, recordPageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
+    func groupDetail(groupId: String, recordPageSize: Int, recordSearch: RecordSearchRequest? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let group = group(id: groupId) else { return .failure(.sourceUnavailable()) }
-        let records = recordsByGroup[groupId] ?? []
+        let records = (recordsByGroup[groupId] ?? []).filter { recordSearch?.matches($0, defaultCurrency: group.currencyCode) ?? true }
         let slice = pageSlice(records, page: 1, pageSize: recordPageSize)
         return .success(LedgerGroupSnapshot(
             group: group,
@@ -56,11 +56,8 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
 
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
-        let filtered = (recordsByGroup[groupId] ?? []).filter { record in
-            guard let search else { return true }
-            return search.conditions.contains { condition in
-                conditionMatches(record: record, condition: condition)
-            }
+        let filtered = (recordsByGroup[groupId] ?? []).filter {
+            search?.matches($0, defaultCurrency: group(id: groupId)?.currencyCode) ?? true
         }
         let slice = pageSlice(filtered, page: page, pageSize: pageSize)
         return .success(LedgerPage(items: slice.items, pagination: Pagination(page: page, size: pageSize, total: filtered.count), source: .local(id: groupId), refreshedToken: nil))
