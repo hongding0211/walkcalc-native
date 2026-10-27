@@ -110,7 +110,7 @@ struct GroupDetailView: View {
             }
 
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
-            ToolbarSpacer(placement: .bottomBar)
+            ToolbarSpacer(.fixed, placement: .bottomBar)
 
             ToolbarItem(placement: .bottomBar) {
                 Button {
@@ -531,7 +531,7 @@ Adding an expense is a high-frequency content action. It should remain visible, 
 - Use the iOS 26 native bottom toolbar pattern.
 - Put the system search field on the leading side of the bottom toolbar; Duo adapts it into the vertical bar.
 - Put add expense on the right as a separate toolbar item.
-- Use `ToolbarSpacer(placement: .bottomBar)` between them so the system lays them out as two distinct controls.
+- Use `ToolbarSpacer(.fixed, placement: .bottomBar)` between search and compose so they remain distinct controls with native fixed spacing. Let the system size the search field; do not insert flexible space between these adjacent actions or set a custom field width.
 - Do not draw a custom floating `+` button over the content.
 - Do not build a custom bottom glass bar for this page.
 
@@ -567,7 +567,7 @@ Run `python3 scripts/verify-ledger-repository.py` on an Apple silicon Mac with X
 
 .toolbar {
     DefaultToolbarItem(kind: .search, placement: .bottomBar)
-    ToolbarSpacer(placement: .bottomBar)
+    ToolbarSpacer(.fixed, placement: .bottomBar)
 
     ToolbarItem(placement: .bottomBar) {
         Button {

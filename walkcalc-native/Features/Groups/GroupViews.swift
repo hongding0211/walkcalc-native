@@ -189,7 +189,7 @@ struct GroupView: View {
             }
 
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
-            ToolbarSpacer(placement: .bottomBar)
+            ToolbarSpacer(.fixed, placement: .bottomBar)
 
             ToolbarItem(placement: .bottomBar) {
                 Button {
