@@ -40,13 +40,17 @@ struct GroupView: View {
     let groupId: String
     @State private var activeSheet: GroupSheet? = Self.initialSheet()
     @State private var isSearchPresented = false
-    @State private var isSystemSearchPresented = false
-    @State private var ignoredSearchText = ""
+    @State private var searchText = ""
+    @FocusState private var isSearchFocused: Bool
+    @State private var submittedSearchText = ""
+    @State private var searchRevision = 0
     @State private var deleteCandidate: WalkRecord?
     @State private var isDeletingRecord = false
     @State private var hasCompletedInitialLoad = false
     @State private var isRefreshingRecords = false
     @State private var scrollTitle = ExpenseScrollTitleState()
+    @State private var scrollPosition = ScrollPosition(edge: .top)
+    @State private var needsSearchScrollToTop = false
 
     private static func initialSheet() -> GroupSheet? {
         #if DEBUG
@@ -68,19 +72,29 @@ struct GroupView: View {
         #if DEBUG
         if ExpenseScrollTitleVerification.isEnabled { ExpenseScrollTitleVerification.recordReads += 1 }
         #endif
-        return store.records(groupId: groupId)
+        return store.records(groupId: groupId, search: submittedSearchText)
     }
 
     private var filters: GroupRecordFilters { store.recordFilters(for: groupId) }
 
     private var hasLoadedRecords: Bool {
-        store.recordsByGroup[groupId] != nil
+        submittedSearchText.isEmpty
+            ? store.recordsByGroup[groupId] != nil
+            : store.hasLoadedSearchRecords(groupId: groupId, search: submittedSearchText)
+    }
+
+    private struct RecordQuery: Equatable {
+        let text: String
+        let filters: GroupRecordFilters
+        let revision: Int
+    }
+
+    private var recordQuery: RecordQuery {
+        RecordQuery(text: submittedSearchText, filters: filters, revision: searchRevision)
     }
 
     private var isBalanceAnimationEnabled: Bool {
         (activeSheet == nil || activeSheet?.keepsTopBalanceVisible == true)
-            && !isSearchPresented
-            && !isSystemSearchPresented
             && deleteCandidate == nil
             && !isDeletingRecord
     }
@@ -95,7 +109,7 @@ struct GroupView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     if let group {
-                        if hasLoadedRecords && records.isEmpty && !filters.isActive {
+                        if hasLoadedRecords && records.isEmpty && !filters.isActive && submittedSearchText.isEmpty && !isRefreshingRecords {
                             GroupRecordsEmptyState()
                         } else {
                             // The group list already supplies this summary; record
@@ -110,16 +124,23 @@ struct GroupView: View {
                             .id(ExpenseScrollTarget.balances)
                             if isRefreshingRecords || (!hasLoadedRecords && !hasCompletedInitialLoad) {
                                 GroupRecordsLoadingSection()
+                            } else if hasLoadedRecords && records.isEmpty {
+                                Text(L("No matching records"))
+                                    .font(.headline.weight(.semibold))
+                                    .foregroundStyle(SoftLedgerTheme.ink)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .accessibilityAddTraits(.isHeader)
                             } else if hasLoadedRecords {
                                 GroupExpensesSection(
                                     group: group,
                                     records: records,
-                                    isLoadingMore: store.isLoadingRecords(groupId: group.id),
+                                    isLoadingMore: store.isLoadingRecords(groupId: group.id, search: submittedSearchText),
                                     onDelete: { record in
                                         guard store.canMutateRecord(record, in: group) else { return }
                                         deleteCandidate = record
                                     },
                                     onEdit: { record in
+                                        isSearchFocused = false
                                         activeSheet = .editExpense(record)
                                     },
                                     scrollTitle: scrollTitle
@@ -141,6 +162,8 @@ struct GroupView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 34)
             }
+            .scrollPosition($scrollPosition)
+            .scrollDismissesKeyboard(.interactively)
             .modifier(ExpenseScrollTracking(state: scrollTitle))
             .refreshable { await refreshGroupContent() }
             .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -148,35 +171,21 @@ struct GroupView: View {
                 let triggerY = max(0, geometry.contentSize.height - 160)
                 return visibleBottom >= triggerY
             } action: { _, isNearBottom in
-                guard isNearBottom, let group else { return }
-                guard store.canLoadMoreRecords(groupId: group.id), !store.isLoadingRecords(groupId: group.id) else { return }
-                Task { await store.loadMoreRecords(groupId: group.id) }
+                guard !isRefreshingRecords, isNearBottom, let group else { return }
+                guard store.canLoadMoreRecords(groupId: group.id, search: submittedSearchText), !store.isLoadingRecords(groupId: group.id, search: submittedSearchText) else { return }
+                let query = submittedSearchText
+                Task { await store.loadMoreRecords(groupId: group.id, search: query) }
             }
+
         }
         .modifier(ExpenseNavigationTitle(groupName: group?.name ?? L("Group"), state: scrollTitle))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                GroupRecordFilterToolbar(
-                    groupId: groupId,
-                    filters: filters,
-                    currencyCodes: filterCurrencyCodes,
-                    theme: appTheme,
-                    onRelatedChange: { value in
-                        updateRecordFilters { $0.onlyRelatedToMe = value }
-                    },
-                    onCurrencyChange: { codes in
-                        updateRecordFilters { $0.currencyCodes = codes }
-                    }
-                )
-                .equatable()
-                Button {
-                    activeSheet = .groupSettings
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .foregroundStyle(.primary)
-                }
-                .accessibilityLabel(L("Group settings"))
+            if #available(iOS 27.1, *) {
+                // Custom UIKit controls otherwise remain horizontal on Duo.
+                groupActions.axisBehavior(.verticalPreferred)
+            } else {
+                groupActions
             }
 
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
@@ -191,33 +200,72 @@ struct GroupView: View {
                 .accessibilityLabel(L("Add expense"))
             }
         }
-        .searchable(text: $ignoredSearchText, isPresented: $isSystemSearchPresented, placement: .toolbar, prompt: L("Search records"))
+        .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: L("Search records"))
+        .searchFocused($isSearchFocused)
         .searchPresentationToolbarBehavior(.avoidHidingContent)
-        .onChange(of: isSystemSearchPresented) { _, isPresented in
-            guard isPresented else { return }
-            ignoredSearchText = ""
-            isSystemSearchPresented = false
-            isSearchPresented = true
+        .onSubmit(of: .search) {
+            submittedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            searchRevision += 1
+            needsSearchScrollToTop = true
+            isRefreshingRecords = true
+            isSearchFocused = false
+        }
+        .onChange(of: searchText) { _, text in
+            // The native clear button removes only the keyword condition.
+            if text.isEmpty { clearSubmittedSearch() }
+        }
+        .onChange(of: isSearchPresented) { _, presented in
+            if !presented {
+                searchText = ""
+                clearSubmittedSearch()
+            }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
-        .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate, isDeleting: $isDeletingRecord)
-        .task(id: filters) { await refreshGroupContent() }
+        .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate, isDeleting: $isDeletingRecord) { _ in
+            if !submittedSearchText.isEmpty { searchRevision += 1 }
+        }
+        .task(id: recordQuery) { await refreshGroupContent() }
+        .onChange(of: activeSheet?.id) { previous, current in
+            if previous != nil, current == nil, !submittedSearchText.isEmpty,
+               !store.hasLoadedSearchRecords(groupId: groupId, search: submittedSearchText) {
+                searchRevision += 1
+            }
+        }
         .onChange(of: records.isEmpty) { _, isEmpty in
             if isEmpty { scrollTitle.reset() }
-        }
-        .sheet(isPresented: $isSearchPresented) {
-            if let group {
-                NavigationStack {
-                    RecordSearchCanvas(group: group)
-                }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-            }
         }
         .sheet(item: $activeSheet) { sheet in
             GroupSheetView(groupId: groupId, sheet: sheet, activeSheet: $activeSheet) {
                 dismiss()
             }
+        }
+    }
+
+    private var groupActions: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            GroupRecordFilterToolbar(
+                groupId: groupId,
+                filters: filters,
+                currencyCodes: filterCurrencyCodes,
+                theme: appTheme,
+                onRelatedChange: { value in
+                    updateRecordFilters { $0.onlyRelatedToMe = value }
+                },
+                onCurrencyChange: { codes in
+                    updateRecordFilters { $0.currencyCodes = codes }
+                },
+                onCategoryChange: { ids in
+                    updateRecordFilters { $0.categoryIds = ids }
+                }
+            )
+            .equatable()
+            Button {
+                activeSheet = .groupSettings
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundStyle(.primary)
+            }
+            .accessibilityLabel(L("Group settings"))
         }
     }
 
@@ -260,15 +308,27 @@ struct GroupView: View {
         .padding(.vertical, 24)
     }
 
+    private func clearSubmittedSearch() {
+        guard !submittedSearchText.isEmpty else { return }
+        submittedSearchText = ""
+        needsSearchScrollToTop = true
+        isRefreshingRecords = true
+    }
+
     private func refreshGroupContent() async {
-        if !hasLoadedRecords {
-            hasCompletedInitialLoad = false
-            isRefreshingRecords = true
-        }
-        await store.refreshGroupContent(groupId)
-        guard !Task.isCancelled else { return }
+        let request = recordQuery
+        isRefreshingRecords = true
+        if !hasLoadedRecords { hasCompletedInitialLoad = false }
+        await store.refreshGroupContent(groupId, search: request.text)
+        guard !Task.isCancelled, request == recordQuery else { return }
         isRefreshingRecords = false
         hasCompletedInitialLoad = true
+        // Reset only after the current query finishes; pagination never enters here.
+        if needsSearchScrollToTop || !request.text.isEmpty {
+            needsSearchScrollToTop = false
+            scrollTitle.reset()
+            scrollPosition.scrollTo(edge: .top)
+        }
     }
 }
 
@@ -286,198 +346,6 @@ private struct GroupRecordsLoadingSection: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
-    }
-}
-
-private struct RecordSearchCanvas: View {
-    @EnvironmentObject private var store: WalkcalcStore
-    @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
-    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
-    @FocusState private var isSearchFocused: Bool
-    @State private var query = ""
-    @State private var selectedRecord: WalkRecord?
-    @State private var deleteCandidate: WalkRecord?
-    @State private var isPreparingSearch = false
-    @State private var hasFocusedSearch = false
-
-    let group: WalkGroup
-
-    private var trimmedQuery: String {
-        query.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var records: [WalkRecord] {
-        guard !trimmedQuery.isEmpty else { return [] }
-        return store.records(groupId: group.id, search: trimmedQuery)
-    }
-
-    private var isSearching: Bool {
-        !trimmedQuery.isEmpty && (isPreparingSearch || store.isLoadingRecords(groupId: group.id, search: trimmedQuery))
-    }
-
-    private var hasLoadedSearch: Bool {
-        store.hasLoadedSearchRecords(groupId: group.id, search: trimmedQuery)
-    }
-
-    private var canLoadMoreSearch: Bool {
-        store.canLoadMoreRecords(groupId: group.id, search: trimmedQuery)
-    }
-
-    var body: some View {
-        ZStack {
-            SoftLedgerBackground()
-
-            VStack(alignment: .leading, spacing: 14) {
-                searchField
-                if !trimmedQuery.isEmpty {
-                    resultList
-                } else {
-                    Spacer(minLength: 0)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 24)
-        }
-        .navigationTitle(L("Search records"))
-        .navigationBarTitleDisplayMode(.inline)
-        .softLedgerDismissesKeyboardOnBackgroundTap(isActive: isSearchFocused) {
-            isSearchFocused = false
-        }
-        .navigationDestination(item: $selectedRecord) { record in
-            RecordEditorView(groupId: group.id, record: record) {}
-        }
-        .recordDeleteConfirmation(groupId: group.id, record: $deleteCandidate) { deletedRecord in
-            if selectedRecord?.recordId == deletedRecord.recordId {
-                selectedRecord = nil
-            }
-        }
-        .task {
-            guard !hasFocusedSearch else { return }
-            hasFocusedSearch = true
-            isSearchFocused = true
-        }
-        .task(id: trimmedQuery) {
-            let query = trimmedQuery
-            // Returning from a record must keep the loaded pages and scroll position.
-            guard !query.isEmpty, !hasLoadedSearch else {
-                isPreparingSearch = false
-                return
-            }
-            isPreparingSearch = true
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            if Task.isCancelled { return }
-            await store.searchRecordsIfNeeded(groupId: group.id, query: query)
-            isPreparingSearch = false
-        }
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-
-            TextField(L("Search notes and categories"), text: $query)
-                .focused($isSearchFocused)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-                .softLedgerAccentTint()
-                .submitLabel(.search)
-
-            if !query.isEmpty {
-                Button {
-                    query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(SoftLedgerTheme.mutedInk)
-                }
-                .accessibilityLabel(L("Clear search"))
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 42)
-        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(SoftLedgerTheme.rule.opacity(0.68), lineWidth: 1)
-        }
-    }
-
-    private var resultList: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                if records.isEmpty && isSearching {
-                    searchingRow
-                        .padding(.horizontal, rowHorizontalPadding)
-                } else if records.isEmpty && !isSearching && hasLoadedSearch {
-                    Text(L("No matching records"))
-                        .font(.subheadline)
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                        .padding(.horizontal, rowHorizontalPadding)
-                } else {
-                    ForEach(records) { record in
-                        ExpenseRow(
-                            record: record,
-                            group: group,
-                            onDelete: store.canMutateRecord(record, in: group) ? {
-                                deleteCandidate = record
-                            } : nil
-                        ) {
-                            isSearchFocused = false
-                            selectedRecord = record
-                        }
-
-                        if record.id != records.last?.id {
-                            Divider()
-                                .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
-                                .padding(.trailing, rowHorizontalPadding)
-                        }
-                    }
-
-                    if isSearching {
-                        if !records.isEmpty {
-                            Divider()
-                                .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
-                                .padding(.trailing, rowHorizontalPadding)
-                        }
-                        searchingRow
-                            .padding(.horizontal, rowHorizontalPadding)
-                    }
-                }
-            }
-            .padding(.vertical, 4)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-            }
-        }
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
-            let triggerY = max(0, geometry.contentSize.height - 160)
-            return visibleBottom >= triggerY
-        } action: { _, isNearBottom in
-            guard isNearBottom, !trimmedQuery.isEmpty else { return }
-            guard canLoadMoreSearch, !store.isLoadingRecords(groupId: group.id, search: trimmedQuery) else { return }
-            Task { await store.loadMoreRecords(groupId: group.id, search: trimmedQuery) }
-        }
-    }
-
-    private var searchingRow: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-                .softLedgerProgressTint()
-            Text(L("Searching records..."))
-                .font(.subheadline)
-                .foregroundStyle(SoftLedgerTheme.secondaryInk)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
     }
 }
 

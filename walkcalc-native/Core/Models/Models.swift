@@ -182,13 +182,33 @@ struct WalkRecord: Identifiable, Hashable {
 struct GroupRecordFilters: Codable, Hashable {
     var currencyCodes: Set<String> = []
     var onlyRelatedToMe = false
+    var categoryIds: Set<String> = []
 
-    var isActive: Bool { onlyRelatedToMe || !currencyCodes.isEmpty }
+    init(currencyCodes: Set<String> = [], onlyRelatedToMe: Bool = false, categoryIds: Set<String> = []) {
+        self.currencyCodes = currencyCodes
+        self.onlyRelatedToMe = onlyRelatedToMe
+        self.categoryIds = categoryIds
+    }
+
+    private enum CodingKeys: String, CodingKey { case currencyCodes, onlyRelatedToMe, categoryIds }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        currencyCodes = try values.decodeIfPresent(Set<String>.self, forKey: .currencyCodes) ?? []
+        onlyRelatedToMe = try values.decodeIfPresent(Bool.self, forKey: .onlyRelatedToMe) ?? false
+        categoryIds = try values.decodeIfPresent(Set<String>.self, forKey: .categoryIds) ?? []
+    }
+
+    var isActive: Bool { onlyRelatedToMe || !currencyCodes.isEmpty || !categoryIds.isEmpty }
     var currencySummary: String {
         currencyCodes.isEmpty ? L("All currencies") : currencyCodes.sorted().joined(separator: ", ")
     }
+    var categorySummary: String {
+        categoryIds.isEmpty ? L("All categories") : expenseCategories.filter { categoryIds.contains($0.id) }.map { L($0.titleKey) }.joined(separator: ", ")
+    }
     var summary: String {
-        [currencyCodes.isEmpty ? nil : currencySummary, onlyRelatedToMe ? L("Related to me") : nil]
+        [currencyCodes.isEmpty ? nil : currencySummary, onlyRelatedToMe ? L("Related to me") : nil,
+         categoryIds.isEmpty ? nil : categorySummary]
             .compactMap { $0 }.joined(separator: " · ")
     }
     func includesCurrency(_ code: String?) -> Bool {
@@ -201,12 +221,17 @@ struct RecordSearchRequest: Encodable, Hashable {
     var conditions: [RecordSearchCondition]
     var currencyCodes: [String] = []
     var participantId: String? = nil
+    var categoryIds: [String] = []
+    var includeSettlements = false
 
     private enum CodingKeys: String, CodingKey { case `operator`, conditions }
 
     func matches(_ record: WalkRecord, defaultCurrency: String?) -> Bool {
         guard currencyCodes.isEmpty || currencyCodes.contains(CurrencyCatalog.normalizedCode(record.currencyCode ?? defaultCurrency)) else { return false }
         if let participantId, record.who != participantId && !record.forWhom.contains(participantId) { return false }
+        if !categoryIds.isEmpty || includeSettlements {
+            guard categoryIds.contains(record.type) || (includeSettlements && record.isDebtResolve) else { return false }
+        }
         guard !conditions.isEmpty else { return true }
         let matches = conditions.map { condition in
             switch condition.field {

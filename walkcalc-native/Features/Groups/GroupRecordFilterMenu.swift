@@ -8,6 +8,7 @@ struct GroupRecordFilterToolbar: View, Equatable {
     let theme: AppTheme
     let onRelatedChange: (Bool) -> Void
     let onCurrencyChange: (Set<String>) -> Void
+    let onCategoryChange: (Set<String>) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.groupId == rhs.groupId && lhs.filters == rhs.filters
@@ -31,13 +32,10 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
         button.preferredMenuElementOrder = .fixed
         button.accessibilityLabel = L("Filters")
         context.coordinator.button = button
-        button.onMenuClosed = { [weak coordinator = context.coordinator] in
-            coordinator?.prepareMenu()
-        }
         button.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak coordinator = context.coordinator] (_: GroupFilterButton, _: UITraitCollection) in
             coordinator?.updateAppearance()
         }
-        context.coordinator.prepareMenu()
+        context.coordinator.installMenu()
         context.coordinator.updateAppearance()
         return button
     }
@@ -51,6 +49,8 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
         weak var button: GroupFilterButton?
         private let currencyMenuID = UIMenu.Identifier("group-filter-currency")
         private let allCurrenciesActionID = UIAction.Identifier("group-filter-currency-all")
+        private let categoryMenuID = UIMenu.Identifier("group-filter-category")
+        private let allCategoriesActionID = UIAction.Identifier("group-filter-category-all")
         private let allActionID = UIAction.Identifier("group-filter-all")
         private let relatedActionID = UIAction.Identifier("group-filter-related")
 
@@ -61,6 +61,13 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
             guard !codes.isEmpty else { return L("All currencies") }
             let visible = codes.prefix(2).joined(separator: ", ")
             return codes.count > 2 ? "\(visible), … +\(codes.count - 2)" : visible
+        }
+
+        private var categorySubtitle: String {
+            let names = expenseCategories.filter { value.filters.categoryIds.contains($0.id) }.map { L($0.titleKey) }
+            guard !names.isEmpty else { return L("All categories") }
+            let visible = names.prefix(2).joined(separator: ", ")
+            return names.count > 2 ? "\(visible), … +\(names.count - 2)" : visible
         }
 
         func update(_ next: GroupRecordFilterToolbar) {
@@ -74,7 +81,16 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
             if appearanceChanged { updateAppearance() }
         }
 
-        func prepareMenu() {
+        func installMenu() {
+            // Install the root once. Replacing UIButton.menu during dismissal
+            // or a rapid reopen can dismiss the next presentation as well.
+            let items = UIDeferredMenuElement.uncached { [weak self] completion in
+                completion(self?.menuItems() ?? [])
+            }
+            button?.menu = UIMenu(identifier: UIMenu.Identifier("group-record-filters"), children: [items])
+        }
+
+        func menuItems() -> [UIMenuElement] {
             // One scope is always selected so UIKit keeps its native checkmark column.
             let all = UIAction(
                 title: L("All"),
@@ -126,15 +142,47 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
                 identifier: currencyMenuID, children: [allCurrencies] + currencies
             )
             currencyMenu.subtitle = subtitle
-            button?.menu = UIMenu(identifier: UIMenu.Identifier("group-record-filters"), children: [all, related, currencyMenu])
+            let allCategories = UIAction(
+                title: L("All"), identifier: allCategoriesActionID,
+                attributes: .keepsMenuPresented,
+                state: value.filters.categoryIds.isEmpty ? .on : .off
+            ) { [weak self] _ in
+                guard let self else { return }
+                value = replacingFilters { $0.categoryIds = [] }
+                updateMenu()
+                updateAppearance()
+                value.onCategoryChange([])
+            }
+            let categories = expenseCategories.map { category in
+                UIAction(
+                    title: L(category.titleKey), image: UIImage(systemName: category.symbol),
+                    identifier: UIAction.Identifier("group-filter-category-\(category.id)"),
+                    attributes: .keepsMenuPresented,
+                    state: value.filters.categoryIds.contains(category.id) ? .on : .off
+                ) { [weak self] _ in
+                    guard let self else { return }
+                    value = replacingFilters {
+                        if $0.categoryIds.contains(category.id) { $0.categoryIds.remove(category.id) }
+                        else { $0.categoryIds.insert(category.id) }
+                    }
+                    updateMenu()
+                    updateAppearance()
+                    value.onCategoryChange(value.filters.categoryIds)
+                }
+            }
+            let categoryMenu = UIMenu(
+                title: L("Category"), image: UIImage(systemName: "tag"),
+                identifier: categoryMenuID, children: [allCategories] + categories
+            )
+            categoryMenu.subtitle = categorySubtitle
+            return [all, related, currencyMenu, categoryMenu]
         }
 
         private func selectRelatedScope(_ selected: Bool) {
             value = replacingFilters { $0.onlyRelatedToMe = selected }
-            // Synchronize the next presentation before publishing the filter.
-            // A quick reopen must not depend on the dismissal completion, and
-            // the subsequent SwiftUI update already matches this local value.
-            prepareMenu()
+            // The uncached provider reads this value on the next open, even
+            // before the previous dismissal or network refresh has completed.
+            updateMenu()
             updateAppearance()
             value.onRelatedChange(selected)
         }
@@ -144,21 +192,21 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
             update(&filters)
             return GroupRecordFilterToolbar(
                 groupId: value.groupId, filters: filters, currencyCodes: value.currencyCodes,
-                theme: value.theme, onRelatedChange: value.onRelatedChange, onCurrencyChange: value.onCurrencyChange
+                theme: value.theme, onRelatedChange: value.onRelatedChange, onCurrencyChange: value.onCurrencyChange,
+                onCategoryChange: value.onCategoryChange
             )
         }
 
         private func updateMenu() {
             button?.accessibilityValue = value.filters.summary
-            guard let button, button.isMenuPresented else {
-                prepareMenu()
-                return
-            }
+            guard let button, button.isMenuPresented else { return }
+            let presentation = button.menuPresentation
             // Preserve the displayed menu's identity and unchanged subtitle.
             // UIKit supplies a mutable copy of each visible submenu here.
             // Apply after UIKit finishes dispatching the selected action.
             DispatchQueue.main.async { [weak self, weak button] in
-                guard let self, let button, button.isMenuPresented else { return }
+                guard let self, let button, button.isMenuPresented,
+                      button.menuPresentation == presentation else { return }
                 UIView.performWithoutAnimation {
                     button.contextMenuInteraction?.updateVisibleMenu { [self] menu in
                         self.updatedMenu(menu)
@@ -180,8 +228,12 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
                     selected = value.filters.onlyRelatedToMe
                 } else if action.identifier == allCurrenciesActionID {
                     selected = value.filters.currencyCodes.isEmpty
+                } else if action.identifier == allCategoriesActionID {
+                    selected = value.filters.categoryIds.isEmpty
                 } else {
-                    selected = value.filters.currencyCodes.contains {
+                    selected = value.filters.categoryIds.contains {
+                        action.identifier == UIAction.Identifier("group-filter-category-\($0)")
+                    } || value.filters.currencyCodes.contains {
                         action.identifier == UIAction.Identifier("group-filter-currency-\($0)")
                     }
                 }
@@ -192,10 +244,12 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
                 return updated
             }
             let changedChildren = zip(menu.children, children).contains { $0 !== $1 }
-            let changedSubtitle = menu.identifier == currencyMenuID && menu.subtitle != subtitle
+            let nextSubtitle = menu.identifier == currencyMenuID ? subtitle
+                : menu.identifier == categoryMenuID ? categorySubtitle : menu.subtitle
+            let changedSubtitle = menu.subtitle != nextSubtitle
             guard changedChildren || changedSubtitle else { return menu }
             let updated = menu.replacingChildren(children)
-            if changedSubtitle { updated.subtitle = subtitle }
+            if changedSubtitle { updated.subtitle = nextSubtitle }
             return updated
         }
 
@@ -225,8 +279,9 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
 
 private final class GroupFilterButton: UIButton {
     let selectionBackground = UIView()
-    var onMenuClosed: (() -> Void)?
     private(set) var isMenuPresented = false
+    private(set) var menuPresentation = 0
+    private weak var presentedConfiguration: UIContextMenuConfiguration?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -244,17 +299,19 @@ private final class GroupFilterButton: UIButton {
     }
 
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: (any UIContextMenuInteractionAnimating)?) {
+        menuPresentation += 1
+        presentedConfiguration = configuration
         isMenuPresented = true
         super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
     }
 
     override func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: (any UIContextMenuInteractionAnimating)?) {
-        isMenuPresented = false
-        super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
-        if let animator {
-            animator.addCompletion { [weak self] in self?.onMenuClosed?() }
-        } else {
-            onMenuClosed?()
+        if presentedConfiguration === configuration {
+            isMenuPresented = false
+            presentedConfiguration = nil
         }
+        // No animation-completion callback may replace the menu: a newer
+        // presentation may already exist by the time that callback runs.
+        super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
     }
 }

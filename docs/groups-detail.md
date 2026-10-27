@@ -34,7 +34,8 @@ The group detail page is a secondary page inside the Groups navigation flow. Its
 
 ### Top-Right Actions
 
-- Show native filter and `ellipsis` actions at the top right.
+- Keep filter and `ellipsis` in the same native toolbar group. On iOS 27.1+, apply `.axisBehavior(.verticalPreferred)` to the group so its custom UIKit filter button moves into Duo’s vertical bar alongside the settings button. Older systems keep the existing horizontal layout.
+- Duo axis adaptation follows Apple’s [Raise the bar with iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111462/) guidance for custom toolbar views.
 - The `ellipsis` opens `Group settings` directly.
 - The settings surface is specified in `docs/group-settings.md`.
 - Do not show a separate `Share` text button in the navigation bar.
@@ -51,18 +52,26 @@ Rules:
 ### Filters
 
 - The filter action opens a native system Menu, like the Messages filter menu. Preserve the system typography, icons, spacing, width, and submenu navigation; do not replace it with a custom popover.
-- The root menu contains `All`, `Related to me`, and a `Currency` submenu. All and Related to me are mutually exclusive scopes; All is selected by default, preserving the native checkmark column. All alone does not activate the filter highlight. There is no `Filter by` heading. Related records include payments made by the current participant and records they participate in, including settlements.
+- The root menu contains `All`, `Related to me`, and `Currency` and `Category` submenus. All and Related to me are mutually exclusive scopes; All is selected by default, preserving the native checkmark column. All alone does not activate the filter highlight. There is no `Filter by` heading. Related records include payments made by the current participant and records they participate in, including settlements.
 - `Currency` opens a nested list with an All option and multiple checkmarked currency selections. All is selected when no specific currencies are selected. Selecting any currency deselects All; selecting All clears the specific currencies. Deselecting the last currency restores All, so the native checkmark column always remains present. Keep the list open while selecting, and use its back button to return or tap outside to close.
 - Currency choices come from the whole group's currency projections plus its default currency and saved selections. They must not disappear when the current record page is filtered.
-- No selected currencies means all currencies. Changes apply immediately. Use a plain filter icon without a circular SF Symbol glyph. The filter and ellipsis must remain together in one shared native toolbar capsule in every state. Apply the selected fill only behind the filter glyph inside that capsule; do not use a prominent button style that splits it into a separate toolbar background. Do not show a numeric badge. Inactive filters use the same primary icon color as the adjacent ellipsis. Active filters use an Appearance-theme filled background and a contrasting icon; the monochrome theme adapts to light and dark mode. Keep the person and currency icons visible in their menu rows in both selected and unselected states; do not replace the currency icon with its selection checkmark. Select `All` and uncheck currencies to restore the unrestricted scope; the Currency submenu has an `All` row, but there is no separate clear-filter action. The Currency row always has a subtitle: `All currencies` when unrestricted, otherwise at most two codes followed by `… +N` for additional selections. Use native UIKit menu actions for selection and native SF Symbol images. Let the system position checkmarks, icons, and submenu arrows. Do not compose selection images, add custom alignment insets, or reserve a manually sized state column; native alignment takes precedence. Keep the native Menu presentation, typography, row sizing, and submenu navigation. Currency retains its native submenu icon and disclosure; its subtitle communicates the selected currencies, with checkmarks on individual currencies inside the submenu. Do not insert checkmarks into its title or replace the icon. Selecting All or Related to me synchronously updates the next menu presentation before publishing the filter, then closes using native dismissal. An immediate reopen must show the new scope without waiting for the closing animation or request to finish. Currency selection keeps the menu open; tap outside to dismiss. Changing scope preserves the currency selection. Keep a persistent native menu button with stable menu/action identifiers. Update visible action states and the Currency subtitle only when their values change, without animation; do not replace the displayed menu for loading or balance refreshes. Keep menu tint independent of the inverse toolbar glyph. Related to me must not rewrite the unchanged Currency subtitle. While filters refresh the first record page, show a separate untitled record card using the existing pagination loading indicator. Replace it with the results when loading finishes; an empty result remains empty.
+- No selected currencies means all currencies. Changes apply immediately. Use a plain filter icon without a circular SF Symbol glyph. The filter and ellipsis must remain together in one shared native toolbar capsule in every state. Apply the selected fill only behind the filter glyph inside that capsule; do not use a prominent button style that splits it into a separate toolbar background. Do not show a numeric badge. Inactive filters use the same primary icon color as the adjacent ellipsis. Active filters use an Appearance-theme filled background and a contrasting icon; the monochrome theme adapts to light and dark mode. Keep the person and currency icons visible in their menu rows in both selected and unselected states; do not replace the currency icon with its selection checkmark. Select `All` and uncheck currencies to restore the unrestricted scope; the Currency submenu has an `All` row, but there is no separate clear-filter action. The Currency row always has a subtitle: `All currencies` when unrestricted, otherwise at most two codes followed by `… +N` for additional selections. Use native UIKit menu actions for selection and native SF Symbol images. Let the system position checkmarks, icons, and submenu arrows. Do not compose selection images, add custom alignment insets, or reserve a manually sized state column; native alignment takes precedence. Keep the native Menu presentation, typography, row sizing, and submenu navigation. Currency retains its native submenu icon and disclosure; its subtitle communicates the selected currencies, with checkmarks on individual currencies inside the submenu. Do not insert checkmarks into its title or replace the icon. Selecting All or Related to me synchronously updates the next menu presentation before publishing the filter, then closes using native dismissal. An immediate reopen must show the new scope without waiting for the closing animation or request to finish. Currency selection keeps the menu open; tap outside to dismiss. Changing scope preserves the currency selection. Keep a persistent native menu button with stable menu/action identifiers. Install its root menu only once, with an uncached deferred provider that reads the latest conditions on every open. Never replace the button menu from a dismissal completion or a data refresh; an older closing animation must not affect a reopened menu. Bind queued visible-menu updates to the presentation that scheduled them. Update visible action states and the Currency subtitle only when their values change, without animation; do not replace the displayed menu for loading or balance refreshes. Keep menu tint independent of the inverse toolbar glyph. Related to me must not rewrite the unchanged Currency subtitle. While filters refresh the first record page, show a separate untitled record card using the existing pagination loading indicator. Replace it with the results when loading finishes; an empty result uses the single section-style heading specified below.
+- `Category` is a native multi-select submenu sourced from the same `expenseCategories` catalog as the expense editor. Show localized names and native category symbols, an All option, checkmarks, and a subtitle with up to two selected names plus a remaining count. Each selection stays open and preserves currency and participation scope; All clears only categories. No selection means every category. Persist selected IDs with backward-compatible decoding of existing saved filters.
+- Category filtering affects records and search only, not balance or settlement-summary cards. Send `categoryIds` on initial loads, search, refresh, and pagination. Transfer additionally sends `includeSettlements=true`, matching the app's presentation of settlements as transfers. Local queries follow the same semantics.
 - Persist selections on the client by owner/account and group. Initial load, refresh, search, and pagination use the same query. Local and remote ledgers apply filters before pagination.
 - `Related to me` changes only the main record list and its search. Total balance and suggested payments are already personal.
 - Currency selection applies to records, Total balance, personal suggested payments, and balance details. Never sum amounts across currencies. A single selected currency has no carousel switching; multiple selections cycle only within that selection. Selected currencies without personal activity display a labeled zero.
-- Filtered empty records leave the list area empty. Do not show empty-result illustrations, instructions, or clear-filter buttons. With no suggested payments, preserve the original Balances fallback, limited to members with activity in the selected currencies. If neither suggestions nor matching balances exist, omit the section including its title and detail link.
+- Filtered or searched empty records show only a left-aligned `No matching records` heading, using the same semibold headline font and ink color as date section headings. Do not add a record card, illustration, instructions, or clear-filter button underneath. With no suggested payments, preserve the original Balances fallback, limited to members with activity in the selected currencies. If neither suggestions nor matching balances exist, omit the section including its title and detail link.
 - Balance detail records retain the member's participation scope and selected currencies. `Resolve shown transfers` applies only to the displayed currency scope.
 - Query responses from a previous filter/cache revision must not overwrite current results.
 
+### Filter Menu Regression Check
+
+Run `python3 scripts/verify-group-filter-menu.py` on an Apple silicon Mac with Xcode. It compiles the production menu against real UIKit via Mac Catalyst, with shims only for unrelated app models. It covers immediate scope selection, refresh during dismissal, rapid reopen, stale dismissal callbacks, and additive currency selection. On-device animation and SwiftUI toolbar hosting still require a manual check: select a scope, reopen immediately, and add currencies while the record request finishes.
+
 ### Visual Rules
+
+- Keep native scroll indicators on the Groups home list and group detail ledger, including search results, so users can drag the indicator to move quickly through long lists. Use the system’s default visibility behavior.
 
 - The navigation bar should inherit the page's neutral canvas background.
 - Keep toolbar icons visually native and lightweight.
@@ -73,6 +82,7 @@ Rules:
 
 ```swift
 struct GroupDetailView: View {
+    @State private var isSearchPresented = false
     @State private var searchText = ""
 
     var body: some View {
@@ -111,7 +121,7 @@ struct GroupDetailView: View {
                 .accessibilityLabel("Add expense")
             }
         }
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search")
+        .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search records")
         .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
@@ -519,7 +529,7 @@ Adding an expense is a high-frequency content action. It should remain visible, 
 ### Bottom Toolbar Structure
 
 - Use the iOS 26 native bottom toolbar pattern.
-- Put search on the left using the system search toolbar item.
+- Put the system search field on the leading side of the bottom toolbar; Duo adapts it into the vertical bar.
 - Put add expense on the right as a separate toolbar item.
 - Use `ToolbarSpacer(placement: .bottomBar)` between them so the system lays them out as two distinct controls.
 - Do not draw a custom floating `+` button over the content.
@@ -528,11 +538,15 @@ Adding an expense is a high-frequency content action. It should remain visible, 
 ### Search
 
 - Search is available from the bottom toolbar.
-- Use `DefaultToolbarItem(kind: .search, placement: .bottomBar)`.
-- Pair it with `.searchable(...)` so the system owns the search field, prompt, focus behavior, keyboard handling, and expansion.
-- Use the prompt `Search`.
-- Search should filter expenses and/or group-local content when wired to real data.
+- Use `DefaultToolbarItem(kind: .search, placement: .bottomBar)` with `.searchable(text:isPresented:placement:prompt:)`. Keep the native bottom search field and its system expansion, keyboard, clear, and cancel behavior. Do not substitute a custom button or a search sheet.
+- Bind a draft query to the system field and commit it with `.onSubmit(of: .search)`, following Apple’s [Performing a search operation](https://developer.apple.com/documentation/swiftui/performing-a-search-operation). Keep one presentation binding; never use search activation to present another surface.
+- Opening search and editing the draft leave the existing summary, balances, and records visible. Submit applies the trimmed keyword to the normal date-grouped record list and uses its existing loading card. There is no separate results overlay, sheet, or empty search canvas. Opening a record drops keyboard focus without programmatically ending search.
+- The submitted keyword combines with category, currency, and participant filters on initial requests, pull-to-refresh, and pagination. Filter changes apply immediately using the last submitted keyword; typing alone does not request data. Clearing or cancelling search removes only the keyword and preserves other filters. Closing a record without saving keeps the loaded search pages and scroll position and makes no request. Refresh the active query on sheet dismissal only if a successful data change invalidated its cache.
+- Cancel requests for superseded queries and ignore stale completions; network responses never change search presentation or focus.
+- After the current search request finishes, scroll the ledger to its top edge and reset the date navigation title. This also applies to re-submitting the same keyword, combined search/filter refreshes, and clearing the submitted keyword. Opening search or editing its draft does not scroll; loading additional pages does not scroll.
 - Do not use a top navigation search field for this page.
+
+Run `python3 scripts/verify-ledger-repository.py` on an Apple silicon Mac with Xcode to verify the repository with mock HTTP, including combined keyword/category/currency/participant parameters on first and subsequent pages. Native keyboard, focus, and cancel animations still require device checks.
 
 ### Add Expense
 
@@ -546,6 +560,7 @@ Adding an expense is a high-frequency content action. It should remain visible, 
 ### Current SwiftUI Pattern
 
 ```swift
+@State private var isSearchPresented = false
 @State private var searchText = ""
 
 // ...
@@ -563,7 +578,7 @@ Adding an expense is a high-frequency content action. It should remain visible, 
         .accessibilityLabel("Add expense")
     }
 }
-.searchable(text: $searchText, placement: .toolbar, prompt: "Search")
+.searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search records")
 ```
 
 ### Rejected Variants

@@ -4,6 +4,10 @@ import Foundation
 @MainActor
 enum LedgerRepositoryVerification {
     static func assertAllCasesPass() async {
+        let oldFilters = try! JSONDecoder().decode(GroupRecordFilters.self, from: Data(#"{"currencyCodes":["USD"],"onlyRelatedToMe":true}"#.utf8))
+        expect(oldFilters, equals: GroupRecordFilters(currencyCodes: ["USD"], onlyRelatedToMe: true), prefix: "filter-backward-compatible")
+        let persisted = GroupRecordFilters(currencyCodes: ["USD"], onlyRelatedToMe: true, categoryIds: ["food", "traffic"])
+        expect(try! JSONDecoder().decode(GroupRecordFilters.self, from: JSONEncoder().encode(persisted)), equals: persisted, prefix: "category-filter-persistence")
         URLProtocol.registerClass(MockLedgerURLProtocol.self)
         defer {
             URLProtocol.unregisterClass(MockLedgerURLProtocol.self)
@@ -54,6 +58,24 @@ enum LedgerRepositoryVerification {
             context: localContext
         )
         expect(expectSuccess(search, prefix: "record-search").items.count, equals: 1, prefix: "record-search-count")
+
+        var categorySearch = RecordSearchRequest.noteOrCategoryName(query: "Dinner")
+        categorySearch.currencyCodes = ["CNY"]
+        categorySearch.participantId = guestId
+        categorySearch.categoryIds = ["food", "traffic"]
+        let categoryMatch = await repository.records(groupId: groupId, page: 1, pageSize: 10, search: categorySearch, context: localContext)
+        expect(expectSuccess(categoryMatch, prefix: "local-category-combined").items.count, equals: 1, prefix: "local-category-combined-count")
+        categorySearch.categoryIds = ["shopping"]
+        let categoryMiss = await repository.records(groupId: groupId, page: 1, pageSize: 10, search: categorySearch, context: localContext)
+        expect(expectSuccess(categoryMiss, prefix: "local-category-miss").items.count, equals: 0, prefix: "local-category-miss-count")
+        var settlementFixture = record!
+        settlementFixture.isDebtResolve = true
+        settlementFixture.type = "transfer"
+        categorySearch.categoryIds = ["traffic"]
+        categorySearch.includeSettlements = true
+        expect(categorySearch.matches(settlementFixture, defaultCurrency: "CNY"), equals: true, prefix: "local-settlement-included")
+        categorySearch.currencyCodes = ["USD"]
+        expect(categorySearch.matches(settlementFixture, defaultCurrency: "CNY"), equals: false, prefix: "local-settlement-retains-currency-filter")
 
         let memberRecords = await repository.memberRecords(groupId: groupId, memberId: guestId, page: 1, pageSize: 10, context: localContext)
         expect(expectSuccess(memberRecords, prefix: "member-records").records.count, equals: 1, prefix: "member-record-count")
@@ -122,6 +144,26 @@ enum LedgerRepositoryVerification {
         let filteredRequests = MockLedgerURLProtocol.requests.filter { $0.path == "/api/walkcalc/groups/AB12/records" && $0.query["currencyCodes"] != nil }
         expect(filteredRequests.count, equals: 2, prefix: "remote-filter-count")
         expect(filteredRequests.allSatisfy { $0.query["currencyCodes"] == "CNY,USD" && $0.query["participantId"] == "user-1" && $0.query["search"] == nil }, equals: true, prefix: "remote-filter-query")
+
+        var combinedSearch = RecordSearchRequest.noteOrCategoryName(query: "Dinner")
+        combinedSearch.currencyCodes = filters.currencyCodes
+        combinedSearch.participantId = filters.participantId
+        combinedSearch.categoryIds = ["food", "transfer"]
+        combinedSearch.includeSettlements = true
+        _ = expectSuccess(await repository.groupDetail(groupId: "AB12", recordPageSize: 10, recordSearch: combinedSearch, context: context), prefix: "remote-combined-first-page")
+        _ = expectSuccess(await repository.records(groupId: "AB12", page: 2, pageSize: 10, search: combinedSearch, context: context), prefix: "remote-combined-next-page")
+        let combinedRequests = MockLedgerURLProtocol.requests.filter {
+            $0.path == "/api/walkcalc/groups/AB12/records" && $0.query["currencyCodes"] != nil && $0.query["search"] != nil
+        }
+        expect(combinedRequests.count, equals: 2, prefix: "remote-combined-count")
+        expect(Set(combinedRequests.compactMap { $0.query["page"] }), equals: Set(["1", "2"]), prefix: "remote-combined-pages")
+        expect(combinedRequests.allSatisfy {
+            $0.query["currencyCodes"] == "CNY,USD" && $0.query["participantId"] == "user-1"
+                && $0.query["categoryIds"] == "food,transfer" && $0.query["includeSettlements"] == "true"
+                && $0.query["search"]?.contains("Dinner") == true
+                && $0.query["search"]?.contains("\"field\":\"note\"") == true
+                && $0.query["search"]?.contains("\"field\":\"categoryName\"") == true
+        }, equals: true, prefix: "remote-combined-query")
 
         let requests = MockLedgerURLProtocol.requests
         expect(requests.containsPath("/api/walkcalc/home/summary", method: "GET"), equals: true, prefix: "remote-home-summary-path")

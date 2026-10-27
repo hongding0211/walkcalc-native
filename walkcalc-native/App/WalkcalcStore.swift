@@ -98,6 +98,7 @@ final class WalkcalcStore: ObservableObject {
     @Published private var settlementSuggestionsByGroup: [String: [SettlementTransfer]] = [:]
     @Published private var settlementSuggestionReadyGroupIds: Set<String> = []
     private var groupContentRefreshTasks: [String: Task<Void, Never>] = [:]
+    private var groupContentRefreshQueries: [String: String] = [:]
     @Published private var loadingRecordKeys: Set<String> = []
     @Published private(set) var preferredLedgerSource: LedgerSourceKind = .remote
     @Published private var groupSourceById: [String: LedgerSourceMetadata] = [:]
@@ -769,20 +770,28 @@ final class WalkcalcStore: ObservableObject {
         resolvedDebts(for: group).filter { recordFilters(for: group.id).includesCurrency($0.currencyCode) }
     }
 
-    func preloadGroupContent(_ id: String) {
-        guard groupContentRefreshTasks[id] == nil else { return }
+    func preloadGroupContent(_ id: String, search: String = "") {
+        let query = normalizedQuery(search)
+        if groupContentRefreshTasks[id] != nil {
+            guard groupContentRefreshQueries[id] != query else { return }
+            groupContentRefreshTasks[id]?.cancel()
+        }
+        groupContentRefreshQueries[id] = query
         groupContentRefreshTasks[id] = Task { [weak self] in
             guard let self else { return }
-            async let groupRefresh: Void = refreshGroup(id)
+            async let groupRefresh: Void = refreshGroup(id, search: query)
             async let balancesRefresh: Void = refreshGroupBalances(id)
             async let settlementRefresh: Void = refreshSettlementSuggestion(groupId: id)
             _ = await (groupRefresh, balancesRefresh, settlementRefresh)
-            if !Task.isCancelled { groupContentRefreshTasks[id] = nil }
+            if !Task.isCancelled {
+                groupContentRefreshTasks[id] = nil
+                groupContentRefreshQueries[id] = nil
+            }
         }
     }
 
-    func refreshGroupContent(_ id: String) async {
-        preloadGroupContent(id)
+    func refreshGroupContent(_ id: String, search: String = "") async {
+        preloadGroupContent(id, search: search)
         await groupContentRefreshTasks[id]?.value
     }
 
@@ -795,12 +804,16 @@ final class WalkcalcStore: ObservableObject {
         _ = await refreshHome(search: groupSearchQuery)
     }
 
-    func refreshGroup(_ id: String) async {
-        if isFixtureMode { return }
+    func refreshGroup(_ id: String, search: String = "") async {
+        let query = normalizedQuery(search)
+        if isFixtureMode {
+            if !query.isEmpty { await searchRecords(groupId: id, query: query) }
+            return
+        }
         guard api.ledgerAPIEnabled else { return }
         let context = context(for: id)
         let filters = recordFilters(for: id)
-        let result = await ledgerRepository.groupDetail(groupId: id, recordPageSize: recordPageSize, recordSearch: recordSearchRequest(for: "", groupId: id), context: context)
+        let result = await ledgerRepository.groupDetail(groupId: id, recordPageSize: recordPageSize, recordSearch: recordSearchRequest(for: query, groupId: id), context: context)
         guard !Task.isCancelled, filters == recordFilters(for: id) else { return }
         switch result {
         case .success(let snapshot):
@@ -812,8 +825,14 @@ final class WalkcalcStore: ObservableObject {
                 replaceGroup(group)
             }
             clearRecordCaches(for: id)
-            recordsByGroup[id] = snapshot.records
-            recordTotals[id] = snapshot.recordPagination?.total ?? snapshot.records.count
+            if query.isEmpty {
+                recordsByGroup[id] = snapshot.records
+                recordTotals[id] = snapshot.recordPagination?.total ?? snapshot.records.count
+            } else {
+                let key = recordListKey(groupId: id, search: query)
+                recordSearchResultsByKey[key] = snapshot.records
+                recordSearchTotalsByKey[key] = snapshot.recordPagination?.total ?? snapshot.records.count
+            }
         case .failure(let failure):
             recordFailure(operation: "refreshGroup", intent: .backgroundRefresh, disposition: .silent, failure: failure)
         }
@@ -1437,6 +1456,7 @@ final class WalkcalcStore: ObservableObject {
             )
             recordsByGroup[groupId, default: []].insert(record, at: 0)
             recordTotals[groupId] = recordsByGroup[groupId]?.count ?? 0
+            clearRecordCaches(for: groupId)
             return .success
         }
         return await withLoadingResult(operation: "addRecord") {
@@ -1479,6 +1499,7 @@ final class WalkcalcStore: ObservableObject {
             recordsByGroup[groupId]?[index].occurredAt = occurredAt
             recordsByGroup[groupId]?[index].currencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? recordsByGroup[groupId]?[index].currencyCode ?? group(id: groupId)?.currencyCode)
             recordsByGroup[groupId]?[index].modifiedAt = Date().timeIntervalSince1970 * 1000
+            clearRecordCaches(for: groupId)
             return .success
         }
         return await withLoadingResult(operation: "editRecord") {
@@ -1859,7 +1880,7 @@ final class WalkcalcStore: ObservableObject {
     }
 
     private func recordListKey(groupId: String, search: String) -> String {
-        "\(groupId)::records::\(recordCacheRevisions[groupId, default: 0])::\(recordFilters(for: groupId).currencyCodes.sorted().joined(separator: ","))::\(recordFilters(for: groupId).onlyRelatedToMe)::\(search)"
+        "\(groupId)::records::\(recordCacheRevisions[groupId, default: 0])::\(recordFilters(for: groupId).currencyCodes.sorted().joined(separator: ","))::\(recordFilters(for: groupId).onlyRelatedToMe)::\(recordFilters(for: groupId).categoryIds.sorted().joined(separator: ","))::\(search)"
     }
 
     private func memberRecordKey(groupId: String, memberId: String) -> String {
@@ -1879,6 +1900,8 @@ final class WalkcalcStore: ObservableObject {
         guard !query.isEmpty || filters.isActive else { return nil }
         var request = query.isEmpty ? RecordSearchRequest(operator: "or", conditions: []) : .noteOrCategoryName(query: query)
         request.currencyCodes = filters.currencyCodes.sorted()
+        request.categoryIds = filters.categoryIds.sorted()
+        request.includeSettlements = filters.categoryIds.contains(transferCategory.id)
         if filters.onlyRelatedToMe {
             request.participantId = group(id: groupId).flatMap { currentParticipantID(for: $0) }
         }

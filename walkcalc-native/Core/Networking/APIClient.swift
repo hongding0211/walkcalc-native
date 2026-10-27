@@ -234,6 +234,10 @@ struct APIClient: Sendable {
         if let codes = recordSearch?.currencyCodes, !codes.isEmpty {
             query["currencyCodes"] = codes.joined(separator: ",")
         }
+        if let categories = recordSearch?.categoryIds, !categories.isEmpty {
+            query["categoryIds"] = categories.joined(separator: ",")
+        }
+        if recordSearch?.includeSettlements == true { query["includeSettlements"] = "true" }
         if let participantId = recordSearch?.participantId { query["participantId"] = participantId }
         return try await request(.get, path: "/walkcalc/groups/\(groupCode)/records", query: query, token: token) { raw in
             arrayPayload(raw).map(mapRecord)
