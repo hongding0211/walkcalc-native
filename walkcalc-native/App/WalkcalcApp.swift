@@ -59,7 +59,9 @@ struct walkcalc_nativeApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--design-playground-home") {
+                if ExpenseScrollTitleVerification.isEnabled {
+                    ExpenseScrollTitleVerificationHost()
+                } else if ProcessInfo.processInfo.arguments.contains("--design-playground-home") {
                     SoftLedgerGroupHomePlayground()
                 } else if ProcessInfo.processInfo.arguments.contains("--design-playground-detail") {
                     GroupDetailPreviewHost()

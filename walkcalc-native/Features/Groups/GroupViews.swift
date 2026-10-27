@@ -46,6 +46,7 @@ struct GroupView: View {
     @State private var isDeletingRecord = false
     @State private var hasCompletedInitialLoad = false
     @State private var isRefreshingRecords = false
+    @State private var scrollTitle = ExpenseScrollTitleState()
 
     private static func initialSheet() -> GroupSheet? {
         #if DEBUG
@@ -64,22 +65,16 @@ struct GroupView: View {
     }
 
     private var records: [WalkRecord] {
-        store.records(groupId: groupId)
+        #if DEBUG
+        if ExpenseScrollTitleVerification.isEnabled { ExpenseScrollTitleVerification.recordReads += 1 }
+        #endif
+        return store.records(groupId: groupId)
     }
 
     private var filters: GroupRecordFilters { store.recordFilters(for: groupId) }
 
     private var hasLoadedRecords: Bool {
         store.recordsByGroup[groupId] != nil
-    }
-
-    private var filterIconColor: Color {
-        guard filters.isActive else { return .primary }
-        switch appTheme {
-        case .mono: return Color(uiColor: .systemBackground)
-        case .yellow, .green: return .black
-        case .blue, .pink: return .white
-        }
     }
 
     private var isBalanceAnimationEnabled: Bool {
@@ -91,6 +86,9 @@ struct GroupView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        let _ = ExpenseScrollTitleVerification.countGroupBody()
+        #endif
         ZStack {
             SoftLedgerBackground()
 
@@ -105,9 +103,11 @@ struct GroupView: View {
                             GroupSummaryCard(group: group, isAnimationEnabled: isBalanceAnimationEnabled) { member in
                                 activeSheet = .myBalance(member)
                             }
+                            .id(ExpenseScrollTarget.overview)
                             GroupBalancesSection(group: group) { selectedMember in
                                 activeSheet = .balances(selectedMember)
                             }
+                            .id(ExpenseScrollTarget.balances)
                             if isRefreshingRecords || (!hasLoadedRecords && !hasCompletedInitialLoad) {
                                 GroupRecordsLoadingSection()
                             } else if hasLoadedRecords {
@@ -121,7 +121,8 @@ struct GroupView: View {
                                     },
                                     onEdit: { record in
                                         activeSheet = .editExpense(record)
-                                    }
+                                    },
+                                    scrollTitle: scrollTitle
                                 )
                             } else if hasCompletedInitialLoad {
                                 recordLoadFailure
@@ -140,6 +141,7 @@ struct GroupView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 34)
             }
+            .modifier(ExpenseScrollTracking(state: scrollTitle))
             .refreshable { await refreshGroupContent() }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
@@ -151,34 +153,23 @@ struct GroupView: View {
                 Task { await store.loadMoreRecords(groupId: group.id) }
             }
         }
-        .navigationTitle(group?.name ?? L("Group"))
+        .modifier(ExpenseNavigationTitle(groupName: group?.name ?? L("Group"), state: scrollTitle))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Menu {
-                    GroupRecordFilterMenu(
-                        filters: Binding(
-                            get: { filters },
-                            set: { next in
-                                guard next != filters else { return }
-                                isRefreshingRecords = true
-                                store.setRecordFilters(next, for: groupId)
-                            }
-                        ),
-                        currencyCodes: filterCurrencyCodes
-                    )
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .foregroundStyle(filterIconColor)
-                        .background {
-                            Circle()
-                                .fill(filters.isActive ? appTheme.accent : .clear)
-                                .frame(width: 32, height: 32)
-                        }
-                }
-                .accessibilityLabel(L("Filters"))
-                .accessibilityValue(filters.summary)
-                .menuActionDismissBehavior(.disabled)
+                GroupRecordFilterToolbar(
+                    groupId: groupId,
+                    filters: filters,
+                    currencyCodes: filterCurrencyCodes,
+                    theme: appTheme,
+                    onRelatedChange: { value in
+                        updateRecordFilters { $0.onlyRelatedToMe = value }
+                    },
+                    onCurrencyChange: { codes in
+                        updateRecordFilters { $0.currencyCodes = codes }
+                    }
+                )
+                .equatable()
                 Button {
                     activeSheet = .groupSettings
                 } label: {
@@ -211,6 +202,9 @@ struct GroupView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate, isDeleting: $isDeletingRecord)
         .task(id: filters) { await refreshGroupContent() }
+        .onChange(of: records.isEmpty) { _, isEmpty in
+            if isEmpty { scrollTitle.reset() }
+        }
         .sheet(isPresented: $isSearchPresented) {
             if let group {
                 NavigationStack {
@@ -238,6 +232,14 @@ struct GroupView: View {
             }
         }
         return codes.sorted()
+    }
+
+    private func updateRecordFilters(_ update: (inout GroupRecordFilters) -> Void) {
+        var next = store.recordFilters(for: groupId)
+        update(&next)
+        guard next != filters else { return }
+        isRefreshingRecords = true
+        store.setRecordFilters(next, for: groupId)
     }
 
     private func presentNewExpense() {
@@ -284,83 +286,6 @@ private struct GroupRecordsLoadingSection: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
-    }
-}
-
-private struct GroupRecordFilterMenu: View {
-    @Binding var filters: GroupRecordFilters
-    let currencyCodes: [String]
-
-    private var currencySubtitle: String {
-        let codes = filters.currencyCodes.sorted()
-        guard !codes.isEmpty else { return L("All currencies") }
-        let visible = codes.prefix(2).joined(separator: ", ")
-        return codes.count > 2 ? "\(visible), … +\(codes.count - 2)" : visible
-    }
-
-    var body: some View {
-        Button {
-            filters.onlyRelatedToMe.toggle()
-        } label: {
-            Label {
-                Text(L("Related to me"))
-            } icon: {
-                Image(uiImage: filters.onlyRelatedToMe ? FilterMenuImages.personSelected : FilterMenuImages.person)
-            }
-        }
-        .accessibilityAddTraits(filters.onlyRelatedToMe ? .isSelected : [])
-        .menuActionDismissBehavior(.disabled)
-
-        Menu {
-            ForEach(currencyCodes, id: \.self) { code in
-                let selected = filters.currencyCodes.contains(code)
-                Button {
-                    if selected { filters.currencyCodes.remove(code) }
-                    else { filters.currencyCodes.insert(code) }
-                } label: {
-                    Label {
-                        Text("\(code) · \(CurrencyCatalog.currencyInfo(for: code).name)")
-                    } icon: {
-                        Image(uiImage: selected ? FilterMenuImages.checked : FilterMenuImages.unchecked)
-                    }
-                }
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .menuActionDismissBehavior(.disabled)
-            }
-        } label: {
-            Label {
-                Text(L("Currency"))
-            } icon: {
-                Image(uiImage: FilterMenuImages.currency)
-            }
-            Text(currencySubtitle)
-        }
-        .menuActionDismissBehavior(.disabled)
-    }
-}
-
-private enum FilterMenuImages {
-    // System menus insert their state column only once a Toggle is selected.
-    // Keep that space in the image bounds instead, leaving native row layout
-    // and submenu presentation intact in both states.
-    static let person = indicator(symbol: "person.crop.circle", selected: false)
-    static let personSelected = indicator(symbol: "person.crop.circle", selected: true)
-    static let currency = indicator(symbol: "dollarsign.circle", selected: false)
-    static let checked = indicator(selected: true)
-    static let unchecked = indicator(selected: false)
-
-    private static func indicator(symbol: String? = nil, selected: Bool) -> UIImage {
-        // Include trailing breathing room as well: UIKit centers a custom menu
-        // image in its image column rather than laying out a SwiftUI HStack.
-        let size = CGSize(width: symbol == nil ? 16 : 40, height: 20)
-        return UIGraphicsImageRenderer(size: size).image { _ in
-            if selected, let check = UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)) {
-                check.draw(at: CGPoint(x: 0, y: (size.height - check.size.height) / 2))
-            }
-            if let symbol, let icon = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)) {
-                icon.draw(at: CGPoint(x: 16 + (18 - icon.size.width) / 2, y: (size.height - icon.size.height) / 2))
-            }
-        }.withRenderingMode(.alwaysTemplate)
     }
 }
 
@@ -1022,7 +947,7 @@ struct BalancePreviewRow: View {
 }
 
 private struct ExpenseDateSection: Identifiable {
-    var id: Date { date }
+    var id: ExpenseScrollTarget { .date(date) }
     let date: Date
     let records: [WalkRecord]
 }
@@ -1041,6 +966,7 @@ struct GroupExpensesSection: View {
     let isLoadingMore: Bool
     let onDelete: (WalkRecord) -> Void
     let onEdit: (WalkRecord) -> Void
+    var scrollTitle: ExpenseScrollTitleState? = nil
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -1087,6 +1013,7 @@ struct GroupExpensesSection: View {
                                 .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                         }
                     }
+                    .modifier(ExpenseDateTracking(date: section.date, state: scrollTitle))
                 }
 
             }
@@ -1100,6 +1027,9 @@ struct GroupExpensesSection: View {
     }
 
     private func rebuildSections(now: Date) {
+        #if DEBUG
+        if ExpenseScrollTitleVerification.isEnabled { ExpenseScrollTitleVerification.sectionRebuilds += 1 }
+        #endif
         let grouped = Dictionary(grouping: records) {
             TemporalDisplay.sectionDate(for: $0.occurredAt.walkDate, now: now)
         }
@@ -1108,6 +1038,7 @@ struct GroupExpensesSection: View {
                 $0.occurredAt == $1.occurredAt ? $0.id < $1.id : $0.occurredAt > $1.occurredAt
             })
         }
+        scrollTitle?.retainDates(sections.map(\.date))
     }
 
 

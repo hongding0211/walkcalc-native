@@ -197,7 +197,9 @@ struct CreateGroupSheet: View {
             .listRowBackground(SoftLedgerTheme.formPaper)
         }
         .scrollContentBackground(.hidden)
-        .background(SoftLedgerTheme.canvas)
+        .background {
+            SoftLedgerBackground()
+        }
         .navigationTitle(L("Create group"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap()
@@ -439,7 +441,9 @@ private struct AddTemporaryMemberView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(SoftLedgerTheme.canvas)
+        .background {
+            SoftLedgerBackground()
+        }
         .navigationTitle(L("Add temporary member"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap()
@@ -1103,7 +1107,9 @@ struct GroupSettingsSheet: View {
         }
         .disabled(isSubmitting)
         .scrollContentBackground(.hidden)
-        .background(SoftLedgerTheme.canvas)
+        .background {
+            SoftLedgerBackground()
+        }
         .navigationTitle(L("Group settings"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap()
@@ -1359,7 +1365,9 @@ private struct CurrencySelectionView: View {
                 )
             }
         }
-        .background(SoftLedgerTheme.canvas)
+        .background {
+            SoftLedgerBackground()
+        }
         .navigationTitle(L("Currency"))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: L("Search currencies"))
@@ -1851,7 +1859,9 @@ struct AddMemberSearchView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(SoftLedgerTheme.canvas)
+        .background {
+            SoftLedgerBackground()
+        }
         .navigationTitle(L("Add member"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap()

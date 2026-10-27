@@ -842,7 +842,9 @@ private struct JoinGroupSheet: View {
             .listRowBackground(SoftLedgerTheme.formPaper)
         }
         .scrollContentBackground(.hidden)
-        .background(SoftLedgerTheme.canvas)
+        .background {
+            SoftLedgerBackground()
+        }
         .navigationTitle(L("Join group"))
         .navigationBarTitleDisplayMode(.inline)
         .softLedgerDismissesKeyboardOnBackgroundTap(isActive: isGroupIDFocused) {
