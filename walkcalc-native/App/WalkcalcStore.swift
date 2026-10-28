@@ -85,6 +85,9 @@ final class WalkcalcStore: ObservableObject {
     @Published private(set) var totalBalancesByCurrency: [CurrencyBalanceSummary] = []
     @Published private(set) var groupTotal = 0
     @Published private(set) var isLoadingMoreGroups = false
+    @Published private(set) var needsGroupOrderRefresh = false
+    @Published private(set) var pendingGroupPins: [String: UUID] = [:]
+    @Published private(set) var completedGroupPinUpdates = 0
     @Published var isBootstrapping = true
     @Published private(set) var startupRoute: StartupRoute = .resolving
     @Published private(set) var isSigningIn = false
@@ -98,7 +101,13 @@ final class WalkcalcStore: ObservableObject {
     @Published private var settlementSuggestionsByGroup: [String: [SettlementTransfer]] = [:]
     @Published private var settlementSuggestionReadyGroupIds: Set<String> = []
     private var groupContentRefreshTasks: [String: Task<Void, Never>] = [:]
-    private var groupContentRefreshQueries: [String: String] = [:]
+    private struct GroupContentQuery: Equatable {
+        var text: String
+        var filters: GroupRecordFilters
+    }
+    private var groupContentRefreshQueries: [String: GroupContentQuery] = [:]
+    private var groupContentRefreshIDs: [String: UUID] = [:]
+    private var groupPinWaiters: [CheckedContinuation<Void, Never>] = []
     @Published private var loadingRecordKeys: Set<String> = []
     @Published private(set) var preferredLedgerSource: LedgerSourceKind = .remote
     @Published private var groupSourceById: [String: LedgerSourceMetadata] = [:]
@@ -111,6 +120,7 @@ final class WalkcalcStore: ObservableObject {
     private var recordCacheRevisions: [String: Int] = [:]
     private let recordPageSize = 10
     private var groupsPage = 0
+    private var groupListRevision = 0
     private var groupSearchQuery = ""
     private var apnsProviderToken = UserDefaults.standard.string(forKey: "walkcalc.apnsProviderToken")
     private var pushDeviceRegistrationTask: Task<Void, Never>?
@@ -335,10 +345,18 @@ final class WalkcalcStore: ObservableObject {
     }
 
     private func resetLedgerState() {
+        pendingGroupPins = [:]
+        resumeGroupPinWaiters()
+        for task in groupContentRefreshTasks.values { task.cancel() }
+        groupContentRefreshTasks = [:]
+        groupContentRefreshQueries = [:]
+        groupContentRefreshIDs = [:]
+        groupListRevision += 1
         groups = []
         recordsByGroup = [:]
         recordTotals = [:]
         groupTotal = 0
+        needsGroupOrderRefresh = false
         totalBalanceMinor = "0"
         totalBalancesByCurrency = []
         groupsPage = 0
@@ -550,6 +568,8 @@ final class WalkcalcStore: ObservableObject {
 
     @discardableResult
     func refreshHome(search: String? = nil) async -> Bool {
+        await waitForPendingGroupPins()
+        guard !Task.isCancelled else { return false }
         if isFixtureMode { return true }
         if preferredLedgerSource == .remote, let token {
             return await refreshCombinedHome(remoteContext: remoteLedgerContext(token: token), search: search).succeeded
@@ -572,6 +592,8 @@ final class WalkcalcStore: ObservableObject {
             resetLedgerState()
             return .success
         }
+        groupListRevision += 1
+        let revision = groupListRevision
         let query = normalizedQuery(search)
         let remoteResult = await ledgerRepository.home(
             page: 1,
@@ -586,6 +608,7 @@ final class WalkcalcStore: ObservableObject {
             context: localLedgerContext()
         )
 
+        guard revision == groupListRevision else { return .recoverableFailure }
         switch remoteResult {
         case .success(let remoteSnapshot):
             applyRefreshedToken(remoteSnapshot.refreshedToken)
@@ -609,7 +632,8 @@ final class WalkcalcStore: ObservableObject {
             groupSearchQuery = query
             totalBalanceMinor = combinedTotalBalance
             totalBalancesByCurrency = combinedCurrencyBalances
-            groups = mergedGroupSummaries(combinedGroups.sorted { $0.modifiedAt > $1.modifiedAt })
+            groups = mergedGroupSummaries(mergingLocalGroupRows(combinedGroups))
+            needsGroupOrderRefresh = false
             groupsPage = remoteSnapshot.groupPagination?.page ?? 1
             groupTotal = (remoteSnapshot.groupPagination?.total ?? remoteSnapshot.groups.count) + localTotal
             return .success
@@ -618,7 +642,7 @@ final class WalkcalcStore: ObservableObject {
             if authFailure {
                 return .unrecoverableAuthFailure
             }
-            if case .success(let localSnapshot) = localResult {
+            if groups.isEmpty, case .success(let localSnapshot) = localResult {
                 trackSource(localSnapshot.source, for: localSnapshot.groups)
                 groupSearchQuery = query
                 totalBalanceMinor = localSnapshot.totalBalanceMinor ?? "0"
@@ -637,6 +661,8 @@ final class WalkcalcStore: ObservableObject {
             resetLedgerState()
             return .success
         }
+        groupListRevision += 1
+        let revision = groupListRevision
         let query = normalizedQuery(search)
         let result = await ledgerRepository.home(
             page: 1,
@@ -644,6 +670,7 @@ final class WalkcalcStore: ObservableObject {
             search: optionalQuery(query),
             context: context
         )
+        guard revision == groupListRevision else { return .recoverableFailure }
         switch result {
         case .success(let snapshot):
             applyRefreshedToken(snapshot.refreshedToken)
@@ -654,6 +681,7 @@ final class WalkcalcStore: ObservableObject {
             totalBalancesByCurrency = resolvedCurrencyBalances(from: snapshot)
             groupSearchQuery = query
             groups = mergedGroupSummaries(snapshot.groups)
+            needsGroupOrderRefresh = false
             groupsPage = snapshot.groupPagination?.page ?? 1
             groupTotal = snapshot.groupPagination?.total ?? groups.count
             return .success
@@ -670,6 +698,8 @@ final class WalkcalcStore: ObservableObject {
         if context.preferredSource == .local, token != nil {
             return
         }
+        guard !needsGroupOrderRefresh else { return }
+        let revision = groupListRevision
         isLoadingMoreGroups = true
         defer { isLoadingMoreGroups = false }
         let result = await ledgerRepository.groups(
@@ -678,6 +708,7 @@ final class WalkcalcStore: ObservableObject {
             search: optionalQuery(groupSearchQuery),
             context: context
         )
+        guard revision == groupListRevision else { return }
         switch result {
         case .success(let page):
             applyRefreshedToken(page.refreshedToken)
@@ -693,6 +724,75 @@ final class WalkcalcStore: ObservableObject {
         case .failure(let failure):
             recordFailure(operation: "loadMoreGroups", intent: .pagination, disposition: .silent, failure: failure)
         }
+    }
+
+    func isGroupPinned(_ groupId: String) -> Bool {
+        group(id: groupId)?.isPinned ?? false
+    }
+
+    func pinnedGroups(in availableGroups: [WalkGroup]) -> [WalkGroup] {
+        // The data source already returns pin order before pagination.
+        availableGroups.filter(\.isPinned)
+    }
+
+    private func waitForPendingGroupPins() async {
+        while !pendingGroupPins.isEmpty {
+            await withCheckedContinuation { groupPinWaiters.append($0) }
+        }
+    }
+
+    private func resumeGroupPinWaiters() {
+        guard pendingGroupPins.isEmpty else { return }
+        let waiters = groupPinWaiters
+        groupPinWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func setGroupPinned(_ pinned: Bool, groupId: String) async -> StoreActionResult {
+        guard pendingGroupPins[groupId] == nil,
+              let group = group(id: groupId) else { return .failure(nil) }
+        let previousPin = group.pinnedAt
+        let nextTime = max(Date().timeIntervalSince1970 * 1000, (groups.compactMap(\.pinnedAt).max() ?? 0) + 1)
+        let operation = UUID()
+        pendingGroupPins[groupId] = operation
+        groupListRevision += 1
+        needsGroupOrderRefresh = true
+        // Both entry points render this shared optimistic state immediately.
+        applyGroupPin(pinned ? (previousPin ?? nextTime) : nil, groupId: groupId)
+        defer {
+            if pendingGroupPins[groupId] == operation {
+                groupListRevision += 1
+                pendingGroupPins[groupId] = nil
+                resumeGroupPinWaiters()
+                completedGroupPinUpdates += 1
+            }
+        }
+        if isFixtureMode { return .success }
+        let result = await ledgerRepository.pinGroup(code: groupId, isPinned: pinned, context: context(for: groupId))
+        // A sign-out/reset must not let an old response change the new session.
+        guard pendingGroupPins[groupId] == operation else { return .failure(nil) }
+        switch result {
+        case .success(let response):
+            guard let state = response.value else {
+                applyGroupPin(previousPin, groupId: groupId)
+                return .failure(nil)
+            }
+            applyRefreshedToken(response.refreshedToken)
+            applyGroupPin(state.pinnedAt, groupId: groupId)
+            return .success
+        case .failure(let failure):
+            applyGroupPin(previousPin, groupId: groupId)
+            return actionFailure(operation: "pinGroup", failure: failure)
+        }
+    }
+
+    private func applyGroupPin(_ pinnedAt: TimeInterval?, groupId: String) {
+        guard let index = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        var updated = groups.remove(at: index)
+        updated.pinnedAt = pinnedAt
+        // Move only the affected row; retain the server order of all other rows.
+        let destination = groups.firstIndex { WalkGroup.homePrecedes(updated, $0) } ?? groups.endIndex
+        groups.insert(updated, at: destination)
     }
 
     func group(id: String) -> WalkGroup? {
@@ -749,6 +849,8 @@ final class WalkcalcStore: ObservableObject {
         recordFiltersByScope[key] = filters
         groupContentRefreshTasks[groupId]?.cancel()
         groupContentRefreshTasks[groupId] = nil
+        groupContentRefreshQueries[groupId] = nil
+        groupContentRefreshIDs[groupId] = nil
         clearRecordCaches(for: groupId)
         if !isFixtureMode {
             recordsByGroup[groupId] = nil
@@ -771,28 +873,34 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func preloadGroupContent(_ id: String, search: String = "") {
-        let query = normalizedQuery(search)
+        let query = GroupContentQuery(text: normalizedQuery(search), filters: recordFilters(for: id))
         if groupContentRefreshTasks[id] != nil {
             guard groupContentRefreshQueries[id] != query else { return }
             groupContentRefreshTasks[id]?.cancel()
         }
+        let refreshID = UUID()
         groupContentRefreshQueries[id] = query
+        groupContentRefreshIDs[id] = refreshID
         groupContentRefreshTasks[id] = Task { [weak self] in
             guard let self else { return }
-            async let groupRefresh: Void = refreshGroup(id, search: query)
+            defer {
+                if groupContentRefreshIDs[id] == refreshID {
+                    groupContentRefreshTasks[id] = nil
+                    groupContentRefreshQueries[id] = nil
+                    groupContentRefreshIDs[id] = nil
+                }
+            }
+            async let groupRefresh: Void = refreshGroup(id, search: query.text)
             async let balancesRefresh: Void = refreshGroupBalances(id)
             async let settlementRefresh: Void = refreshSettlementSuggestion(groupId: id)
             _ = await (groupRefresh, balancesRefresh, settlementRefresh)
-            if !Task.isCancelled {
-                groupContentRefreshTasks[id] = nil
-                groupContentRefreshQueries[id] = nil
-            }
         }
     }
 
     func refreshGroupContent(_ id: String, search: String = "") async {
         preloadGroupContent(id, search: search)
-        await groupContentRefreshTasks[id]?.value
+        let task = groupContentRefreshTasks[id]
+        await task?.value
     }
 
     private func refreshGroupAfterLedgerMutation(_ id: String) async {
@@ -813,6 +921,7 @@ final class WalkcalcStore: ObservableObject {
         guard api.ledgerAPIEnabled else { return }
         let context = context(for: id)
         let filters = recordFilters(for: id)
+        let pinRevision = groupListRevision
         let result = await ledgerRepository.groupDetail(groupId: id, recordPageSize: recordPageSize, recordSearch: recordSearchRequest(for: query, groupId: id), context: context)
         guard !Task.isCancelled, filters == recordFilters(for: id) else { return }
         switch result {
@@ -821,7 +930,12 @@ final class WalkcalcStore: ObservableObject {
             if let group = snapshot.group {
                 trackSource(snapshot.source, for: group)
             }
-            if let group = snapshot.group {
+            if var group = snapshot.group {
+                // A detail response started before a pin write must not undo
+                // its acknowledged state after the optimistic marker clears.
+                if pinRevision != groupListRevision, let current = self.group(id: id) {
+                    group.pinnedAt = current.pinnedAt
+                }
                 replaceGroup(group)
             }
             clearRecordCaches(for: id)
@@ -1771,6 +1885,9 @@ final class WalkcalcStore: ObservableObject {
 
     private func mergedGroupSummary(_ incoming: WalkGroup, existing: WalkGroup) -> WalkGroup {
         var merged = incoming
+        if pendingGroupPins[incoming.id] != nil {
+            merged.pinnedAt = existing.pinnedAt
+        }
         if incoming.allMembers.isEmpty, !existing.allMembers.isEmpty {
             merged.membersInfo = existing.membersInfo
             merged.tempUsers = existing.tempUsers
@@ -1787,10 +1904,17 @@ final class WalkcalcStore: ObservableObject {
         return merged
     }
 
+    private func mergingLocalGroupRows(_ rows: [WalkGroup]) -> [WalkGroup] {
+        let local = rows.filter { isLocalLedgerGroup($0.id) }
+        let remote = rows.filter { !isLocalLedgerGroup($0.id) }
+        return WalkGroup.mergingLocalGroups(local, into: remote)
+    }
+
     private func appendGroups(_ nextGroups: [WalkGroup]) {
         for group in nextGroups {
             replaceGroup(group)
         }
+        groups = mergingLocalGroupRows(groups)
     }
 
     private func resolvedCurrencyBalances(from snapshot: LedgerHomeSnapshot) -> [CurrencyBalanceSummary] {

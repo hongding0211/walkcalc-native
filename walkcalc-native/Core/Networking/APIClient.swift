@@ -167,6 +167,12 @@ struct APIClient: Sendable {
         }
     }
 
+    func pinGroup(code: String, isPinned: Bool, token: String) async throws -> APIEnvelope<GroupPinState> {
+        try await request(.patch, path: "/walkcalc/groups/\(code)/pin", token: token, body: ["isPinned": isPinned], timeout: 15) { raw in
+            GroupPinState(pinnedAt: dictPayload(raw)["pinnedAt"] as? Double)
+        }
+    }
+
     func archiveGroup(code: String, token: String) async throws -> APIEnvelope<String> {
         try await request(.post, path: "/walkcalc/groups/\(code)/archive", token: token) { raw in
             dictPayload(raw)["code"] as? String ?? code
@@ -371,8 +377,8 @@ struct APIClient: Sendable {
     }
     #endif
 
-    private func request<T>(_ method: HTTPMethod, path: String, query: [String: String] = [:], token: String, body: [String: Any]? = nil, mapper: (Any?) -> T) async throws -> APIEnvelope<T> {
-        var response = try await execute(method, path: path, query: query, token: token, body: body)
+    private func request<T>(_ method: HTTPMethod, path: String, query: [String: String] = [:], token: String, body: [String: Any]? = nil, timeout: TimeInterval = 60, mapper: (Any?) -> T) async throws -> APIEnvelope<T> {
+        var response = try await execute(method, path: path, query: query, token: token, body: body, timeout: timeout)
         var refreshedToken: String?
         if response.status == 401 || response.status == 403 {
             // An expired access token can recover via refresh. A timeout or 5xx
@@ -384,7 +390,7 @@ struct APIClient: Sendable {
                 throw APIClientError(kind: .serverEnvelope, statusCode: nil, message: nil)
             }
             refreshedToken = nextToken
-            response = try await execute(method, path: path, query: query, token: nextToken, body: body)
+            response = try await execute(method, path: path, query: query, token: nextToken, body: body, timeout: timeout)
             if response.status == 401 || response.status == 403 {
                 throw APIClientError(kind: .authRefresh, statusCode: response.status, message: nil)
             }
@@ -413,12 +419,13 @@ struct APIClient: Sendable {
         )
     }
 
-    private func execute(_ method: HTTPMethod, path: String, query: [String: String], token: String?, body: [String: Any]?) async throws -> (status: Int, raw: Any?) {
+    private func execute(_ method: HTTPMethod, path: String, query: [String: String], token: String?, body: [String: Any]?, timeout: TimeInterval = 60) async throws -> (status: Int, raw: Any?) {
         var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
             components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
         var request = URLRequest(url: components.url!)
+        request.timeoutInterval = timeout
         request.httpMethod = method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(L10n.serverLanguageCode, forHTTPHeaderField: "x-locale")
@@ -681,7 +688,8 @@ private func mapGroup(_ raw: Any?) -> WalkGroup {
         participantCount: dict["participantCount"] as? Int ?? participants.count,
         participantPreview: participantPreview,
         historicalMembers: historicalMembers,
-        serverHasUnresolvedBalance: dict["hasUnresolvedBalance"] as? Bool
+        serverHasUnresolvedBalance: dict["hasUnresolvedBalance"] as? Bool,
+        pinnedAt: dict["pinnedAt"] as? Double
     )
 }
 

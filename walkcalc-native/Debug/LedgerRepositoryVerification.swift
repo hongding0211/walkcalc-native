@@ -27,6 +27,23 @@ enum LedgerRepositoryVerification {
         let groupId = expectSuccess(createGroup, prefix: "create-group").value ?? ""
         expect(groupId.isEmpty, equals: false, prefix: "created-group-id")
 
+        let secondGroupID = expectSuccess(await repository.createGroup(name: "Second", currencyCode: "CNY", context: localContext), prefix: "pin-create-second").value!
+        let thirdGroupID = expectSuccess(await repository.createGroup(name: "Third", currencyCode: "CNY", context: localContext), prefix: "pin-create-third").value!
+        let firstPin = expectSuccess(await repository.pinGroup(code: secondGroupID, isPinned: true, context: localContext), prefix: "pin-first").value!
+        _ = expectSuccess(await repository.pinGroup(code: groupId, isPinned: true, context: localContext), prefix: "pin-second")
+        let repeatedPin = expectSuccess(await repository.pinGroup(code: secondGroupID, isPinned: true, context: localContext), prefix: "pin-idempotent").value!
+        expect(repeatedPin.pinnedAt, equals: firstPin.pinnedAt, prefix: "pin-preserve-order")
+        let firstPinPage = expectSuccess(await repository.groups(page: 1, pageSize: 1, search: nil, context: localContext), prefix: "pin-page-1")
+        let secondPinPage = expectSuccess(await repository.groups(page: 2, pageSize: 1, search: nil, context: localContext), prefix: "pin-page-2")
+        expect(firstPinPage.items.map(\.id), equals: [secondGroupID], prefix: "oldest-pin-first")
+        expect(secondPinPage.items.map(\.id), equals: [groupId], prefix: "pin-before-pagination")
+        _ = expectSuccess(await repository.pinGroup(code: secondGroupID, isPinned: false, context: localContext), prefix: "unpin")
+        _ = expectSuccess(await repository.pinGroup(code: secondGroupID, isPinned: true, context: localContext), prefix: "repin")
+        let allPins = expectSuccess(await repository.groups(page: 1, pageSize: 10, search: nil, context: localContext), prefix: "repin-page")
+        expect(allPins.items.map(\.id), equals: [groupId, secondGroupID, thirdGroupID], prefix: "repin-goes-last")
+        let remoteOrder = Array(allPins.items.reversed())
+        expect(WalkGroup.mergingLocalGroups([], into: remoteOrder).map(\.id), equals: remoteOrder.map(\.id), prefix: "preserve-server-order")
+
         let addTemp = await repository.addTempUser(code: groupId, name: "Guest", context: localContext)
         let guestId = expectSuccess(addTemp, prefix: "add-temp-user").value ?? ""
         expect(guestId.hasPrefix("lm-"), equals: true, prefix: "temp-id-prefix")
@@ -100,9 +117,31 @@ enum LedgerRepositoryVerification {
         )
         expectFailure(unavailable, kind: .sourceUnavailable, prefix: "source-unavailable")
 
+        await verifyPersistentLocalPins(owner: owner)
         await verifyRemoteContracts()
         await verifyRemoteAuthFailures()
         NSLog("PASS: ledger repository and filtered request verification")
+    }
+
+    private static func verifyPersistentLocalPins(owner: Member) async {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("walkcalc-pin-\(UUID().uuidString)")
+        try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("ledger.store")
+        let context = LedgerSessionContext.local(owner: owner)
+        var groupID = ""
+        var pinnedAt: TimeInterval?
+        do {
+            let source = try! SwiftDataLedgerDataSource.temporaryPersistentStore(url: url)
+            groupID = expectSuccess(await source.createGroup(name: "Saved pin", currencyCode: "CNY", context: context), prefix: "persistent-pin-group").value!
+            pinnedAt = expectSuccess(await source.pinGroup(code: groupID, isPinned: true, context: context), prefix: "persistent-pin").value!.pinnedAt
+        }
+        let reloaded = try! SwiftDataLedgerDataSource.temporaryPersistentStore(url: url)
+        let page = expectSuccess(await reloaded.groups(page: 1, pageSize: 1, search: nil, context: context), prefix: "persistent-pin-reload")
+        expect(page.items.first?.pinnedAt, equals: pinnedAt, prefix: "pin-survives-reopen")
+        _ = expectSuccess(await reloaded.pinGroup(code: groupID, isPinned: false, context: context), prefix: "persistent-unpin")
+        let detail = expectSuccess(await reloaded.groupDetail(groupId: groupID, recordPageSize: 1, context: context), prefix: "persistent-unpin-detail")
+        expect(detail.group?.isPinned, equals: Optional(false), prefix: "persistent-unpin-state")
     }
 
     private static let mockBaseURL = URL(string: "https://ledger-verification.invalid/api")!
@@ -114,7 +153,13 @@ enum LedgerRepositoryVerification {
         let repository = LedgerRepository(remoteSource: RemoteLedgerDataSource(api: api))
         let context = LedgerSessionContext.remote(accessToken: "valid-token")
 
+        let pin = expectSuccess(await repository.pinGroup(code: "AB12", isPinned: true, context: context), prefix: "remote-pin").value!
+        expect(pin.pinnedAt, equals: Optional(1_710_000_000_123), prefix: "remote-pin-timestamp")
+        let unpin = expectSuccess(await repository.pinGroup(code: "AB12", isPinned: false, context: context), prefix: "remote-unpin").value!
+        expect(unpin.pinnedAt, equals: nil, prefix: "remote-unpin-null")
+        expect(MockLedgerURLProtocol.requests.filter { $0.path.hasSuffix("/pin") }.map(\.timeout), equals: [15, 15], prefix: "pin-request-timeout")
         let home = expectSuccess(await repository.home(page: 1, pageSize: 20, search: nil, context: context), prefix: "remote-home")
+        expect(home.groups.first?.pinnedAt, equals: Optional(1_710_000_000_123), prefix: "remote-list-pin")
         expect(home.currencyBalances.count, equals: 2, prefix: "remote-home-currency-count")
         expect(home.currencyBalances.first { $0.currencyCode == "CNY" }?.totalBalanceMinor, equals: Optional("1000"), prefix: "remote-home-cny-balance")
         expect(home.currencyBalances.first { $0.currencyCode == "USD" }?.totalBalanceMinor, equals: Optional("-250"), prefix: "remote-home-usd-balance")
@@ -244,6 +289,7 @@ private struct MockLedgerRequest {
     var path: String
     var query: [String: String]
     var body: [String: Any]
+    var timeout: TimeInterval
 }
 
 private extension Array where Element == MockLedgerRequest {
@@ -286,7 +332,7 @@ private final class MockLedgerURLProtocol: URLProtocol {
             item.value.map { (item.name, $0) }
         })
         let body = jsonBody(from: request)
-        Self.requests.append(MockLedgerRequest(method: method, path: path, query: query, body: body))
+        Self.requests.append(MockLedgerRequest(method: method, path: path, query: query, body: body, timeout: request.timeoutInterval))
 
         let status: Int
         let payload: Any
@@ -374,6 +420,9 @@ private final class MockLedgerURLProtocol: URLProtocol {
             return (200, envelope(["userIds": body["userIds"] as? [String] ?? []]))
         case ("POST", "/api/walkcalc/groups/AB12/temp-users"):
             return (200, envelope(["participantId": "tmp-1"]))
+        case ("PATCH", "/api/walkcalc/groups/AB12/pin"):
+            guard let pinned = body["isPinned"] as? Bool else { return (400, ["success": false]) }
+            return (200, envelope(["code": "AB12", "pinnedAt": pinned ? (1_710_000_000_123 as Any) : NSNull()]))
         case ("PATCH", "/api/walkcalc/groups/AB12/name"):
             return (200, envelope(["name": body["name"] as? String ?? ""]))
         case ("POST", "/api/walkcalc/groups/AB12/archive"),
@@ -403,6 +452,7 @@ private final class MockLedgerURLProtocol: URLProtocol {
     private func groupPayload(code: String) -> [String: Any] {
         [
             "code": code,
+            "pinnedAt": 1_710_000_000_123,
             "name": "Remote Trip",
             "ownerUserId": "user-1",
             "isOwner": true,

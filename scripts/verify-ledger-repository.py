@@ -11,6 +11,7 @@ sources = [
     "Core/Models/Models.swift", "Core/Models/Money.swift",
     "Core/Networking/APIClient.swift", "Core/Networking/NativeAuthSession.swift",
     "Core/Ledger/LedgerDataLayer.swift", "Core/Ledger/InMemoryLedgerDataSource.swift",
+    "Core/Ledger/SwiftDataLedgerModels.swift", "Core/Ledger/SwiftDataLedgerDataSource.swift",
     "Shared/UI/ThemeConfig.swift", "Shared/Localization/L10n.swift",
     "Debug/LedgerRepositoryVerification.swift",
 ]

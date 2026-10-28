@@ -779,3 +779,18 @@ Default category set should cover the existing app categories:
 - Showing Receipt before receipt capture exists.
 - Default-selecting all split members.
 - Custom-drawing native picker/date controls just to change their accent color.
+
+### Pin preference and query scrolling
+
+The final row of the first Group settings section is a native green `Pin` toggle. It shares the home context-menu operation: both optimistically update the same group state and position before saving; failures restore the previous pin and order. Only repeated changes to that same pin are disabled while saving; the form and navigation stay available. The owner uses a native labeled Form row. Its separator strip is filled with the row background and an inset hairline using the system separator color covers the edge, avoiding the one-pixel black seam produced by the avatar row.
+
+After the current keyword/category/currency/participant filter query finishes, scroll the ledger to the top and reset its date title. Ignore stale query completions. Loading another page preserves the scroll position.
+
+## Refresh lifecycle
+
+- Pull-to-refresh keeps the current record list visible and uses the native refresh indicator. Search/filter changes retain their existing record loading treatment.
+- Every refresh owns a unique loading token. Success, failure, and cancellation finish that token; an older request cannot clear a newer request's indicator or scroll state.
+- Share in-flight content loads only when both keyword and filters match. Cancelled workers always remove their registry entry if they still own it; an old completion cannot remove a replacement task.
+- `python3 scripts/verify-group-refresh-lifecycle.py` exercises cancellation, overlapping queries, repeated refresh after failure, query coalescing, filter replacement, and pin/detail response races using controlled suspended responses and the production methods.
+
+- Pull-to-refresh must not call `scrollTo` during native refresh-control collapse, including while a search keyword remains active. Programmatic top positioning is reserved for submitted searches and filter changes; the initial scroll position has no explicit edge target. This avoids competing with native bounce/inset restoration.

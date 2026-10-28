@@ -104,6 +104,9 @@
 "Across 1 group" = "Across 1 group";
 "Across %@ groups" = "Across %@ groups";
 "All" = "All";
+"Pin" = "Pin";
+"Unpin" = "Unpin";
+"Pinned" = "Pinned";
 "All groups" = "All groups";
 "Archive group" = "Archive group";
 "Archive group?" = "Archive group?";
@@ -250,3 +253,7 @@
 "Resolve shown transfers" = "Resolve shown transfers";
 
 "All categories" = "All categories";
+
+"Couldn't update pin" = "Couldn't update pin";
+
+"Please try again." = "Please try again.";

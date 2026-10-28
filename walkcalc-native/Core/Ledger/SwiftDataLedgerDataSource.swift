@@ -190,6 +190,21 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         .failure(.authenticationRequired())
     }
 
+    func pinGroup(code: String, isPinned: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<GroupPinState>> {
+        guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
+        let modelContext = ModelContext(container)
+        do {
+            let groups = try fetchGroups(modelContext)
+            guard let group = groups.first(where: { $0.id == code }) else { return .failure(.sourceUnavailable()) }
+            let nextTime = max(Date().timeIntervalSince1970 * 1000, (groups.compactMap(\.pinnedAt).max() ?? 0) + 1)
+            group.pinnedAt = isPinned ? (group.pinnedAt ?? nextTime) : nil
+            try modelContext.save()
+            return .success(mutation(GroupPinState(pinnedAt: group.pinnedAt), source: .local(id: code)))
+        } catch {
+            return .failure(persistenceFailure(error))
+        }
+    }
+
     func archiveGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await updateGroup(code, context: context) { group in
             let ownerId = context.localOwner?.uuid ?? group.ownerUserId
@@ -489,7 +504,13 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             sortBy: [SortDescriptor(\.modifiedAt, order: .reverse)]
         )
         descriptor.includePendingChanges = true
-        return try context.fetch(descriptor)
+        return try context.fetch(descriptor).sorted { left, right in
+            if (left.pinnedAt != nil) != (right.pinnedAt != nil) { return left.pinnedAt != nil }
+            if let lhs = left.pinnedAt, let rhs = right.pinnedAt, lhs != rhs { return lhs < rhs }
+            if left.pinnedAt != nil { return left.id < right.id }
+            if left.modifiedAt != right.modifiedAt { return left.modifiedAt > right.modifiedAt }
+            return left.id < right.id
+        }
     }
 
     private func fetchGroup(_ id: String, _ context: ModelContext) throws -> LocalLedgerGroupModel? {
@@ -560,7 +581,8 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             participantCount: members.count,
             participantPreview: Array(members.prefix(4)),
             historicalMembers: projectHistoricalMembers(group),
-            serverHasUnresolvedBalance: members.contains { $0.hasUnresolvedCurrencyBalance }
+            serverHasUnresolvedBalance: members.contains { $0.hasUnresolvedCurrencyBalance },
+            pinnedAt: group.pinnedAt
         )
     }
 

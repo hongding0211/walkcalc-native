@@ -48,12 +48,17 @@ struct GroupView: View {
     @State private var isDeletingRecord = false
     @State private var hasCompletedInitialLoad = false
     @State private var isRefreshingRecords = false
+    @State private var recordRefreshID: UUID?
     @State private var scrollTitle = ExpenseScrollTitleState()
-    @State private var scrollPosition = ScrollPosition(edge: .top)
-    @State private var needsSearchScrollToTop = false
+    @State private var scrollPosition = ScrollPosition()
+    @State private var needsQueryScrollToTop = false
+    @State private var displayedFilters: GroupRecordFilters?
 
     private static func initialSheet() -> GroupSheet? {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-open-group-settings") {
+            return .groupSettings
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-open-new-expense") {
             return .newExpense
         }
@@ -165,13 +170,13 @@ struct GroupView: View {
             .scrollPosition($scrollPosition)
             .scrollDismissesKeyboard(.interactively)
             .modifier(ExpenseScrollTracking(state: scrollTitle))
-            .refreshable { await refreshGroupContent() }
+            .refreshable { await refreshGroupContent(showLoading: false) }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
                 let triggerY = max(0, geometry.contentSize.height - 160)
                 return visibleBottom >= triggerY
             } action: { _, isNearBottom in
-                guard !isRefreshingRecords, isNearBottom, let group else { return }
+                guard recordRefreshID == nil, !isRefreshingRecords, isNearBottom, let group else { return }
                 guard store.canLoadMoreRecords(groupId: group.id, search: submittedSearchText), !store.isLoadingRecords(groupId: group.id, search: submittedSearchText) else { return }
                 let query = submittedSearchText
                 Task { await store.loadMoreRecords(groupId: group.id, search: query) }
@@ -206,7 +211,7 @@ struct GroupView: View {
         .onSubmit(of: .search) {
             submittedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             searchRevision += 1
-            needsSearchScrollToTop = true
+            needsQueryScrollToTop = true
             isRefreshingRecords = true
             isSearchFocused = false
         }
@@ -223,6 +228,9 @@ struct GroupView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate, isDeleting: $isDeletingRecord) { _ in
             if !submittedSearchText.isEmpty { searchRevision += 1 }
+        }
+        .onChange(of: filters) { _, _ in
+            needsQueryScrollToTop = true
         }
         .task(id: recordQuery) { await refreshGroupContent() }
         .onChange(of: activeSheet?.id) { previous, current in
@@ -311,21 +319,35 @@ struct GroupView: View {
     private func clearSubmittedSearch() {
         guard !submittedSearchText.isEmpty else { return }
         submittedSearchText = ""
-        needsSearchScrollToTop = true
+        needsQueryScrollToTop = true
         isRefreshingRecords = true
     }
 
-    private func refreshGroupContent() async {
+    private func refreshGroupContent(showLoading: Bool = true) async {
         let request = recordQuery
-        isRefreshingRecords = true
+        let refreshID = UUID()
+        recordRefreshID = refreshID
+        isRefreshingRecords = showLoading
+        defer {
+            // Cancellation must finish loading, but an older request must not
+            // clear the indicator owned by a newer search/filter request.
+            if recordRefreshID == refreshID {
+                recordRefreshID = nil
+                isRefreshingRecords = false
+            }
+        }
         if !hasLoadedRecords { hasCompletedInitialLoad = false }
         await store.refreshGroupContent(groupId, search: request.text)
-        guard !Task.isCancelled, request == recordQuery else { return }
-        isRefreshingRecords = false
+        guard !Task.isCancelled, recordRefreshID == refreshID, request == recordQuery else { return }
         hasCompletedInitialLoad = true
-        // Reset only after the current query finishes; pagination never enters here.
-        if needsSearchScrollToTop || !request.text.isEmpty {
-            needsSearchScrollToTop = false
+        // Pull-to-refresh owns its native inset/offset recovery. Issuing a
+        // scrollTo while that control collapses can leave the viewport pulled down.
+        // Only an explicit search/filter load should reposition the list.
+        guard showLoading else { return }
+        let filtersChanged = displayedFilters.map { $0 != request.filters } ?? request.filters.isActive
+        displayedFilters = request.filters
+        if needsQueryScrollToTop || filtersChanged || !request.text.isEmpty {
+            needsQueryScrollToTop = false
             scrollTitle.reset()
             scrollPosition.scrollTo(edge: .top)
         }

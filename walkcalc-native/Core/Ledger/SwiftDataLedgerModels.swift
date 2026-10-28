@@ -6,6 +6,7 @@ final class LocalLedgerGroupModel {
     @Attribute(.unique) var id: String
     var name: String
     var currencyCode: String?
+    var pinnedAt: TimeInterval?
     var createdAt: TimeInterval
     var modifiedAt: TimeInterval
     var ownerUserId: String

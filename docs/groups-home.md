@@ -486,3 +486,22 @@ Rules:
 - Failed background sync uses subtle, non-blocking feedback.
 - If cached groups exist, keep showing the cached list when sync fails.
 - Do not replace cached content with an error screen.
+
+## Personal pinned groups
+
+- A row's native long-press menu starts with `Pin` / `Unpin`.
+- Show nonempty `Pinned` and `All groups` sections below the balance card. Each row appears once; archived groups stay in Archived groups.
+- The existing `GET /walkcalc/groups/my` response orders pins first, oldest pin first, before pagination. Unpinned groups keep descending activity order. The app preserves server order and requests pages sequentially, without a separate pinned-groups request.
+- `PATCH /walkcalc/groups/:code/pin` accepts `{ "isPinned": true/false }` and returns the current user's `pinnedAt` (milliseconds or null). Summary/detail responses include this field too. Repeating Pin preserves the original time; Unpin then Pin appends to the pinned order.
+- Remote pins are member-specific and sync across devices. Local-only ledgers persist the same preference in SwiftData. Pinning does not change shared group activity timestamps or balances.
+- Refresh the normal first page after a home-menu change, or on returning home after changing the settings switch. Keep the open detail page intact, and discard pagination responses that began before the ordering changed.
+
+- Pin/Unpin updates the shared group state and row position optimistically, without a row spinner or blocking other groups. A failed save restores the prior state and reports an error. Same-group writes cannot overlap; stale session responses are ignored. Reconcile with the existing home request after saves finish, preserving backend pagination authority. Pin requests use a 15-second request timeout.
+
+- Menu actions resolve the current group by ID when tapped, rather than toggling a captured row snapshot. Rebuild the menu identity when pin or save state changes so reopening cannot reuse an obsolete action/disabled state.
+- The save response immediately reconciles `pinnedAt`; a detail request started before that write cannot overwrite it. Home also reconciles on pull-to-refresh, returning from group settings after a save, and foreground activation. A refresh requested during a pending pin waits for completion instead of being dropped. A failed remote refresh preserves previously loaded groups.
+- Run `python3 scripts/verify-home-pin-lifecycle.py` for stale-row Pin/Unpin cycles, optimistic ordering, rollback and stale-session handling; `python3 scripts/verify-group-refresh-lifecycle.py` checks delayed detail responses and refresh waiting for a pin acknowledgement.
+
+- Pin transitions use one stable-ID `ForEach` for headings and cards, so cards move between sections rather than being recreated as unrelated rows. The primary heading rolls vertically between All groups and Pinned using the same shared lift/settle label as Across N groups; card placement uses a restrained 0.36-second spring (bounce 0.12). Reduce Motion removes positional animation and switches the title without motion. Context-menu refresh identity remains inside the stable row.
+
+- Section headings and Across N groups share `AnimatedGroupLabel`: 1pt lift, 1.018 scale, 0.34s snappy entry and 0.22s settling. Numbers retain the native numeric transition; words use a clipped vertical push instead of a plain crossfade.

@@ -909,6 +909,8 @@ private enum ArchivedGroupPendingAction: Equatable {
 struct GroupSettingsSheet: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .subheadline) private var ownerAvatarSize = 26
+    @ScaledMetric(relativeTo: .body) private var ownerContentMinHeight = 28
 
     let group: WalkGroup
     let onDone: () -> Void
@@ -1006,13 +1008,48 @@ struct GroupSettingsSheet: View {
                     }
                 }
 
+                Toggle(L("Pin"), isOn: Binding(
+                    get: { currentGroup.isPinned },
+                    set: { value in
+                        guard !isSubmitting, store.pendingGroupPins[group.id] == nil else { return }
+                        actionMessage = nil
+                        Task {
+                            let result = await store.setGroupPinned(value, groupId: group.id)
+                            if !result.success { actionMessage = result.message ?? L("Please try again.") }
+                        }
+                    }
+                ))
+                .tint(.green)
+                .disabled(store.pendingGroupPins[group.id] != nil)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section(L("Members")) {
-                if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
-                    GroupOwnerSummaryRow(owner: owner)
+                VStack(spacing: 0) {
+                    LabeledContent(L("Group owner")) {
+                        if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
+                            HStack(spacing: 8) {
+                                SoftLedgerAvatar(member: owner, size: ownerAvatarSize)
+                                    .accessibilityHidden(true)
+                                Text(owner.name)
+                                    .font(.subheadline)
+                                    .foregroundStyle(SoftLedgerTheme.ink)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .frame(minHeight: ownerContentMinHeight)
+                    .padding(.bottom, 14)
+                    Color(uiColor: .separator)
+                        .frame(height: 1)
                 }
+                // Fill the Form separator strip to avoid its unpainted outer pixel.
+                // The inset hairline above uses the system separator color.
+                .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 0, trailing: 20))
+                .alignmentGuide(.listRowSeparatorLeading) { _ in -20 }
+                .alignmentGuide(.listRowSeparatorTrailing) { $0.width + 20 }
+                .listRowSeparatorTint(SoftLedgerTheme.formPaper)
+                .listRowBackground(SoftLedgerTheme.formPaper)
 
                 NavigationLink {
                     GroupMembersView(group: currentGroup)
@@ -1023,6 +1060,7 @@ struct GroupSettingsSheet: View {
                         SoftLedgerAvatarStack(members: currentGroup.allMembers, visibleCount: 4, borderColor: SoftLedgerTheme.formPaper, showsTotal: false)
                     }
                 }
+                .listRowBackground(SoftLedgerTheme.formPaper)
 
                 if !isLocalGroup {
                     NavigationLink {
@@ -1038,6 +1076,7 @@ struct GroupSettingsSheet: View {
                         Text(L("Add member"))
                             .foregroundStyle(.primary)
                     }
+                    .listRowBackground(SoftLedgerTheme.formPaper)
                 }
 
                 NavigationLink {
@@ -1053,14 +1092,15 @@ struct GroupSettingsSheet: View {
                     Text(L("Add temporary member"))
                         .foregroundStyle(.primary)
                 }
+                .listRowBackground(SoftLedgerTheme.formPaper)
 
                 if let actionMessage {
                     Text(actionMessage)
                         .font(.footnote)
                         .foregroundStyle(SoftLedgerTheme.negative)
+                        .listRowBackground(SoftLedgerTheme.formPaper)
                 }
             }
-            .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section {
                 Button {
@@ -1232,32 +1272,6 @@ struct GroupSettingsSheet: View {
             pendingAction = nil
             actionMessage = result.message
         }
-    }
-}
-
-private struct GroupOwnerSummaryRow: View {
-    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 26
-
-    let owner: Member
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Text(L("Group owner"))
-
-            Spacer(minLength: 12)
-
-            HStack(spacing: 8) {
-                SoftLedgerAvatar(member: owner, size: avatarSize, borderColor: SoftLedgerTheme.formPaper)
-
-                Text(owner.name)
-                    .font(.subheadline)
-                    .foregroundStyle(SoftLedgerTheme.ink)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .layoutPriority(1)
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 

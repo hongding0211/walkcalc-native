@@ -104,6 +104,9 @@
 "Across 1 group" = "来自 1 个账本";
 "Across %@ groups" = "来自 %@ 个账本";
 "All" = "全部";
+"Pin" = "置顶";
+"Unpin" = "取消置顶";
+"Pinned" = "已置顶";
 "All groups" = "全部群组";
 "Archive group" = "归档群组";
 "Archive group?" = "归档群组？";
@@ -250,3 +253,7 @@
 "Resolve shown transfers" = "结算当前显示的转账";
 
 "All categories" = "全部分类";
+
+"Couldn't update pin" = "无法更新置顶状态";
+
+"Please try again." = "请重试。";

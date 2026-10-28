@@ -457,16 +457,30 @@ private struct LoginBrandMark: View {
     }
 }
 
+private enum HomeGroupListEntry: Identifiable {
+    case heading(String, primary: Bool)
+    case group(WalkGroup)
+
+    var id: String {
+        switch self {
+        case .heading(_, let primary): primary ? "heading-primary" : "heading-unpinned"
+        case .group(let group): "group-\(group.id)"
+        }
+    }
+}
+
 struct RootHomeView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @EnvironmentObject private var pushNavigation: PushNavigationCoordinator
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var path: [Route] = Self.initialPath()
     @State private var activeSheet: HomeSheet?
     @State private var archiveCandidate: WalkGroup?
     @State private var archiveBlockedCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
     @State private var pendingGroupAction: HomeGroupPendingAction?
+    @State private var pinError: String?
     @State private var isShowingJoinSignInPrompt = false
 
     private static func initialPath() -> [Route] {
@@ -487,6 +501,32 @@ struct RootHomeView: View {
         }
     }
 
+    private var pinnedGroups: [WalkGroup] {
+        store.pinnedGroups(in: activeGroups)
+    }
+
+    private var unpinnedGroups: [WalkGroup] {
+        activeGroups.filter { !store.isGroupPinned($0.id) }
+    }
+
+    // One ForEach preserves each card's identity when it crosses sections.
+    // The first heading also keeps its identity while All groups becomes Pinned.
+    private var groupListEntries: [HomeGroupListEntry] {
+        var entries: [HomeGroupListEntry] = [
+            .heading(pinnedGroups.isEmpty ? "All groups" : "Pinned", primary: true)
+        ]
+        entries += pinnedGroups.map { .group($0) }
+        if !pinnedGroups.isEmpty && !unpinnedGroups.isEmpty {
+            entries.append(.heading("All groups", primary: false))
+        }
+        entries += unpinnedGroups.map { .group($0) }
+        return entries
+    }
+
+    private var pinAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.15) : .spring(duration: 0.36, bounce: 0.12)
+    }
+
     private var archivedGroups: [WalkGroup] {
         store.groups.filter { group in
             !archiveIdentityIds.isDisjoint(with: Set(group.archivedUsers))
@@ -500,6 +540,57 @@ struct RootHomeView: View {
             ids.insert(userId)
         }
         return ids
+    }
+
+    private func groupSectionTitle(_ title: String) -> some View {
+        AnimatedGroupLabel(text: L(title))
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(SoftLedgerTheme.ink)
+            .padding(.top, 4)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func groupRow(_ group: WalkGroup) -> some View {
+        Button {
+            store.preloadGroupContent(group.id)
+            path.append(.group(group.id))
+        } label: {
+            GroupSummaryRow(
+                group: group,
+                isPending: pendingGroupAction?.groupID == group.id,
+                isAnimationEnabled: isBalanceAnimationEnabled
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(pendingGroupAction != nil)
+        .contextMenu {
+            Button {
+                Task { await togglePin(group.id) }
+            } label: {
+                Label(L(store.isGroupPinned(group.id) ? "Unpin" : "Pin"),
+                      systemImage: store.isGroupPinned(group.id) ? "pin.slash" : "pin")
+            }
+            .disabled(pendingGroupAction != nil || store.pendingGroupPins[group.id] != nil)
+
+            Button {
+                archive(group)
+            } label: {
+                Label(L("Archive group"), systemImage: "archivebox")
+            }
+            .disabled(pendingGroupAction != nil)
+
+            if group.canCurrentUserDelete {
+                Button(role: .destructive) {
+                    deleteCandidate = group
+                } label: {
+                    Label(L("Delete group"), systemImage: "trash")
+                }
+                .disabled(pendingGroupAction != nil)
+            }
+        }
+        // Rebuild UIKit's cached context menu when its action changes.
+        .id("\(group.id)-\(group.isPinned)-\(store.pendingGroupPins[group.id] != nil)")
+        .transition(.identity)
     }
 
     private var isBalanceAnimationEnabled: Bool {
@@ -530,53 +621,28 @@ struct RootHomeView: View {
                             )
                         } else {
                             HomeBalanceCard(isAnimationEnabled: isBalanceAnimationEnabled)
-                            Text(L("All groups"))
-                                .font(.callout.weight(.semibold))
-                                .foregroundStyle(SoftLedgerTheme.ink)
-                                .padding(.top, 4)
-
-                            LazyVStack(spacing: 16) {
-                                ForEach(activeGroups) { group in
-                                    Button {
-                                        store.preloadGroupContent(group.id)
-                                        path.append(.group(group.id))
-                                    } label: {
-                                        GroupSummaryRow(
-                                            group: group,
-                                            isPending: pendingGroupAction?.groupID == group.id,
-                                            isAnimationEnabled: isBalanceAnimationEnabled
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(pendingGroupAction != nil)
-                                    .onAppear {
-                                        if group.id == activeGroups.last?.id {
-                                            Task { await store.loadMoreGroups() }
-                                        }
-                                    }
-                                    .contextMenu {
-                                        Button {
-                                            archive(group)
-                                        } label: {
-                                            Label(L("Archive group"), systemImage: "archivebox")
-                                        }
-                                        .disabled(pendingGroupAction != nil)
-
-                                        if group.canCurrentUserDelete {
-                                            Button(role: .destructive) {
-                                                deleteCandidate = group
-                                            } label: {
-                                                Label(L("Delete group"), systemImage: "trash")
-                                            }
-                                            .disabled(pendingGroupAction != nil)
-                                        }
+                            LazyVStack(alignment: .leading, spacing: 16) {
+                                ForEach(groupListEntries) { entry in
+                                    switch entry {
+                                    case .heading(let title, _):
+                                        groupSectionTitle(title)
+                                            .transition(reduceMotion ? .identity : .offset(y: -6).combined(with: .opacity))
+                                    case .group(let group):
+                                        // The outer row survives the menu's identity reset.
+                                        ZStack { groupRow(group) }
                                     }
                                 }
 
                                 if store.isLoadingMoreGroups {
                                     LedgerPaginationLoadingView()
                                 }
+
+                                if store.canLoadMoreGroups {
+                                    Color.clear.frame(height: 1)
+                                        .task(id: store.groups.count) { await store.loadMoreGroups() }
+                                }
                             }
+                            .animation(reduceMotion ? nil : pinAnimation, value: pinnedGroups.map(\.id))
                         }
                     }
                     .padding(.horizontal, 20)
@@ -734,6 +800,21 @@ struct RootHomeView: View {
             }
             path.append(.group(code))
         }
+        .alert(L("Couldn't update pin"), isPresented: Binding(get: { pinError != nil }, set: { if !$0 { pinError = nil } })) {
+            Button(L("OK"), role: .cancel) { pinError = nil }
+        } message: {
+            Text(pinError ?? L("Please try again."))
+        }
+        .onChange(of: store.completedGroupPinUpdates) { _, _ in
+            if store.pendingGroupPins.isEmpty, path.isEmpty, store.needsGroupOrderRefresh {
+                Task { await store.refreshHome() }
+            }
+        }
+        .onChange(of: path) { _, route in
+            if route.isEmpty, store.needsGroupOrderRefresh {
+                Task { await store.refreshHome() }
+            }
+        }
         .task {
             await store.refreshHome()
         }
@@ -745,14 +826,23 @@ struct RootHomeView: View {
             pushNavigation.consume(request)
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active,
-                  let route = path.last,
-                  case .group(let groupId) = route else {
-                return
-            }
+            guard phase == .active else { return }
             Task {
-                await store.refreshGroupContent(groupId)
+                if let route = path.last, case .group(let groupId) = route {
+                    await store.refreshGroupContent(groupId)
+                } else if path.isEmpty {
+                    await store.refreshHome()
+                }
             }
+        }
+    }
+
+    private func togglePin(_ groupId: String) async {
+        guard pendingGroupAction == nil, store.pendingGroupPins[groupId] == nil,
+              let current = store.group(id: groupId) else { return }
+        let result = await store.setGroupPinned(!current.isPinned, groupId: groupId)
+        if !result.success {
+            pinError = result.message ?? L("Please try again.")
         }
     }
 
@@ -1440,51 +1530,76 @@ struct CurrencyBalanceCarousel: View {
 }
 
 private struct AnimatedGroupScopeText: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     let groupCount: Int
 
-    @State private var displayedCount: Int?
+    var body: some View {
+        AnimatedGroupLabel(text: groupScopeText(groupCount), numericValue: Double(groupCount))
+    }
+}
+
+/// Shared lift/settle rhythm for group scope and section headings. Digits use
+/// the native numeric transition; word changes roll vertically in the same slot.
+private struct AnimatedGroupLabel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let text: String
+    var numericValue: Double? = nil
+
+    @State private var displayedText: String?
+    @State private var displayedNumericValue: Double?
     @State private var isPulsing = false
     @State private var transitionTask: Task<Void, Never>?
 
-    private var resolvedCount: Int {
-        displayedCount ?? groupCount
-    }
+    private var resolvedText: String { displayedText ?? text }
 
     var body: some View {
-        Text(groupScopeText(resolvedCount))
-            .contentTransition(.numericText(value: Double(resolvedCount)))
-            .scaleEffect(isPulsing ? 1.018 : 1, anchor: .leading)
-            .offset(y: isPulsing ? -1 : 0)
-            .onAppear {
-                displayedCount = groupCount
+        Group {
+            if let numericValue {
+                Text(resolvedText)
+                    .contentTransition(.numericText(value: displayedNumericValue ?? numericValue))
+            } else {
+                ZStack(alignment: .leading) {
+                    Text(resolvedText)
+                        .id(resolvedText)
+                        .transition(reduceMotion ? .identity : .push(from: .bottom))
+                }
+                .clipped()
             }
-            .onChange(of: groupCount) { _, newCount in
-                animateCount(to: newCount)
-            }
-            .onDisappear {
-                transitionTask?.cancel()
-            }
+        }
+        .scaleEffect(isPulsing ? 1.018 : 1, anchor: .leading)
+        .offset(y: isPulsing ? -1 : 0)
+        .onAppear {
+            displayedText = text
+            displayedNumericValue = numericValue
+            isPulsing = false
+        }
+        .onChange(of: text) { _, newText in
+            animateText(to: newText, numericValue: numericValue)
+        }
+        .onDisappear {
+            transitionTask?.cancel()
+        }
     }
 
-    private func animateCount(to newCount: Int) {
+    private func animateText(to newText: String, numericValue: Double?) {
         transitionTask?.cancel()
 
         guard !reduceMotion else {
-            displayedCount = newCount
+            displayedText = newText
+            displayedNumericValue = numericValue
             isPulsing = false
             return
         }
 
         transitionTask = Task { @MainActor in
-            // Currency selection is committed without animation after the page
-            // settles, so start this numeric transition on the next run-loop turn.
+            // Currency selection commits without animation. Begin the label's
+            // own transition on the next turn, independently of its parent.
             await Task.yield()
             guard !Task.isCancelled else { return }
 
             withAnimation(.snappy(duration: 0.34)) {
-                displayedCount = newCount
+                displayedText = newText
+                displayedNumericValue = numericValue
                 isPulsing = true
             }
 

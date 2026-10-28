@@ -110,6 +110,13 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         .failure(.authenticationRequired())
     }
 
+    func pinGroup(code: String, isPinned: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<GroupPinState>> {
+        guard isAvailable(context), let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(.sourceUnavailable()) }
+        let nextTime = max(Date().timeIntervalSince1970 * 1000, (groups.compactMap(\.pinnedAt).max() ?? 0) + 1)
+        groups[index].pinnedAt = isPinned ? (groups[index].pinnedAt ?? nextTime) : nil
+        return .success(mutation(GroupPinState(pinnedAt: groups[index].pinnedAt), source: .local(id: code)))
+    }
+
     func archiveGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(.sourceUnavailable()) }
@@ -316,8 +323,8 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
 
     private func filteredGroups(search: String?) -> [WalkGroup] {
         let query = search?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !query.isEmpty else { return groups }
-        return groups.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.id.localizedCaseInsensitiveContains(query) }
+        guard !query.isEmpty else { return groups.sorted(by: WalkGroup.homePrecedes) }
+        return groups.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.id.localizedCaseInsensitiveContains(query) }.sorted(by: WalkGroup.homePrecedes)
     }
 
     private func pageSlice<Value>(_ values: [Value], page: Int, pageSize: Int) -> (items: [Value], total: Int) {

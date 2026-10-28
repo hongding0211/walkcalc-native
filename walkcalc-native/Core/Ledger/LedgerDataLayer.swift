@@ -145,6 +145,7 @@ protocol LedgerDataSource {
 
     func createGroup(name: String, currencyCode: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func joinGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
+    func pinGroup(code: String, isPinned: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<GroupPinState>>
     func archiveGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func unarchiveGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
     func deleteGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>>
@@ -274,6 +275,12 @@ struct RemoteLedgerDataSource: LedgerDataSource {
     func joinGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await envelopeMutation(context: context) { token in
             try await api.joinGroup(code: code, token: token)
+        }
+    }
+
+    func pinGroup(code: String, isPinned: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<GroupPinState>> {
+        await envelopeMutation(context: context) { token in
+            try await api.pinGroup(code: code, isPinned: isPinned, token: token)
         }
     }
 
@@ -471,6 +478,10 @@ final class LedgerRepository {
 
     func joinGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {
         await remoteSource.joinGroup(code: code, context: context)
+    }
+
+    func pinGroup(code: String, isPinned: Bool, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<GroupPinState>> {
+        await source(for: context).pinGroup(code: code, isPinned: isPinned, context: context)
     }
 
     func archiveGroup(code: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<String>> {

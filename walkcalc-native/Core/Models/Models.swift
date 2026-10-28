@@ -86,6 +86,10 @@ struct MemberCurrencyProjection: Identifiable, Hashable, Codable {
     }
 }
 
+struct GroupPinState {
+    var pinnedAt: TimeInterval?
+}
+
 struct WalkGroup: Identifiable, Hashable {
     var id: String
     var name: String
@@ -107,6 +111,27 @@ struct WalkGroup: Identifiable, Hashable {
     var participantPreview: [Member] = []
     var historicalMembers: [Member] = []
     var serverHasUnresolvedBalance: Bool?
+    var pinnedAt: TimeInterval? = nil
+
+    var isPinned: Bool { pinnedAt != nil }
+
+    /// Used by local ledgers and to merge local rows without reordering server rows.
+    static func homePrecedes(_ lhs: WalkGroup, _ rhs: WalkGroup) -> Bool {
+        if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
+        if let left = lhs.pinnedAt, let right = rhs.pinnedAt, left != right { return left < right }
+        if lhs.isPinned { return lhs.id < rhs.id }
+        if lhs.modifiedAt != rhs.modifiedAt { return lhs.modifiedAt > rhs.modifiedAt }
+        return lhs.id < rhs.id
+    }
+
+    static func mergingLocalGroups(_ local: [WalkGroup], into remote: [WalkGroup]) -> [WalkGroup] {
+        var result = remote
+        for group in local.sorted(by: homePrecedes) {
+            let index = result.firstIndex { homePrecedes(group, $0) } ?? result.endIndex
+            result.insert(group, at: index)
+        }
+        return result
+    }
 
     var allMembers: [Member] {
         membersInfo + tempUsers
