@@ -484,14 +484,7 @@ private struct GroupBalancesSection: View {
     }
 
     private var sectionTitle: String {
-        personalDebts.isEmpty ? L("Balances") : L("Suggested settlement")
-    }
-
-    private var footerTitle: String {
-        if !personalDebts.isEmpty {
-            return L("View details")
-        }
-        return balances.count > 3 ? L("View all") : L("View details")
+        personalDebts.isEmpty ? L("Member details") : L("Suggested settlement")
     }
 
     private var isSuggestionReady: Bool {
@@ -583,7 +576,7 @@ private struct GroupBalancesSection: View {
                             onSelect(nil)
                         } label: {
                             HStack(spacing: 8) {
-                                Text(footerTitle)
+                                Text(L("View details"))
                                     .font(.subheadline.weight(.semibold))
                                     .softLedgerAccentForeground()
                                 Spacer()
@@ -628,7 +621,7 @@ private struct GroupBalancesSection: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(L("Balances"))
+        .accessibilityLabel(L("Member details"))
     }
 
     private func recordCount(for member: Member) -> Int {
@@ -642,16 +635,8 @@ private struct GroupBalancesSection: View {
 }
 
 private struct PersonalSettlementPreviewRow: View {
-    @Environment(\.softLedgerAppTheme) private var appTheme
-
-    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
-    @ScaledMetric(relativeTo: .caption) private var receiverAvatarSize = 20
-    @ScaledMetric(relativeTo: .caption) private var arrowBadgeSize = 18
-    @ScaledMetric(relativeTo: .caption2) private var arrowBadgeFontSize = 9
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
-    @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
-    @ScaledMetric(relativeTo: .caption) private var receiverSpacing = 6
     @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 76
 
     let debt: ResolvedDebt
@@ -660,29 +645,12 @@ private struct PersonalSettlementPreviewRow: View {
 
     var body: some View {
         HStack(spacing: rowSpacing) {
-            payerAvatar
+            SettlementAvatarPair(from: debt.from, to: debt.to)
 
-            VStack(alignment: .leading, spacing: textSpacing) {
-                Text(relationshipTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(SoftLedgerTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.86)
+            SettlementRelationshipTitle(debt: debt, currentParticipantID: currentParticipantID)
+                .layoutPriority(1)
 
-                HStack(spacing: receiverSpacing) {
-                    SoftLedgerAvatar(member: debt.to, size: receiverAvatarSize)
-                        .accessibilityHidden(true)
-
-                    Text(L("Settle with %@").replacingOccurrences(of: "%@", with: counterpartyName))
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            }
-            .layoutPriority(1)
-
-            Spacer(minLength: rowSpacing)
+            Spacer(minLength: 0)
 
             Text(displayAmount)
                 .font(.subheadline.monospacedDigit().weight(.semibold))
@@ -703,17 +671,7 @@ private struct PersonalSettlementPreviewRow: View {
     }
 
     private var relationshipTitle: String {
-        if isCurrentParticipantPayer {
-            return L("You owe %@").replacingOccurrences(of: "%@", with: debt.to.name)
-        }
-        if debt.to.uuid == currentParticipantID {
-            return L("%@ owes you").replacingOccurrences(of: "%@", with: debt.from.name)
-        }
-        return "\(debt.from.name) \(L("pays")) \(debt.to.name)"
-    }
-
-    private var counterpartyName: String {
-        isCurrentParticipantPayer ? debt.to.name : debt.from.name
+        SettlementCopy.title(debt, participantID: currentParticipantID)
     }
 
     private var displayAmount: String {
@@ -723,26 +681,6 @@ private struct PersonalSettlementPreviewRow: View {
 
     private var amountColor: Color {
         isCurrentParticipantPayer ? SoftLedgerTheme.negative : SoftLedgerTheme.positive
-    }
-
-    private var payerAvatar: some View {
-        ZStack(alignment: .bottomTrailing) {
-            SoftLedgerAvatar(member: debt.from, size: avatarSize)
-                .accessibilityHidden(true)
-
-            Image(systemName: "arrow.right")
-                .font(.system(size: arrowBadgeFontSize, weight: .bold))
-                .foregroundStyle(SoftLedgerTheme.paper)
-                .frame(width: arrowBadgeSize, height: arrowBadgeSize)
-                .background(appTheme.accent, in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(SoftLedgerTheme.paper, lineWidth: max(1, arrowBadgeSize / 9))
-                }
-                .offset(x: 2, y: 2)
-                .accessibilityHidden(true)
-        }
-        .frame(width: avatarSize + 3, height: avatarSize + 3)
     }
 }
 
@@ -935,8 +873,9 @@ struct GroupExpensesSection: View {
 }
 
 struct ExpenseRow: View {
+    @EnvironmentObject private var store: WalkcalcStore
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
-    @ScaledMetric(relativeTo: .subheadline) private var trailingColumnWidth = 106
+    @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 6
     @ScaledMetric(relativeTo: .subheadline) private var iconSize = 30
     @ScaledMetric(relativeTo: .subheadline) private var iconFontSize = 14
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
@@ -959,20 +898,21 @@ struct ExpenseRow: View {
         self.action = action
     }
 
-    private var payer: Member? {
-        group.recordMembers.first(where: { $0.uuid == record.who })
-    }
-
     private var category: ExpenseCategory {
         expenseCategory(for: record)
     }
 
-    private var payerName: String {
-        payer?.name ?? L("Unknown")
-    }
-
-    private var payerHandleText: String {
-        "@\(payerName)"
+    private func participantSummary(compact: Bool = true, nameLimit: Int? = nil) -> String {
+        RecordParticipantSummary.text(
+            payerID: record.who,
+            recipientIDs: record.forWhom,
+            names: Dictionary(group.recordMembers.map { ($0.uuid, $0.name) }, uniquingKeysWith: { first, _ in first }),
+            currentParticipantID: store.currentParticipantID(for: group),
+            isSettlement: record.isDebtResolve,
+            compact: compact,
+            nameLimit: nameLimit,
+            eligibleParticipantIDs: group.allMembers.map(\.uuid)
+        )
     }
 
     private var compactCreatedAt: String {
@@ -1000,15 +940,10 @@ struct ExpenseRow: View {
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    Text(payerHandleText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    RecordParticipantCaption { participantSummary(nameLimit: $0) }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
-
-                Spacer()
 
                 VStack(alignment: .trailing, spacing: trailingSpacing) {
                     Text(CurrencyCatalog.formatted(record.paidMinor, currencyCode: record.currencyCode ?? group.currencyCode))
@@ -1017,22 +952,21 @@ struct ExpenseRow: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                         .allowsTightening(true)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
                     Text(compactCreatedAt)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.mutedInk)
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
                         .allowsTightening(true)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .frame(width: trailingColumnWidth, alignment: .trailing)
+                .fixedSize(horizontal: true, vertical: false)
                 .layoutPriority(2)
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
             }
+            .padding(.vertical, rowVerticalPadding)
             .frame(minHeight: rowMinHeight)
             .padding(.horizontal, rowHorizontalPadding)
             .background(
@@ -1056,7 +990,7 @@ struct ExpenseRow: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(recordTitle(record)), \(L("Paid by %@").replacingOccurrences(of: "%@", with: payerName)), \(CurrencyCatalog.formatted(record.paidMinor, currencyCode: record.currencyCode ?? group.currencyCode)), \(fullCreatedAt)")
+        .accessibilityLabel("\(recordTitle(record)), \(participantSummary(compact: false)), \(CurrencyCatalog.formatted(record.paidMinor, currencyCode: record.currencyCode ?? group.currencyCode)), \(fullCreatedAt)")
     }
 }
 

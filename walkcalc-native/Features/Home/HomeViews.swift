@@ -36,7 +36,7 @@ struct ContentView: View {
         Group {
             switch store.startupRoute {
             case .resolving:
-                LaunchGateView()
+                StartupScreen(phase: .loading)
             case .authenticated:
                 RootHomeView()
             case .loginRequired:
@@ -65,43 +65,6 @@ struct ContentView: View {
                 }
             )
         }
-    }
-}
-
-private struct LaunchGateView: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        GeometryReader { proxy in
-            let layout = LoginLayout(size: proxy.size)
-            let markScale = layout.scale * 1.08
-
-            ZStack(alignment: .topLeading) {
-                background
-                    .ignoresSafeArea()
-
-                LoginBrandMark(scale: markScale)
-                    .frame(width: layout.value(70.2), height: layout.value(80.229))
-                    .offset(x: layout.x(8), y: layout.y(308))
-
-                Text("Walking Calculator")
-                    .font(.custom("PingFangSC-Semibold", size: layout.value(21)))
-                    .foregroundStyle(primaryText)
-                    .frame(width: layout.value(310), alignment: .leading)
-                    .lineLimit(1)
-                    .offset(x: layout.x(42), y: layout.y(412))
-            }
-        }
-        .ignoresSafeArea()
-        .accessibilityLabel(Text("Walking Calculator"))
-    }
-
-    private var background: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0x050505)) : Color(UIColor(hex: 0xF4F4F5))
-    }
-
-    private var primaryText: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0xF5F5F2)) : Color(UIColor(hex: 0x1E1E1E))
     }
 }
 
@@ -204,34 +167,18 @@ private struct LoginScreen: View {
     var body: some View {
         GeometryReader { proxy in
             let layout = LoginLayout(size: proxy.size)
-            let markScale = layout.scale * 1.08
-            let buttonWidth = layout.value(318)
+            let buttonWidth = min(layout.value(318), proxy.size.width - 48)
             let buttonHeight = layout.value(40)
             let buttonCornerRadius = buttonHeight / 2
-            let buttonX = layout.x(36)
-            let buttonGroupY = layout.y(664)
+            let buttonGroupHeight = buttonHeight * 2 + layout.value(12)
+            let buttonGroupTop = min(
+                layout.y(664),
+                proxy.size.height - max(24, proxy.safeAreaInsets.bottom) - buttonGroupHeight
+            )
 
             ZStack(alignment: .topLeading) {
-                loginBackground
-                    .ignoresSafeArea()
-
-                LoginBrandMark(scale: markScale)
-                    .frame(width: layout.value(70.2), height: layout.value(80.229))
-                    .offset(x: layout.x(8), y: layout.y(308))
-
-                Text("Walking Calculator")
-                    .font(.system(size: layout.value(21), weight: .semibold))
-                    .foregroundStyle(primaryText)
-                    .frame(width: layout.value(310), alignment: .leading)
-                    .lineLimit(1)
-                    .offset(x: layout.x(42), y: layout.y(412))
-
-                Text(L("Sign in to continue"))
-                    .font(.custom("PingFangSC-Medium", size: layout.value(15)))
-                    .foregroundStyle(secondaryText)
-                    .frame(width: layout.value(260), alignment: .leading)
-                    .lineLimit(1)
-                    .offset(x: layout.x(42), y: layout.y(446))
+                StartupScreen(phase: isInteractionDisabled ? .loading : .signIn)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
 
                 VStack(spacing: layout.value(12)) {
                     NativeSignInWithAppleButton(
@@ -262,22 +209,10 @@ private struct LoginScreen: View {
                     .disabled(isInteractionDisabled)
                 }
                 .frame(width: buttonWidth)
-                .offset(x: buttonX, y: buttonGroupY)
+                .offset(x: (proxy.size.width - buttonWidth) / 2, y: buttonGroupTop)
             }
         }
         .ignoresSafeArea()
-    }
-
-    private var loginBackground: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0x050505)) : Color(UIColor(hex: 0xF4F4F5))
-    }
-
-    private var primaryText: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0xF5F5F2)) : Color(UIColor(hex: 0x1E1E1E))
-    }
-
-    private var secondaryText: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0x8F8F8A)) : Color(UIColor(hex: 0xA9A9A9))
     }
 
     private var secondaryButtonBackground: Color {
@@ -420,40 +355,6 @@ private struct LoginLayout {
 
     func y(_ base: CGFloat) -> CGFloat {
         origin.y + value(base)
-    }
-}
-
-private struct LoginBrandMark: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let scale: CGFloat
-
-    private var leftCapsule: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0xF8F8F5)) : Color(UIColor(hex: 0xB6B6B6))
-    }
-
-    private var rightCapsule: Color {
-        colorScheme == .dark ? Color(UIColor(hex: 0xA0A09C)) : Color(UIColor(hex: 0x050505))
-    }
-
-    private var shadowOpacity: Double {
-        colorScheme == .dark ? 0.38 : 0.18
-    }
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 13.638 * scale, style: .continuous)
-                .fill(leftCapsule)
-                .frame(width: 27.277 * scale, height: 49.911 * scale)
-                .shadow(color: .black.opacity(shadowOpacity), radius: 4.643 * scale, y: 1.741 * scale)
-                .offset(x: 12.77 * scale, y: 12.19 * scale)
-
-            RoundedRectangle(cornerRadius: 13.638 * scale, style: .continuous)
-                .fill(rightCapsule)
-                .frame(width: 27.277 * scale, height: 49.911 * scale)
-                .shadow(color: .black.opacity(shadowOpacity), radius: 4.643 * scale, y: 1.741 * scale)
-                .offset(x: 26.12 * scale, y: 12.19 * scale)
-        }
     }
 }
 
@@ -994,28 +895,15 @@ private struct HomeBalanceCard: View {
 
     let isAnimationEnabled: Bool
 
-    private var actualCurrencyCodes: Set<String> {
-        let identityIds = Set([store.localOwner.uuid, store.user?.uuid].compactMap { $0 })
-        return store.groups.reduce(into: Set<String>()) { result, group in
-            guard identityIds.isDisjoint(with: Set(group.archivedUsers)) else { return }
-            let member = group.allMembers.first { identityIds.contains($0.uuid) }
-            let projections = group.hasCurrentUserBalanceSummary
-                ? group.currentUserCurrencyBalances
-                : member?.currencyBalances ?? []
-            for balance in projections where balance.hasLedgerActivity {
-                result.insert(CurrencyCatalog.normalizedCode(balance.currencyCode))
-            }
-        }
-    }
-
     private var balances: [CurrencyBalanceSummary] {
-        let actualBalances = store.totalBalancesByCurrency.filter {
-            actualCurrencyCodes.contains(CurrencyCatalog.normalizedCode($0.currencyCode))
-                || !Money.isZero($0.totalBalanceMinor)
+        if !store.totalBalancesByCurrency.isEmpty {
+            // History still belongs in the ledger, but a zero net balance should
+            // not occupy a currency page in the home summary carousel.
+            return store.totalBalancesByCurrency
+                .filter { !Money.isZero($0.totalBalanceMinor) }
+                .sorted { $0.currencyCode < $1.currencyCode }
         }
-        if !actualBalances.isEmpty {
-            return actualBalances.sorted { $0.currencyCode < $1.currencyCode }
-        }
+        // Use the legacy total only when no per-currency summary was supplied.
         guard !Money.isZero(store.totalBalanceMinor) else { return [] }
         return [CurrencyBalanceSummary(
             currencyCode: CurrencyCatalog.defaultCurrencyCode(),
@@ -1091,7 +979,7 @@ struct CurrencyBalanceCarousel: View {
 
     let balances: [CurrencyBalanceSummary]
     let isAnimationEnabled: Bool
-    private let title: String
+    private let title: String?
     let scopeCount: ((String) -> Int)?
     let subtitle: ((CurrencyBalanceSummary) -> String)?
     let onTap: ((CurrencyBalanceSummary) -> Void)?
@@ -1143,14 +1031,15 @@ struct CurrencyBalanceCarousel: View {
     init(
         balances: [CurrencyBalanceSummary],
         isAnimationEnabled: Bool,
-        title: String,
+        title: String?,
+        subtitle: ((CurrencyBalanceSummary) -> String)? = nil,
         amountColor: @escaping (CurrencyBalanceSummary) -> Color
     ) {
         self.balances = balances
         self.isAnimationEnabled = isAnimationEnabled
         self.title = title
         self.scopeCount = nil
-        self.subtitle = nil
+        self.subtitle = subtitle
         self.onTap = nil
         self.presentation = .card
         self.amountColor = amountColor
@@ -1164,7 +1053,7 @@ struct CurrencyBalanceCarousel: View {
     ) {
         self.balances = balances
         self.isAnimationEnabled = isAnimationEnabled
-        self.title = ""
+        self.title = nil
         self.scopeCount = nil
         self.subtitle = nil
         self.onTap = nil
@@ -1287,9 +1176,11 @@ struct CurrencyBalanceCarousel: View {
         } else {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    if let title {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    }
 
                     HStack(alignment: .center, spacing: 12) {
                         amountViewport
@@ -1519,7 +1410,7 @@ struct CurrencyBalanceCarousel: View {
     }
 
     private var accessibilityLabel: String {
-        var components = [title, showsSettledText && Money.isZero(selectedBalance.totalBalanceMinor) ? L("Settled") : signedMoney(selectedBalance.totalBalanceMinor, style: .exact, currencyCode: selectedBalance.currencyCode)]
+        var components = [title ?? "", showsSettledText && Money.isZero(selectedBalance.totalBalanceMinor) ? L("Settled") : signedMoney(selectedBalance.totalBalanceMinor, style: .exact, currencyCode: selectedBalance.currencyCode)]
         if let subtitle {
             components.append(subtitle(selectedBalance))
         } else if scopeCount != nil {
@@ -1786,16 +1677,19 @@ private struct GroupSummaryRow: View {
         let projections = group.hasCurrentUserBalanceSummary
             ? group.currentUserCurrencyBalances
             : currentMember?.currencyBalances ?? []
-        let actualBalances = projections
-            .filter(\.hasLedgerActivity)
-            .sorted { $0.currencyCode < $1.currencyCode }
-        if !actualBalances.isEmpty {
-            return actualBalances.map {
-                CurrencyBalanceSummary(
-                    currencyCode: $0.currencyCode,
-                    totalBalanceMinor: $0.debtMinor
-                )
-            }
+        if !projections.isEmpty {
+            // A currency with history may already be settled. Only outstanding
+            // balances belong in the carousel; all-zero projections are final
+            // and must not fall back to a stale single-currency balance.
+            return projections
+                .filter { !Money.isZero($0.debtMinor) }
+                .sorted { $0.currencyCode < $1.currencyCode }
+                .map {
+                    CurrencyBalanceSummary(
+                        currencyCode: $0.currencyCode,
+                        totalBalanceMinor: $0.debtMinor
+                    )
+                }
         }
         guard !Money.isZero(myBalance) else { return [] }
         return [CurrencyBalanceSummary(
@@ -1825,7 +1719,7 @@ private struct GroupSummaryRow: View {
     private var accessibilityBalanceText: String {
         guard !carouselBalances.isEmpty else { return zeroBalanceText }
         return carouselBalances
-            .map { Money.isZero($0.totalBalanceMinor) ? L("Settled") : signedMoney($0.totalBalanceMinor, currencyCode: $0.currencyCode) }
+            .map { signedMoney($0.totalBalanceMinor, currencyCode: $0.currencyCode) }
             .joined(separator: ", ")
     }
 
@@ -1856,7 +1750,6 @@ private struct GroupSummaryRow: View {
                 CurrencyBalanceCarousel(
                     compactBalances: carouselBalances,
                     isAnimationEnabled: isAnimationEnabled,
-                    showsSettledText: true,
                     amountColor: { moneyColor($0.totalBalanceMinor) }
                 )
                 .frame(width: amountWidth, height: amountHeight, alignment: .trailing)

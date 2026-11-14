@@ -67,6 +67,20 @@ struct walkcalc_nativeApp: App {
                     GroupDetailPreviewHost()
                 } else if ProcessInfo.processInfo.arguments.contains("--design-playground-settlement") {
                     SettlementPlanPlayground()
+                } else if ProcessInfo.processInfo.arguments.contains("--design-playground-members") {
+                    MemberDetailsPlayground(screen:
+                        ProcessInfo.processInfo.arguments.contains("--member-self") ? .yourself :
+                        ProcessInfo.processInfo.arguments.contains("--member-detail") ? .member :
+                        ProcessInfo.processInfo.arguments.contains("--member-group") ? .group : .members,
+                        edgeCases: ProcessInfo.processInfo.arguments.contains("--member-edge-cases")
+                    )
+                } else if ProcessInfo.processInfo.arguments.contains("--design-playground-startup") {
+                    LaunchScreenPlayground(phase:
+                        ProcessInfo.processInfo.arguments.contains("--startup-splash") ? .splash :
+                        ProcessInfo.processInfo.arguments.contains("--startup-sign-in") ? .signIn : .loading
+                    )
+                } else if ProcessInfo.processInfo.arguments.contains("--design-playground-web") {
+                    WebViewSheetPlayground().preferredColorScheme(.dark)
                 } else {
                     ContentView()
                         .environmentObject(store)

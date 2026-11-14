@@ -13,7 +13,7 @@ struct QRCodeImage: View {
             .interpolation(.none)
             .resizable()
             .scaledToFit()
-            .accessibilityLabel("QR Code")
+            .accessibilityLabel(L("QR Code"))
     }
 
     private func makeImage() -> UIImage {

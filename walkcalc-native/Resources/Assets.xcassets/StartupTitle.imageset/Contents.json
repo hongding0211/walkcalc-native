@@ -1,0 +1,8 @@
+{
+  "images": [
+    { "filename": "StartupTitle-Light.pdf", "idiom": "universal" },
+    { "filename": "StartupTitle-Dark.pdf", "idiom": "universal", "appearances": [{ "appearance": "luminosity", "value": "dark" }] }
+  ],
+  "info": { "author": "xcode", "version": 1 },
+  "properties": { "preserves-vector-representation": true }
+}

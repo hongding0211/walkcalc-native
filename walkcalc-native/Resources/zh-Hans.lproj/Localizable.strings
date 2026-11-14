@@ -1,5 +1,4 @@
 "About" = "关于";
-"%@ should pay %@ %@" = "%@ 应该付给 %@ %@";
 "Add" = "添加";
 "Add fail" = "添加失败";
 "Add member" = "添加成员";
@@ -8,7 +7,6 @@
 "All matching members selected" = "匹配成员已全部选择";
 "Any unresolved balances will be automatically resolved to zero before this group is deleted." = "如果存在未结清账单，删除前会被自动结清并清零。";
 "All Groups" = "全部群组";
-"All balances" = "全部余额";
 "Archive" = "归档";
 "Archived Groups" = "已归档群组";
 "Average cost" = "人均";
@@ -21,10 +19,10 @@
 "Confirm dismiss group?" = "确认解散群组";
 "Confirm join" = "确认加入";
 "Confirm logout?" = "确认登出吗？";
-"Confirm resolve all debts?" = "确认和解所有债务吗?";
-"Confirm resolve single debt?" = "确认和解单笔债务吗?";
+"Confirm resolve all debts?" = "结清所有余额？";
+"Confirm resolve single debt?" = "结清这笔余额？";
 "Continue with hong97.ltd" = "使用 hong97.ltd 继续";
-"Debt Resolve" = "债务和解";
+"Debt Resolve" = "结清";
 "Debt detail" = "债务详情";
 "Delete" = "删除";
 "Dismiss group" = "解散群组";
@@ -78,10 +76,10 @@
 "Record count" = "记录条数";
 "Record detail" = "记录详情";
 "Remark" = "备注";
-"Resolve all debt" = "和解所有债务";
+"Resolve all debt" = "结清所有余额";
 "Scan to join" = "扫码加入";
 "Search by user name" = "通过用户名搜索";
-"Select all" = "选择所有";
+"Select all" = "选择全部";
 "Select at least one people." = "至少选择一个被付款的人";
 "Settings" = "设置";
 "Share" = "分享";
@@ -106,12 +104,11 @@
 "All" = "全部";
 "Pin" = "置顶";
 "Unpin" = "取消置顶";
-"Pinned" = "已置顶";
+"Pinned" = "置顶群组";
 "All groups" = "全部群组";
 "Archive group" = "归档群组";
 "Archive group?" = "归档群组？";
 "Archived groups" = "已归档群组";
-"Balance with %@" = "与 %@ 的余额";
 "Create" = "创建";
 "Create group" = "创建群组";
 "Create a group or join one shared by friends, roommates, or a trip." = "创建群组，或加入朋友、室友、旅行伙伴共享的群组。";
@@ -159,7 +156,7 @@
 "Resolve" = "结清";
 "Resolve all transfer" = "结清所有转账";
 "Resolve this transfer" = "结清这笔转账";
-"Resolve transfer?" = "结清转账？";
+"Resolve transfer?" = "结清这笔转账？";
 "Restore" = "恢复";
 "Remove %@" = "移除 %@";
 "Results" = "结果";
@@ -176,16 +173,15 @@
 "Pink" = "粉色";
 "Yellow" = "黄色";
 "Green" = "绿色";
-"Settle with %@" = "结清给 %@";
 "Settled" = "已结清";
 "Only groups with zero balances can be archived." = "只有余额全部为 0 的群组才能归档。";
 "Settle all balances before archiving this group." = "请先结清所有余额，再归档这个群组。";
 "Unresolved balances will be automatically resolved to zero before this group is deleted." = "删除前，未结清的账单会被自动结清并清零。";
 "Shopping" = "购物";
-"Split" = "分摊";
+"Participants" = "参与人";
 "Stay" = "住宿";
 "Suggested settlement" = "建议结清";
-"Tap to resolve" = "点击结清";
+"Tap to resolve" = "轻按以结清";
 "Temporary members" = "临时成员";
 "Temporary members can participate in expenses without an account." = "临时成员无需账号，也可以参与分账。";
 "Ticket" = "票务";
@@ -200,15 +196,8 @@
 "Owed to you" = "别人欠你";
 "paid" = "付款";
 "paid for" = "为";
-"pays" = "支付给";
 "people" = "人";
 "You" = "你";
-"You pay %@" = "你支付给 %@";
-"%@ pays you" = "%@ 支付给你";
-"You should pay %@ %@" = "你应向 %@ 支付 %@";
-"%@ should pay you %@" = "%@ 应向你支付 %@";
-"You owe %@" = "你欠 %@";
-"%@ owes you" = "%@ 欠你";
 "You owe" = "你欠别人";
 "members" = "成员";
 "Currency" = "货币";
@@ -250,10 +239,47 @@
 
 
 
-"Resolve shown transfers" = "结算当前显示的转账";
+"Resolve shown transfers" = "结清当前显示的转账";
 
 "All categories" = "全部分类";
 
 "Couldn't update pin" = "无法更新置顶状态";
 
 "Please try again." = "请重试。";
+
+"Account" = "账户";
+"Appearance" = "外观";
+"Group settings" = "群组设置";
+"Add group" = "添加群组";
+"Me" = "我";
+"QR Code" = "二维码";
+
+// Member details and settlement
+"Member details" = "成员明细";
+"Account details" = "账户明细";
+"All bills involving you" = "与你有关的所有账单";
+"All bills involving %@" = "与%@有关的所有账单";
+"Total %@ records" = "总计 %@ 条记录";
+"You need to pay %@" = "你 需支付 %@";
+"%@ needs to pay you" = "%@ 需支付 你";
+"%@ needs to pay %@" = "%@ 需支付 %@";
+"You need to pay %@ %@" = "你需支付%@%@";
+"%@ needs to pay you %@" = "%@需支付你%@";
+"%@ needs to pay %@ %@" = "%@需支付%@%@";
+"1 record in total" = "总计 1 条记录";
+
+// Payment participants
+"Record.you" = "你";
+"Record.yourself" = "自己";
+"Record.themselves" = "TA";
+"Record.name separator" = "、";
+"Record.pair separator" = "和";
+"Record.final separator" = "、";
+"Record.everyone" = "所有人";
+"Record.recipient group" = "%@等%@人";
+"Record.paid" = "%@支付";
+"Record.paid for" = "%@替%@支付";
+"Record.paid to" = "%@支付给%@";
+"Settlement.pay" = "需支付";
+"Settlement.pays" = "需支付";
+"Settlement.you" = "你";

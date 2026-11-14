@@ -159,6 +159,7 @@ struct WebView: UIViewRepresentable {
             }
         }
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        Self.configureBackground(webView, colorScheme: context.environment.colorScheme)
         webView.navigationDelegate = context.coordinator
         webView.load(request)
         return webView
@@ -225,7 +226,19 @@ struct WebView: UIViewRepresentable {
         return encoded
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        Self.configureBackground(uiView, colorScheme: context.environment.colorScheme)
+    }
+
+    private static func configureBackground(_ webView: WKWebView, colorScheme: ColorScheme) {
+        // systemBackground becomes elevated gray in a dark sheet. Match the
+        // explicit sheet surface, including the initial blank page and overscroll.
+        let color: UIColor = colorScheme == .dark ? .black : .white
+        webView.isOpaque = false
+        webView.backgroundColor = color
+        webView.scrollView.backgroundColor = color
+        webView.underPageBackgroundColor = color
+    }
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "authCallback")

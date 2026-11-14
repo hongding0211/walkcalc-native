@@ -717,9 +717,7 @@ extension Array {
 
 extension View {
     func immersiveWebSheet() -> some View {
-        self
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+        modifier(ImmersiveWebSheetModifier())
     }
 
     func softLedgerProgressTint() -> some View {
@@ -728,6 +726,21 @@ extension View {
 
     func softLedgerDismissesKeyboardOnBackgroundTap(isActive: Bool = true, onDismiss: @escaping () -> Void = {}) -> some View {
         modifier(SoftLedgerKeyboardDismissModifier(isActive: isActive, onDismiss: onDismiss))
+    }
+}
+
+private struct ImmersiveWebSheetModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let background: Color = colorScheme == .dark ? .black : .white
+        content
+            // Only the background extends behind Duo's side status region;
+            // web controls continue to respect the asymmetric safe area.
+            .background(background.ignoresSafeArea())
+            .presentationBackground(background)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
     }
 }
 

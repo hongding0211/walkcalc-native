@@ -1,5 +1,4 @@
 "About" = "About";
-"%@ should pay %@ %@" = "%@ should pay %@ %@";
 "Add" = "Add";
 "Add fail" = "Add fail";
 "Add member" = "Add member";
@@ -8,7 +7,6 @@
 "All matching members selected" = "All matching members selected";
 "Any unresolved balances will be automatically resolved to zero before this group is deleted." = "Any unresolved balances will be automatically resolved to zero before this group is deleted.";
 "All Groups" = "All Groups";
-"All balances" = "All balances";
 "Archive" = "Archive";
 "Archived Groups" = "Archived Groups";
 "Average cost" = "Average cost";
@@ -21,10 +19,10 @@
 "Confirm dismiss group?" = "Confirm dismiss group?";
 "Confirm join" = "Confirm join";
 "Confirm logout?" = "Confirm logout?";
-"Confirm resolve all debts?" = "Confirm resolve all debts?";
-"Confirm resolve single debt?" = "Confirm resolve single debt?";
+"Confirm resolve all debts?" = "Settle all balances?";
+"Confirm resolve single debt?" = "Settle this balance?";
 "Continue with hong97.ltd" = "Continue with hong97.ltd";
-"Debt Resolve" = "Debt Resolve";
+"Debt Resolve" = "Settlement";
 "Debt detail" = "Debt detail";
 "Delete" = "Delete";
 "Dismiss group" = "Dismiss group";
@@ -78,7 +76,7 @@
 "Record count" = "Record count";
 "Record detail" = "Record detail";
 "Remark" = "Remark";
-"Resolve all debt" = "Resolve all debt";
+"Resolve all debt" = "Settle all balances";
 "Scan to join" = "Scan to join";
 "Search by user name" = "Search by user name";
 "Select all" = "Select all";
@@ -111,7 +109,6 @@
 "Archive group" = "Archive group";
 "Archive group?" = "Archive group?";
 "Archived groups" = "Archived groups";
-"Balance with %@" = "Balance with %@";
 "Create" = "Create";
 "Create group" = "Create group";
 "Create a group or join one shared by friends, roommates, or a trip." = "Create a group or join one shared by friends, roommates, or a trip.";
@@ -156,10 +153,10 @@
 "Records" = "Records";
 "Read only" = "Read only";
 "This expense includes a removed member and can no longer be edited." = "This expense includes a removed member and can no longer be edited.";
-"Resolve" = "Resolve";
-"Resolve all transfer" = "Resolve all transfer";
-"Resolve this transfer" = "Resolve this transfer";
-"Resolve transfer?" = "Resolve transfer?";
+"Resolve" = "Settle";
+"Resolve all transfer" = "Settle all transfers";
+"Resolve this transfer" = "Settle this transfer";
+"Resolve transfer?" = "Settle this transfer?";
 "Restore" = "Restore";
 "Remove %@" = "Remove %@";
 "Results" = "Results";
@@ -176,16 +173,15 @@
 "Pink" = "Pink";
 "Yellow" = "Yellow";
 "Green" = "Green";
-"Settle with %@" = "Settle with %@";
 "Settled" = "Settled";
 "Only groups with zero balances can be archived." = "Only groups with zero balances can be archived.";
 "Settle all balances before archiving this group." = "Settle all balances before archiving this group.";
 "Unresolved balances will be automatically resolved to zero before this group is deleted." = "Unresolved balances will be automatically resolved to zero before this group is deleted.";
 "Shopping" = "Shopping";
-"Split" = "Split";
+"Participants" = "Participants";
 "Stay" = "Stay";
 "Suggested settlement" = "Suggested settlement";
-"Tap to resolve" = "Tap to resolve";
+"Tap to resolve" = "Tap to settle";
 "Temporary members" = "Temporary members";
 "Temporary members can participate in expenses without an account." = "Temporary members can participate in expenses without an account.";
 "Ticket" = "Ticket";
@@ -200,15 +196,8 @@
 "Owed to you" = "Owed to you";
 "paid" = "paid";
 "paid for" = "paid for";
-"pays" = "pays";
 "people" = "people";
 "You" = "You";
-"You pay %@" = "You pay %@";
-"%@ pays you" = "%@ pays you";
-"You should pay %@ %@" = "You should pay %@ %@";
-"%@ should pay you %@" = "%@ should pay you %@";
-"You owe %@" = "You owe %@";
-"%@ owes you" = "%@ owes you";
 "You owe" = "You owe";
 "members" = "members";
 "Currency" = "Currency";
@@ -250,10 +239,47 @@
 
 
 
-"Resolve shown transfers" = "Resolve shown transfers";
+"Resolve shown transfers" = "Settle shown transfers";
 
 "All categories" = "All categories";
 
 "Couldn't update pin" = "Couldn't update pin";
 
 "Please try again." = "Please try again.";
+
+"Account" = "Account";
+"Appearance" = "Appearance";
+"Group settings" = "Group settings";
+"Add group" = "Add group";
+"Me" = "Me";
+"QR Code" = "QR Code";
+
+// Member details and settlement
+"Member details" = "Member details";
+"Account details" = "Account details";
+"All bills involving you" = "All bills involving you";
+"All bills involving %@" = "All bills involving %@";
+"Total %@ records" = "%@ records in total";
+"You need to pay %@" = "You should pay %@";
+"%@ needs to pay you" = "%@ should pay you";
+"%@ needs to pay %@" = "%@ should pay %@";
+"You need to pay %@ %@" = "You should pay %@ %@";
+"%@ needs to pay you %@" = "%@ should pay you %@";
+"%@ needs to pay %@ %@" = "%@ should pay %@ %@";
+"1 record in total" = "1 record in total";
+
+// Payment participants
+"Record.you" = "you";
+"Record.yourself" = "yourself";
+"Record.themselves" = "themselves";
+"Record.name separator" = ", ";
+"Record.pair separator" = " and ";
+"Record.final separator" = ", and ";
+"Record.everyone" = "everyone";
+"Record.recipient group" = "%@ and others (%@ people)";
+"Record.paid" = "%@ paid";
+"Record.paid for" = "%@ paid for %@";
+"Record.paid to" = "%@ paid %@";
+"Settlement.pay" = "should pay";
+"Settlement.pays" = "should pay";
+"Settlement.you" = "you";

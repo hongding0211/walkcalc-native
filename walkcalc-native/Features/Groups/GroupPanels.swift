@@ -2290,6 +2290,8 @@ struct RecordEditorView: View {
 }
 
 private struct PaidByInlineEditor: View {
+    @Environment(\.softLedgerAppTheme) private var appTheme
+
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 10
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
@@ -2307,7 +2309,8 @@ private struct PaidByInlineEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: sectionSpacing) {
             Text(L("Paid by"))
-                .foregroundStyle(SoftLedgerTheme.ink)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(appTheme.accent)
 
             JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { member in
                 let isMemberSelected = selection == member.uuid
@@ -2370,9 +2373,11 @@ private struct SplitInlineEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: sectionSpacing) {
             HStack {
-                Text(L("Split"))
+                Text(L("Participants"))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(appTheme.accent)
                 Spacer()
-                Button(L("All")) {
+                Button(L("Select all")) {
                     allFeedbackTrigger &+= 1
                     onEdit()
                     if selection.count == members.count {
@@ -2409,7 +2414,7 @@ private struct SplitInlineEditor: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(L("Split")) \(displayName(for: member))")
+                .accessibilityLabel("\(L("Participants")) \(displayName(for: member))")
                 .accessibilityAddTraits(isMemberSelected ? .isSelected : [])
             }
         }
@@ -2631,7 +2636,7 @@ struct BalancesWorkspace: View {
                     path.append(member)
                 }
                 .navigationDestination(for: Member.self) { member in
-                    MemberBalanceDetailView(group: currentGroup, member: member, showsRecordTotal: false)
+                    MemberBalanceDetailView(group: currentGroup, member: member)
                 }
             }
             .onAppear {
@@ -2641,7 +2646,7 @@ struct BalancesWorkspace: View {
             }
         } else if let initialMember {
             NavigationStack {
-                MemberBalanceDetailView(group: currentGroup, member: initialMember, showsRecordTotal: false)
+                MemberBalanceDetailView(group: currentGroup, member: initialMember)
             }
         }
     }
@@ -2656,7 +2661,6 @@ private struct BalancesRootView: View {
     @State private var resolvingMode: ResolveMode?
     @State private var resolvingDebtID: ResolvedDebt.ID?
     @State private var resolveMessage: String?
-    @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
@@ -2703,20 +2707,7 @@ private struct BalancesRootView: View {
               let debt = pendingResolveDebts.first else {
             return ""
         }
-        let amount = CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode, style: .exact)
-        let currentParticipantID = store.currentParticipantID(for: group)
-        if debt.from.uuid == currentParticipantID {
-            return String(format: L("You should pay %@ %@"), debt.to.name, amount)
-        }
-        if debt.to.uuid == currentParticipantID {
-            return String(format: L("%@ should pay you %@"), debt.from.name, amount)
-        }
-        return String(
-            format: L("%@ should pay %@ %@"),
-            debt.from.name,
-            debt.to.name,
-            amount
-        )
+        return SettlementCopy.confirmation(debt, participantID: store.currentParticipantID(for: group))
     }
 
     private var isResolving: Bool {
@@ -2748,30 +2739,24 @@ private struct BalancesRootView: View {
                         }
                     }
 
-                    VStack(alignment: .leading, spacing: sectionSpacing) {
-                        Text(L("All balances"))
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(SoftLedgerTheme.ink)
-
-                        LazyVStack(spacing: 0) {
-                            ForEach(members) { member in
-                                BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode, currencyCodes: store.recordFilters(for: group.id).currencyCodes) {
-                                    onSelect(member)
-                                }
-                                if member.id != members.last?.id {
-                                    Divider()
-                                        .overlay(SoftLedgerTheme.rule.opacity(0.54))
-                                        .padding(.leading, dividerLeadingPadding)
-                                }
+                    LazyVStack(spacing: 0) {
+                        ForEach(members) { member in
+                            BalancePreviewRow(member: member, recordCount: recordCount(for: member), currencyCode: group.currencyCode, currencyCodes: store.recordFilters(for: group.id).currencyCodes) {
+                                onSelect(member)
+                            }
+                            if member.id != members.last?.id {
+                                Divider()
+                                    .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                                    .padding(.leading, dividerLeadingPadding)
                             }
                         }
-                        .padding(.horizontal, rowHorizontalPadding)
-                        .padding(.vertical, rowVerticalPadding)
-                        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                        }
+                    }
+                    .padding(.horizontal, rowHorizontalPadding)
+                    .padding(.vertical, rowVerticalPadding)
+                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
                     }
                 }
                 .padding(.horizontal, horizontalPadding)
@@ -2808,7 +2793,7 @@ private struct BalancesRootView: View {
             }
         }
         .sensoryFeedback(SoftLedgerHaptics.tap(), trigger: resolveFeedbackTrigger)
-        .navigationTitle(L("Balances"))
+        .navigationTitle(L("Member details"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task(id: group.id) {
@@ -2884,7 +2869,9 @@ private struct BalancesRootView: View {
 
 private struct SettlementPlanSection: View {
     @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
-    @ScaledMetric(relativeTo: .subheadline) private var cardSpacing = 10
+    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 83
+    @ScaledMetric(relativeTo: .subheadline) private var dividerTrailingPadding = 14
 
     let debts: [ResolvedDebt]
     let resolvingDebtID: ResolvedDebt.ID?
@@ -2898,7 +2885,7 @@ private struct SettlementPlanSection: View {
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(SoftLedgerTheme.ink)
 
-            LazyVStack(spacing: cardSpacing) {
+            LazyVStack(spacing: 0) {
                 ForEach(debts) { debt in
                     SettlementPlanRow(
                         debt: debt,
@@ -2908,28 +2895,32 @@ private struct SettlementPlanSection: View {
                         onResolve(debt)
                     }
                     .disabled(isDisabled)
+
+                    if debt.id != debts.last?.id {
+                        Divider()
+                            .overlay(SoftLedgerTheme.rule.opacity(0.54))
+                            .padding(.leading, dividerLeadingPadding)
+                            .padding(.trailing, dividerTrailingPadding)
+                    }
                 }
+            }
+            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
         }
     }
 }
 
 private struct SettlementPlanRow: View {
-    @Environment(\.softLedgerAppTheme) private var appTheme
-
-    @ScaledMetric(relativeTo: .subheadline) private var avatarSize = 30
-    @ScaledMetric(relativeTo: .caption) private var receiverAvatarSize = 20
-    @ScaledMetric(relativeTo: .caption) private var arrowBadgeSize = 18
-    @ScaledMetric(relativeTo: .caption2) private var arrowBadgeFontSize = 9
     @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
-    @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
-    @ScaledMetric(relativeTo: .caption) private var receiverSpacing = 6
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var cardHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var cardVerticalPadding = 12
     @ScaledMetric(relativeTo: .subheadline) private var amountMinWidth = 76
-    @ScaledMetric(relativeTo: .subheadline) private var chevronSize = 14
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    @ScaledMetric(relativeTo: .subheadline) private var progressSize = 14
+    @ScaledMetric(relativeTo: .caption) private var textSpacing = 4
 
     let debt: ResolvedDebt
     let currentParticipantID: String?
@@ -2953,57 +2944,37 @@ private struct SettlementPlanRow: View {
 
     private var rowContent: some View {
         HStack(spacing: rowSpacing) {
-            payerAvatar
+            SettlementAvatarPair(from: debt.from, to: debt.to)
 
             VStack(alignment: .leading, spacing: textSpacing) {
-                Text(transferTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(SoftLedgerTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.86)
-                    .truncationMode(.tail)
+                SettlementRelationshipTitle(debt: debt, currentParticipantID: currentParticipantID)
 
-                HStack(spacing: receiverSpacing) {
-                    SoftLedgerAvatar(member: debt.to, size: receiverAvatarSize)
-                        .accessibilityHidden(true)
-
-                    Text(L("Settle with %@").replacingOccurrences(of: "%@", with: counterpartyName))
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+                Text(L("Tap to resolve"))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
             }
             .layoutPriority(1)
 
-            Spacer(minLength: rowSpacing)
+            Spacer(minLength: 0)
 
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode))
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(SoftLedgerTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                    .allowsTightening(true)
-
-                Text(L("Tap to resolve"))
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-            }
-            .frame(minWidth: amountMinWidth, alignment: .trailing)
-            .layoutPriority(3)
+            Text(CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode))
+                .font(.subheadline.monospacedDigit().weight(.semibold))
+                .foregroundStyle(SoftLedgerTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .allowsTightening(true)
+                .frame(minWidth: amountMinWidth, alignment: .trailing)
+                .layoutPriority(3)
 
             if isResolving {
                 ProgressView()
                     .controlSize(.small)
                     .softLedgerProgressTint()
-                    .frame(width: chevronSize, height: chevronSize)
+                    .frame(width: progressSize, height: progressSize)
                     .accessibilityHidden(true)
             } else {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: chevronSize, weight: .semibold))
+                    .font(.system(size: progressSize, weight: .semibold))
                     .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.64))
                     .accessibilityHidden(true)
             }
@@ -3011,45 +2982,11 @@ private struct SettlementPlanRow: View {
         .padding(.horizontal, cardHorizontalPadding)
         .padding(.vertical, cardVerticalPadding)
         .frame(minHeight: rowMinHeight)
-        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-        }
+        .contentShape(Rectangle())
     }
 
     private var transferTitle: String {
-        if debt.from.uuid == currentParticipantID {
-            return L("You pay %@").replacingOccurrences(of: "%@", with: debt.to.name)
-        }
-        if debt.to.uuid == currentParticipantID {
-            return L("%@ pays you").replacingOccurrences(of: "%@", with: debt.from.name)
-        }
-        return "\(debt.from.name) \(L("pays")) \(debt.to.name)"
-    }
-
-    private var counterpartyName: String {
-        debt.from.uuid == currentParticipantID ? debt.to.name : debt.from.name
-    }
-
-    private var payerAvatar: some View {
-        ZStack(alignment: .bottomTrailing) {
-            SoftLedgerAvatar(member: debt.from, size: avatarSize)
-                .accessibilityHidden(true)
-
-            Image(systemName: "arrow.right")
-                .font(.system(size: arrowBadgeFontSize, weight: .bold))
-                .foregroundStyle(SoftLedgerTheme.paper)
-                .frame(width: arrowBadgeSize, height: arrowBadgeSize)
-                .background(appTheme.accent, in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(SoftLedgerTheme.paper, lineWidth: max(1, arrowBadgeSize / 9))
-                }
-                .offset(x: 2, y: 2)
-                .accessibilityHidden(true)
-        }
-        .frame(width: avatarSize + 3, height: avatarSize + 3)
+        SettlementCopy.title(debt, participantID: currentParticipantID)
     }
 }
 
@@ -3066,14 +3003,8 @@ private struct MemberBalanceDetailView: View {
 
     let group: WalkGroup
     let member: Member
-    let showsRecordTotal: Bool
     @State private var selectedRecord: WalkRecord?
     @State private var deleteCandidate: WalkRecord?
-    @State private var showsResolveConfirmation = false
-    @State private var pendingResolveDebt: ResolvedDebt?
-    @State private var resolvingDebtID: ResolvedDebt.ID?
-    @State private var resolveMessage: String?
-
     private var currentGroup: WalkGroup {
         store.group(id: group.id) ?? group
     }
@@ -3127,28 +3058,16 @@ private struct MemberBalanceDetailView: View {
         }, groupId: group.id)
     }
 
-    private var memberDebts: [ResolvedDebt] {
-        return store.visibleResolvedDebts(for: currentGroup).filter { debt in
-            debt.from.uuid == currentMember.uuid || debt.to.uuid == currentMember.uuid
+    private var pageTitle: String {
+        if currentMember.uuid == store.currentParticipantID(for: currentGroup) {
+            return L("All bills involving you")
         }
+        return String(format: L("All bills involving %@"), currentMember.name)
     }
 
-    private var resolveConfirmationMessage: String {
-        guard let debt = pendingResolveDebt else { return "" }
-        let amount = CurrencyCatalog.formatted(debt.amountMinor, currencyCode: debt.currencyCode, style: .exact)
-        let currentParticipantID = store.currentParticipantID(for: currentGroup)
-        if debt.from.uuid == currentParticipantID {
-            return String(format: L("You should pay %@ %@"), debt.to.name, amount)
-        }
-        if debt.to.uuid == currentParticipantID {
-            return String(format: L("%@ should pay you %@"), debt.from.name, amount)
-        }
-        return String(
-            format: L("%@ should pay %@ %@"),
-            debt.from.name,
-            debt.to.name,
-            amount
-        )
+    private var recordSummary: String {
+        if recordTotal == 1 { return L("1 record in total") }
+        return String(format: L("Total %@ records"), String(recordTotal))
     }
 
     var body: some View {
@@ -3157,33 +3076,26 @@ private struct MemberBalanceDetailView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
-                    HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 14) {
                         if carouselBalances.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(L("Balance with %@").replacingOccurrences(of: "%@", with: currentMember.name))
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                                Text("—")
-                                    .font(.system(size: 42, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(SoftLedgerTheme.ink)
-                            }
+                            Text("0")
+                                .font(.system(size: 42, weight: .semibold, design: .rounded))
+                                .foregroundStyle(SoftLedgerTheme.ink)
+                            Text(recordSummary)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
                         } else {
                             CurrencyBalanceCarousel(
                                 balances: carouselBalances,
                                 isAnimationEnabled: true,
-                                title: L("Balance with %@").replacingOccurrences(of: "%@", with: currentMember.name),
+                                title: nil,
+                                subtitle: { _ in recordSummary },
                                 amountColor: {
                                     Money.isZero($0.totalBalanceMinor)
                                         ? SoftLedgerTheme.ink
                                         : moneyColor($0.totalBalanceMinor)
                                 }
                             )
-                        }
-                        if showsRecordTotal {
-                            Spacer()
-                            Text(L("%@ records").replacingOccurrences(of: "%@", with: "\(recordTotal)"))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(SoftLedgerTheme.mutedInk)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -3192,24 +3104,6 @@ private struct MemberBalanceDetailView: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                    }
-
-                    if !memberDebts.isEmpty {
-                        SettlementPlanSection(
-                            debts: memberDebts,
-                            resolvingDebtID: resolvingDebtID,
-                            isDisabled: resolvingDebtID != nil,
-                            currentParticipantID: store.currentParticipantID(for: currentGroup)
-                        ) { debt in
-                            pendingResolveDebt = debt
-                            showsResolveConfirmation = true
-                        }
-                    }
-
-                    if let resolveMessage {
-                        Text(resolveMessage)
-                            .font(.footnote)
-                            .foregroundStyle(SoftLedgerTheme.negative)
                     }
 
                     if records.isEmpty {
@@ -3249,13 +3143,11 @@ private struct MemberBalanceDetailView: View {
                 Task { await store.loadMoreMemberRecords(groupId: group.id, memberId: member.uuid) }
             }
         }
-        .navigationTitle(currentMember.name)
+        .navigationTitle(pageTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .task {
-            async let recordsRefresh: Void = store.loadMemberRecordsIfNeeded(groupId: group.id, memberId: member.uuid)
-            async let settlementRefresh: Void = store.refreshSettlementSuggestion(groupId: group.id)
-            _ = await (recordsRefresh, settlementRefresh)
+            await store.loadMemberRecordsIfNeeded(groupId: group.id, memberId: member.uuid)
         }
         .navigationDestination(item: $selectedRecord) { record in
             RecordEditorView(groupId: group.id, record: record) {
@@ -3269,36 +3161,6 @@ private struct MemberBalanceDetailView: View {
                 selectedRecord = nil
             }
         }
-        .alert(L("Resolve transfer?"), isPresented: $showsResolveConfirmation) {
-            Button(L("Cancel"), role: .cancel) {}
-            Button(L("Resolve")) {
-                guard let debt = pendingResolveDebt else { return }
-                pendingResolveDebt = nil
-                Task { await resolve(debt: debt) }
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(pendingResolveDebt == nil || resolvingDebtID != nil)
-        } message: {
-            if !resolveConfirmationMessage.isEmpty {
-                Text(resolveConfirmationMessage)
-            }
-        }
-    }
-
-    private func resolve(debt: ResolvedDebt) async {
-        guard resolvingDebtID == nil else { return }
-        resolveMessage = nil
-        resolvingDebtID = debt.id
-
-        let result = await store.resolveSingleWithFeedback(groupId: group.id, debt: debt)
-        if result.success {
-            SoftLedgerHaptics.success()
-            await store.refreshMemberRecords(groupId: group.id, memberId: member.uuid)
-            await store.refreshSettlementSuggestion(groupId: group.id)
-        } else {
-            resolveMessage = result.message
-        }
-        resolvingDebtID = nil
     }
 }
 

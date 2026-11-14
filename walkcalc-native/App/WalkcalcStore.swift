@@ -1757,6 +1757,13 @@ final class WalkcalcStore: ObservableObject {
         return BalancePresentation.sortedByAbsoluteAmount(debts)
     }
 
+    #if DEBUG
+    func setPreviewSettlementSuggestions(_ transfers: [SettlementTransfer], groupId: String) {
+        precondition(isFixtureMode)
+        settlementSuggestionsByGroup[groupId] = transfers
+    }
+    #endif
+
     func currentParticipantID(for group: WalkGroup) -> String? {
         if isLocalLedgerGroup(group.id) {
             return localOwner.uuid

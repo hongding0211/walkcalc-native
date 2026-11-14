@@ -1,3 +1,4 @@
 "CFBundleDisplayName" = "WalkCalc";
 "NSCameraUsageDescription" = "Allow Walking Calculator to scan group QR codes.";
 "NSLocationWhenInUseUsageDescription" = "Allow Walking Calculator to attach your current location to new records.";
+"NSLocalNetworkUsageDescription" = "Walking Calculator connects to the local development backend.";
