@@ -2290,15 +2290,13 @@ struct RecordEditorView: View {
 }
 
 private struct PaidByInlineEditor: View {
-    @Environment(\.softLedgerAppTheme) private var appTheme
-
-    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 10
+    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
     @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 60
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
     @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
-    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
+    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
 
     let members: [Member]
     let currentParticipantID: String?
@@ -2310,7 +2308,7 @@ private struct PaidByInlineEditor: View {
         VStack(alignment: .leading, spacing: sectionSpacing) {
             Text(L("Paid by"))
                 .font(.caption2.weight(.medium))
-                .foregroundStyle(appTheme.accent)
+                .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
 
             JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { member in
                 let isMemberSelected = selection == member.uuid
@@ -2355,13 +2353,13 @@ private enum ExpenseEditorField {
 private struct SplitInlineEditor: View {
     @Environment(\.softLedgerAppTheme) private var appTheme
 
-    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 10
+    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
     @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 60
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
     @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
-    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
+    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
 
     let members: [Member]
     let currentParticipantID: String?
@@ -2372,10 +2370,10 @@ private struct SplitInlineEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: sectionSpacing) {
-            HStack {
+            HStack(alignment: .center) {
                 Text(L("Participants"))
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(appTheme.accent)
+                    .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
                 Spacer()
                 Button(L("Select all")) {
                     allFeedbackTrigger &+= 1
@@ -2517,14 +2515,14 @@ private struct SelectableSplitAvatar: View {
 private struct CategoryInlineEditor: View {
     @Environment(\.softLedgerAppTheme) private var appTheme
 
-    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 12
+    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 58
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 12
     @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 62
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 6
     @ScaledMetric(relativeTo: .caption2) private var iconSize = 38
     @ScaledMetric(relativeTo: .caption2) private var iconFontSize = 15
-    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 4
+    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
 
     @Binding var selection: String
     let onEdit: () -> Void
@@ -2532,6 +2530,8 @@ private struct CategoryInlineEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: sectionSpacing) {
             Text(L("Category"))
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
 
             JustifiedGrid(items: expenseCategories, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { category in
                 Button {

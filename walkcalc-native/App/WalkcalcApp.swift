@@ -69,6 +69,7 @@ struct walkcalc_nativeApp: App {
                     SettlementPlanPlayground()
                 } else if ProcessInfo.processInfo.arguments.contains("--design-playground-members") {
                     MemberDetailsPlayground(screen:
+                        ProcessInfo.processInfo.arguments.contains("--member-editor") ? .editor :
                         ProcessInfo.processInfo.arguments.contains("--member-self") ? .yourself :
                         ProcessInfo.processInfo.arguments.contains("--member-detail") ? .member :
                         ProcessInfo.processInfo.arguments.contains("--member-group") ? .group : .members,

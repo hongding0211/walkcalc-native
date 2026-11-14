@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Uses production screens with fixture data; never requests remote ledger data.
 struct MemberDetailsPlayground: View {
-    enum Screen { case group, members, member, yourself }
+    enum Screen { case group, members, member, yourself, editor }
 
     @StateObject private var store: WalkcalcStore
     let screen: Screen
@@ -77,6 +77,10 @@ struct MemberDetailsPlayground: View {
             Group {
                 if screen == .group {
                     NavigationStack { GroupView(groupId: group.id) }
+                } else if screen == .editor {
+                    NavigationStack {
+                        RecordEditorView(groupId: group.id, record: store.recordsByGroup[group.id]?.first) {}
+                    }
                 } else {
                     BalancesWorkspace(
                         group: group,
@@ -95,4 +99,5 @@ struct MemberDetailsPlayground: View {
 #Preview("自己的账单 · 真实组件") { MemberDetailsPlayground(screen: .yourself) }
 #Preview("群组结清入口 · 真实组件") { MemberDetailsPlayground(screen: .group) }
 #Preview("超长姓名与多人账单") { MemberDetailsPlayground(edgeCases: true) }
+#Preview("账单编辑 · 间距") { MemberDetailsPlayground(screen: .editor) }
 #endif
