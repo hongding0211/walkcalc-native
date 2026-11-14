@@ -144,7 +144,8 @@
 "Add your first expense." = "开始记录第一笔账单";
 "No temporary members" = "暂无临时成员";
 "Opens group details" = "打开群组详情";
-"Optional note" = "可选备注";
+"Expense note" = "账单备注";
+"Note" = "备注";
 "Other" = "其他";
 "OK" = "好的";
 "Paid by" = "付款人";

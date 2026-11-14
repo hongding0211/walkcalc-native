@@ -2089,15 +2089,22 @@ struct RecordEditorView: View {
                 )
                 CategoryInlineEditor(selection: $categoryId, onEdit: beginEditing)
 
-                DatePicker(L("Date"), selection: $date)
-                    .datePickerStyle(.compact)
-                    .simultaneousGesture(TapGesture().onEnded { beginEditing() })
-                    .onChange(of: date) { _, _ in beginEditing() }
+                ExpenseEditorFieldBlock(title: L("Date")) {
+                    DatePicker(L("Date"), selection: $date)
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .simultaneousGesture(TapGesture().onEnded { beginEditing() })
+                        .onChange(of: date) { _, _ in beginEditing() }
+                }
 
-                TextField(L("Optional note"), text: $note, axis: .vertical)
-                    .lineLimit(3, reservesSpace: true)
-                    .focused($focusedField, equals: .note)
-                    .softLedgerAccentTint()
+                ExpenseEditorFieldBlock(title: L("Note")) {
+                    TextField(L("Expense note"), text: $note, axis: .vertical)
+                        .lineLimit(3, reservesSpace: true)
+                        .focused($focusedField, equals: .note)
+                        .softLedgerAccentTint()
+                        .accessibilityLabel(L("Note"))
+                }
 
                 if let message {
                     Text(message)
@@ -2293,7 +2300,6 @@ private struct PaidByInlineEditor: View {
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
-    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 60
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
     @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
@@ -2310,7 +2316,7 @@ private struct PaidByInlineEditor: View {
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
 
-            JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { member in
+            JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, iconWidth: avatarSize + max(4, avatarSize / 9), rowSpacing: rowSpacing) { member in
                 let isMemberSelected = selection == member.uuid
 
                 Button {
@@ -2356,7 +2362,6 @@ private struct SplitInlineEditor: View {
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
-    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 60
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
     @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
@@ -2390,7 +2395,7 @@ private struct SplitInlineEditor: View {
                 .contentShape(Rectangle())
             }
 
-            JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { member in
+            JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, iconWidth: avatarSize + max(4, avatarSize / 9), rowSpacing: rowSpacing) { member in
                 let isMemberSelected = selection.contains(member.uuid)
 
                 Button {
@@ -2518,7 +2523,6 @@ private struct CategoryInlineEditor: View {
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
     @ScaledMetric(relativeTo: .caption2) private var itemWidth = 58
     @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 12
-    @ScaledMetric(relativeTo: .caption2) private var estimatedItemHeight = 62
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 6
     @ScaledMetric(relativeTo: .caption2) private var iconSize = 38
     @ScaledMetric(relativeTo: .caption2) private var iconFontSize = 15
@@ -2533,7 +2537,7 @@ private struct CategoryInlineEditor: View {
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
 
-            JustifiedGrid(items: expenseCategories, id: \.id, itemWidth: itemWidth, rowSpacing: rowSpacing, estimatedItemHeight: estimatedItemHeight) { category in
+            JustifiedGrid(items: expenseCategories, id: \.id, itemWidth: itemWidth, iconWidth: iconSize, rowSpacing: rowSpacing) { category in
                 Button {
                     onEdit()
                     selection = category.id
@@ -2566,52 +2570,39 @@ private struct CategoryInlineEditor: View {
     }
 }
 
+private struct ExpenseEditorFieldBlock<Content: View>: View {
+    @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
+    @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
+
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: sectionSpacing) {
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, verticalPadding)
+    }
+}
+
 private struct JustifiedGrid<Item, ID: Hashable, Content: View>: View {
     let items: [Item]
     let id: KeyPath<Item, ID>
     let itemWidth: CGFloat
+    let iconWidth: CGFloat
     let rowSpacing: CGFloat
-    let estimatedItemHeight: CGFloat
     @ViewBuilder let content: (Item) -> Content
 
     var body: some View {
-        GeometryReader { proxy in
-            let columns = columnCount(for: proxy.size.width)
-            let spacing = itemSpacing(for: proxy.size.width, columns: columns)
-            let rows = items.chunks(of: columns)
-
-            VStack(alignment: .leading, spacing: rowSpacing) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: spacing) {
-                        ForEach(row, id: id) { item in
-                            content(item)
-                        }
-
-                        if row.count < columns {
-                            ForEach(0..<(columns - row.count), id: \.self) { _ in
-                                Color.clear.frame(width: itemWidth)
-                            }
-                        }
-                    }
-                }
+        JustifiedIconLayout(itemWidth: itemWidth, iconWidth: iconWidth, spacing: rowSpacing) {
+            ForEach(items, id: id) { item in
+                content(item)
             }
         }
-        .frame(height: gridHeight)
-    }
-
-    private var gridHeight: CGFloat {
-        let columns = 5
-        let rowCount = CGFloat((items.count + columns - 1) / columns)
-        return rowCount * estimatedItemHeight + max(rowCount - 1, 0) * rowSpacing
-    }
-
-    private func columnCount(for width: CGFloat) -> Int {
-        max(1, min(5, Int((width + 10) / (itemWidth + 10))))
-    }
-
-    private func itemSpacing(for width: CGFloat, columns: Int) -> CGFloat {
-        guard columns > 1 else { return 0 }
-        return max(10, (width - CGFloat(columns) * itemWidth) / CGFloat(columns - 1))
     }
 }
 
