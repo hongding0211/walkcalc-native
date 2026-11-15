@@ -2097,6 +2097,18 @@ struct RecordEditorView: View {
             if paidBy.isEmpty {
                 paidBy = store.user?.uuid ?? members.first?.uuid ?? ""
             }
+            #if DEBUG
+            if record == nil, store.isFixtureMode,
+               ProcessInfo.processInfo.arguments.contains("--ui-poster-editor") {
+                amount = "86.40"
+                selectedCurrencyCode = "USD"
+                splitMembers = Set(members.map(\.uuid))
+                categoryId = "food"
+                note = Locale.preferredLanguages.first?.hasPrefix("en") == true ? "Pizza with friends" : "和朋友吃披萨"
+                focusedField = nil
+                return
+            }
+            #endif
             if record == nil {
                 focusedField = .amount
             }

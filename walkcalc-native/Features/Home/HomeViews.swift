@@ -388,6 +388,10 @@ struct RootHomeView: View {
 
     private static func initialPath() -> [Route] {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-poster-data"),
+           let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-poster-group=") }) {
+            return [.group(String(argument.dropFirst("--ui-poster-group=".count)))]
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-fixture-scroll") {
             return [.group("stress-0")]
         }
@@ -619,6 +623,15 @@ struct RootHomeView: View {
         return id
     }
 
+    private func sidebarMinimumWidth(in width: CGFloat) -> CGFloat {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-poster-data") {
+            return max(280, width * 0.38)
+        }
+        #endif
+        return 280
+    }
+
     private var compactColumn: Binding<NavigationSplitViewColumn> {
         Binding(
             get: { path.isEmpty ? .sidebar : .detail },
@@ -638,7 +651,7 @@ struct RootHomeView: View {
                 homeContent(isSidebar: showsColumns)
                     // Allow the native split view to follow the fold while
                     // preferring equal halves instead of a fixed 320pt sidebar.
-                    .navigationSplitViewColumnWidth(min: 280,
+                    .navigationSplitViewColumnWidth(min: sidebarMinimumWidth(in: proxy.size.width),
                         ideal: max(280, proxy.size.width / 2), max: max(280, proxy.size.width / 2))
                     .toolbar(removing: .sidebarToggle)
                     .overlay(alignment: .trailing) {
