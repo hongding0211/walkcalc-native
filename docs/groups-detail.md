@@ -537,8 +537,9 @@ Adding an expense is a high-frequency content action. It should remain visible, 
 
 ### Search
 
-- Search is available from the bottom toolbar.
+- Search is available from the bottom toolbar in every layout, including the lower side toolbar in Duo’s expanded detail column. Keep a single system search entry; do not add a top duplicate.
 - Use `DefaultToolbarItem(kind: .search, placement: .bottomBar)` with `.searchable(text:isPresented:placement:prompt:)`. Keep the native bottom search field and its system expansion, keyboard, clear, and cancel behavior. Do not substitute a custom button or a search sheet.
+- Keep `DefaultToolbarItem(kind: .search, placement: .bottomBar)` present regardless of size class or search presentation. It relocates the system-owned search item; it is not a custom trigger. Do not replace it with a `Button`, dynamically remove/restore `.search`, or set presentation and focus together from a button action. These transitions can leave the native top entry visible and interrupt the search item’s presentation target. Let the system acquire focus when its search control is tapped.
 - Bind a draft query to the system field and commit it with `.onSubmit(of: .search)`, following Apple’s [Performing a search operation](https://developer.apple.com/documentation/swiftui/performing-a-search-operation). Keep one presentation binding; never use search activation to present another surface.
 - Opening search and editing the draft leave the existing summary, balances, and records visible. Submit applies the trimmed keyword to the normal date-grouped record list and uses its existing loading card. There is no separate results overlay, sheet, or empty search canvas. Opening a record drops keyboard focus without programmatically ending search.
 - The submitted keyword combines with category, currency, and participant filters on initial requests, pull-to-refresh, and pagination. Filter changes apply immediately using the last submitted keyword; typing alone does not request data. Clearing or cancelling search removes only the keyword and preserves other filters. Closing a record without saving keeps the loaded search pages and scroll position and makes no request. Refresh the active query on sheet dismissal only if a successful data change invalidated its cache.
@@ -546,7 +547,7 @@ Adding an expense is a high-frequency content action. It should remain visible, 
 - After the current search request finishes, scroll the ledger to its top edge and reset the date navigation title. This also applies to re-submitting the same keyword, combined search/filter refreshes, and clearing the submitted keyword. Opening search or editing its draft does not scroll; loading additional pages does not scroll.
 - Do not use a top navigation search field for this page.
 
-Run `python3 scripts/verify-ledger-repository.py` on an Apple silicon Mac with Xcode to verify the repository with mock HTTP, including combined keyword/category/currency/participant parameters on first and subsequent pages. Native keyboard, focus, and cancel animations still require device checks.
+Run `python3 scripts/verify-ledger-repository.py` on an Apple silicon Mac with Xcode to verify the repository with mock HTTP, including combined keyword/category/currency/participant parameters on first and subsequent pages. Native keyboard, focus, and cancel animations still require device checks. For search-toolbar regressions, verify one lower search entry in expanded Duo; repeat open/cancel at least five times; fold while search is active and reopen; switch groups; submit a keyword, then clear/cancel; confirm compact iPhone retains the bottom field and compose stays available. Do not rebuild the group view merely to repair search, because that would reset draft, filter, and scroll state.
 
 ### Add Expense
 

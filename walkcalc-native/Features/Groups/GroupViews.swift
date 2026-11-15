@@ -73,12 +73,6 @@ struct GroupView: View {
 
     private var filters: GroupRecordFilters { store.recordFilters(for: groupId) }
 
-    // In expanded detail columns, explicitly activate this group's search.
-    // The relocated default search item can lose its presentation target when
-    // the split view changes between horizontal and vertical toolbars.
-    private var usesExplicitSearchButton: Bool { horizontalSizeClass == .regular }
-    private var showsSearchButton: Bool { usesExplicitSearchButton && !isSearchPresented }
-
     private var hasLoadedRecords: Bool {
         submittedSearchText.isEmpty
             ? store.recordsByGroup[groupId] != nil
@@ -186,11 +180,7 @@ struct GroupView: View {
         }
         .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: L("Search records"))
         .searchFocused($isSearchFocused)
-        .searchToolbarBehavior(usesExplicitSearchButton ? .minimize : .automatic)
-        .searchPresentationToolbarBehavior(usesExplicitSearchButton ? .automatic : .avoidHidingContent)
-        // Replace only the inactive trigger. Once presented, the native search
-        // field owns its editing, clear/cancel actions and keyboard adaptation.
-        .toolbar(removing: showsSearchButton ? .search : nil)
+        .searchPresentationToolbarBehavior(horizontalSizeClass == .regular ? .automatic : .avoidHidingContent)
         .onSubmit(of: .search) {
             submittedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             searchRevision += 1
@@ -240,18 +230,10 @@ struct GroupView: View {
 
     @ToolbarContentBuilder
     private var recordActions: some ToolbarContent {
-        if showsSearchButton {
-            ToolbarItem(placement: .bottomBar) {
-                Button {
-                    isSearchPresented = true
-                    isSearchFocused = true
-                } label: {
-                    Label(L("Search records"), systemImage: "magnifyingglass")
-                }
-            }
-        } else {
-            DefaultToolbarItem(kind: .search, placement: .bottomBar)
-        }
+        // Move the existing system search item; don't add a second trigger or
+        // replace it on activation. Its identity must survive presentation and
+        // split-view/toolbar-axis transitions so UIKit keeps the same target.
+        DefaultToolbarItem(kind: .search, placement: .bottomBar)
         ToolbarSpacer(.fixed, placement: .bottomBar)
 
         ToolbarItem(placement: .bottomBar) {
