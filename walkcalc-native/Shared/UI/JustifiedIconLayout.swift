@@ -10,12 +10,12 @@ struct JustifiedIconGeometry {
         let width = max(iconWidth, width)
         let naturalStep = itemWidth + spacing
         let columns = max(1, Int((width - iconWidth) / naturalStep) + 1)
-        // Short lists flow from the leading edge at their natural spacing.
-        // Full rows may stretch slightly; subsequent rows reuse those columns.
-        let fullRowStep = columns > 1
+        // Column positions depend only on available width, not item count.
+        // Short lists and incomplete rows use the same leading columns as a
+        // full grid, so independently rendered pickers align with one another.
+        let step = columns > 1
             ? min(naturalStep * 1.25, (width - iconWidth) / CGFloat(columns - 1))
             : 0
-        let step = heights.count >= columns ? fullRowStep : naturalStep
         var frames: [CGRect] = []
         var top: CGFloat = 0
         for start in stride(from: 0, to: heights.count, by: columns) {

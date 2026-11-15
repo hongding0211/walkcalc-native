@@ -15,6 +15,7 @@ struct GroupWalletOverview: View {
         let cards = GroupWalletData.cards(group: group, participantID: participantID,
             debts: store.resolvedDebts(for: group),
             suggestionReady: store.isSettlementSuggestionReady(for: group.id),
+            paletteCount: appearance.paletteCount,
             currencyCodes: store.recordFilters(for: group.id).currencyCodes)
         if cards.isEmpty {
             SoftLedgerCard {

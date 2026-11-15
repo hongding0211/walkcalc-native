@@ -39,6 +39,10 @@ struct AppThemePalette {
 
 enum SoftLedgerThemeConfig {
     static let defaultAppTheme: AppTheme = .mono
+    static let positiveLight: UInt32 = 0x167454
+    static let positiveDark: UInt32 = 0x77C99E
+    static let negativeLight: UInt32 = 0xAC2F24
+    static let negativeDark: UInt32 = 0xF07C6C
 
     static let neutral = SoftLedgerNeutralPalette(
         canvas: SoftLedgerColorToken(light: 0xF2F1F6, dark: 0x000000),
@@ -48,8 +52,8 @@ enum SoftLedgerThemeConfig {
         secondaryText: SoftLedgerColorToken(light: 0x666666, dark: 0xC7C7C7),
         mutedText: SoftLedgerColorToken(light: 0x8A8A8A, dark: 0x8E8E8E),
         rule: SoftLedgerColorToken(light: 0xD9D9D9, dark: 0x3A3A3A),
-        positive: SoftLedgerColorToken(light: 0x167454, dark: 0x77C99E),
-        negative: SoftLedgerColorToken(light: 0xAC2F24, dark: 0xF07C6C)
+        positive: SoftLedgerColorToken(light: positiveLight, dark: positiveDark),
+        negative: SoftLedgerColorToken(light: negativeLight, dark: negativeDark)
     )
 
     static let yellowAccent = SoftLedgerColorToken(light: 0xB15525, dark: 0xE49B63)

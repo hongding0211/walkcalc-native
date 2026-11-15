@@ -218,6 +218,8 @@ struct WalletAppearance: Codable, Equatable {
         if palette.isEmpty { palette = WalletColorPair.defaults }
     }
 
+    var paletteCount: Int { palette.isEmpty ? WalletColorPair.defaults.count : palette.count }
+
     func colors(at index: Int) -> WalletColorPair {
         let choices = palette.isEmpty ? WalletColorPair.defaults : palette
         let pair = choices[abs(index) % choices.count]

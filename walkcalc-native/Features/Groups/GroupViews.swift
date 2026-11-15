@@ -25,8 +25,10 @@ struct GroupView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.softLedgerAppTheme) private var appTheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let groupId: String
+    var onClose: (() -> Void)? = nil
     @State private var activeSheet: GroupSheet? = Self.initialSheet()
     @State private var isSearchPresented = false
     @State private var searchText = ""
@@ -70,6 +72,12 @@ struct GroupView: View {
     }
 
     private var filters: GroupRecordFilters { store.recordFilters(for: groupId) }
+
+    // In expanded detail columns, explicitly activate this group's search.
+    // The relocated default search item can lose its presentation target when
+    // the split view changes between horizontal and vertical toolbars.
+    private var usesExplicitSearchButton: Bool { horizontalSizeClass == .regular }
+    private var showsSearchButton: Bool { usesExplicitSearchButton && !isSearchPresented }
 
     private var hasLoadedRecords: Bool {
         submittedSearchText.isEmpty
@@ -174,21 +182,15 @@ struct GroupView: View {
                 groupActions
             }
 
-            DefaultToolbarItem(kind: .search, placement: .bottomBar)
-            ToolbarSpacer(.fixed, placement: .bottomBar)
-
-            ToolbarItem(placement: .bottomBar) {
-                Button {
-                    presentNewExpense()
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel(L("Add expense"))
-            }
+            recordActions
         }
         .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: L("Search records"))
         .searchFocused($isSearchFocused)
-        .searchPresentationToolbarBehavior(.avoidHidingContent)
+        .searchToolbarBehavior(usesExplicitSearchButton ? .minimize : .automatic)
+        .searchPresentationToolbarBehavior(usesExplicitSearchButton ? .automatic : .avoidHidingContent)
+        // Replace only the inactive trigger. Once presented, the native search
+        // field owns its editing, clear/cancel actions and keyboard adaptation.
+        .toolbar(removing: showsSearchButton ? .search : nil)
         .onSubmit(of: .search) {
             submittedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             searchRevision += 1
@@ -207,6 +209,8 @@ struct GroupView: View {
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarVisibility(isSearchPresented ? .automatic : .visible, for: .bottomBar)
+        .background { RecordToolbarVisibility(isSearching: isSearchPresented).allowsHitTesting(false) }
         .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate, isDeleting: $isDeletingRecord) { _ in
             if !submittedSearchText.isEmpty { searchRevision += 1 }
         }
@@ -225,13 +229,39 @@ struct GroupView: View {
         }
         .sheet(item: $activeSheet) { sheet in
             GroupSheetView(groupId: groupId, sheet: sheet, activeSheet: $activeSheet) {
-                dismiss()
+                if let onClose { onClose() } else { dismiss() }
             }
         }
     }
 
     private func overview(for group: WalkGroup) -> some View {
         GroupWalletOverview(group: group)
+    }
+
+    @ToolbarContentBuilder
+    private var recordActions: some ToolbarContent {
+        if showsSearchButton {
+            ToolbarItem(placement: .bottomBar) {
+                Button {
+                    isSearchPresented = true
+                    isSearchFocused = true
+                } label: {
+                    Label(L("Search records"), systemImage: "magnifyingglass")
+                }
+            }
+        } else {
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+        }
+        ToolbarSpacer(.fixed, placement: .bottomBar)
+
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                presentNewExpense()
+            } label: {
+                Label(L("Add expense"), systemImage: "square.and.pencil")
+            }
+            .accessibilityLabel(L("Add expense"))
+        }
     }
 
     private var groupActions: some ToolbarContent {
@@ -342,17 +372,13 @@ struct GroupView: View {
 private struct GroupRecordsLoadingSection: View {
     @ScaledMetric(relativeTo: .subheadline) private var horizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var verticalPadding = 4
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    private let cornerRadius = SoftLedgerCornerRadius.card
 
     var body: some View {
         LedgerPaginationLoadingView()
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-            }
+            .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
     }
 }
 
@@ -362,7 +388,7 @@ private struct GroupBalancesSection: View {
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
     @ScaledMetric(relativeTo: .subheadline) private var detailRowMinHeight = 48
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    private let cornerRadius = SoftLedgerCornerRadius.card
 
     let group: WalkGroup
     let onSelect: (Member?) -> Void
@@ -451,11 +477,7 @@ private struct GroupBalancesSection: View {
                     }
                     .padding(.horizontal, rowHorizontalPadding)
                     .padding(.vertical, rowVerticalPadding)
-                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                    }
+                    .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
                     .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -499,11 +521,7 @@ private struct GroupBalancesSection: View {
                 }
                 .padding(.horizontal, rowHorizontalPadding)
                 .padding(.vertical, rowVerticalPadding)
-                .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                }
+                .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
             }
         }
     }
@@ -521,11 +539,7 @@ private struct GroupBalancesSection: View {
                     .softLedgerProgressTint()
             }
             .frame(maxWidth: .infinity, minHeight: 62)
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-            }
+            .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(L("Member details"))
@@ -693,7 +707,7 @@ struct GroupExpensesSection: View {
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
     @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    private let cornerRadius = SoftLedgerCornerRadius.card
 
     let group: WalkGroup
     let records: [WalkRecord]
@@ -742,11 +756,7 @@ struct GroupExpensesSection: View {
                             }
                         }
                         .padding(.vertical, rowVerticalPadding)
-                        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                        }
+                        .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
                     }
                     .modifier(ExpenseDateTracking(date: section.date, state: scrollTitle))
                 }
@@ -835,11 +845,7 @@ struct ExpenseRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: rowSpacing) {
-                Image(systemName: category.symbol)
-                    .font(.system(size: iconFontSize, weight: .semibold))
-                    .foregroundStyle(category.color)
-                    .frame(width: iconSize, height: iconSize)
-                    .background(category.color.opacity(0.12), in: Circle())
+                ExpenseCategoryBadge(category: category, size: iconSize, symbolSize: iconFontSize)
 
                 VStack(alignment: .leading, spacing: textSpacing) {
                     Text(recordTitle(record))

@@ -11,7 +11,7 @@ harness = r'''
 func close(_ lhs: CGFloat, _ rhs: CGFloat) -> Bool { abs(lhs - rhs) < 0.001 }
 var cases = 0
 for scale in [CGFloat(1), 1.5, 2.5] {
-    let geometry = JustifiedIconGeometry(itemWidth: 56 * scale, iconWidth: 40 * scale, spacing: 10 * scale)
+    let geometry = JustifiedIconGeometry(itemWidth: 58 * scale, iconWidth: 40 * scale, spacing: 12 * scale)
     for width in [CGFloat(180), 240, 320, 390, 600, 844] {
         for count in [0, 1, 2, 4, 5, 6, 8, 13] {
             let heights = (0..<count).map { CGFloat(54 + $0 % 3 * 7) * scale }
@@ -36,19 +36,23 @@ for scale in [CGFloat(1), 1.5, 2.5] {
         }
     }
 }
-let geometry = JustifiedIconGeometry(itemWidth: 56, iconWidth: 40, spacing: 10)
+let geometry = JustifiedIconGeometry(itemWidth: 58, iconWidth: 40, spacing: 12)
 for width in [CGFloat(340), 600, 844] {
     let pair = geometry.frames(width: width, heights: [60, 60])
-    precondition(close(pair[0].midX, 20) && close(pair[1].midX, 86), "Two people stay together on the left")
     let four = geometry.frames(width: width, heights: [60, 60, 60, 60])
-    precondition(close(four[3].midX, 218), "Short rows keep natural spacing")
+    let categories = geometry.frames(width: width, heights: Array(repeating: 60, count: 11))
+    precondition(close(pair[0].midX, 20), "Short member rows stay on the left")
+    for index in four.indices {
+        precondition(close(four[index].midX, categories[index].midX), "Members and categories share columns regardless of count")
+    }
+    precondition(close(pair[1].midX, categories[1].midX))
 }
 let filled = geometry.frames(width: 340, heights: Array(repeating: 60, count: 7))
 precondition(close(filled[4].midX + 20, 340), "Full rows use available width")
 precondition(close(filled[5].midX, filled[0].midX) && close(filled[6].midX, filled[1].midX))
 let wide = geometry.frames(width: 844, heights: Array(repeating: 60, count: 12))
 precondition(wide.allSatisfy { close($0.minY, 0) }, "Wide layouts are not capped at five columns")
-print("PASS: \(cases) grid cases; short rows flow left, bounded gaps, responsive columns, measured heights and no overlaps")
+print("PASS: \(cases) grid cases; member/category columns align, short rows flow left, bounded gaps, responsive columns, measured heights and no overlaps")
 '''
 with tempfile.TemporaryDirectory(prefix='walkcalc-editor-grid-') as directory:
     source_file = Path(directory) / 'main.swift'

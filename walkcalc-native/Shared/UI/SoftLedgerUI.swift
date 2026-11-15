@@ -23,8 +23,13 @@ enum SoftLedgerTheme {
     static let secondaryInk = SoftLedgerThemeConfig.neutral.secondaryText.color
     static let mutedInk = SoftLedgerThemeConfig.neutral.mutedText.color
     static let rule = SoftLedgerThemeConfig.neutral.rule.color
+    #if DEBUG
+    static var positive: Color { DebugMoneyColors.shared.positive }
+    static var negative: Color { DebugMoneyColors.shared.negative }
+    #else
     static let positive = SoftLedgerThemeConfig.neutral.positive.color
     static let negative = SoftLedgerThemeConfig.neutral.negative.color
+    #endif
     static let yellowAccent = SoftLedgerThemeConfig.yellowAccent.color
 }
 
@@ -314,7 +319,7 @@ private struct SoftLedgerProgressTintModifier: ViewModifier {
 }
 
 struct SoftLedgerCard<Content: View>: View {
-    var cornerRadius: CGFloat = 16
+    var cornerRadius: CGFloat = SoftLedgerCornerRadius.card
     var usesGlass = false
     @ViewBuilder var content: Content
 
@@ -326,17 +331,13 @@ struct SoftLedgerCard<Content: View>: View {
                 .softLedgerGlass(cornerRadius: cornerRadius)
                 .overlay {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(SoftLedgerTheme.rule.opacity(0.70), lineWidth: 1)
+                        .strokeBorder(SoftLedgerTheme.rule.opacity(0.70), lineWidth: 1)
                 }
         } else {
             content
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(SoftLedgerTheme.rule.opacity(0.68), lineWidth: 1)
-                }
+                .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.68)
         }
     }
 }
@@ -346,7 +347,7 @@ private struct SoftLedgerGlassModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .glassEffect(.regular.tint(SoftLedgerTheme.paper.opacity(0.26)), in: .rect(cornerRadius: cornerRadius))
+            .glassEffect(.regular.tint(SoftLedgerTheme.paper.opacity(0.26)), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 }
 
@@ -646,21 +647,27 @@ struct ExpenseCategory: Identifiable, Hashable {
     let id: String
     let titleKey: String
     let symbol: String
-    let color: Color
+    let emoji: String
+    let paletteID: String
+
+    var paletteColor: WalletRGB {
+        let entry = WalletColorPair.defaultPalette.first { $0.id == paletteID }
+        return WalletRGB(hex: entry?.hex ?? 0xA4BAEA)
+    }
 }
 
 let expenseCategories: [ExpenseCategory] = [
-    .init(id: "food", titleKey: "Meal", symbol: "fork.knife", color: Color(red: 0.188, green: 0.424, blue: 0.537)),
-    .init(id: "beverage", titleKey: "Drink", symbol: "cup.and.saucer.fill", color: Color(red: 0.522, green: 0.384, blue: 0.250)),
-    .init(id: "accommodation", titleKey: "Hotel", symbol: "bed.double.fill", color: SoftLedgerTheme.yellowAccent),
-    .init(id: "shopping", titleKey: "Shopping", symbol: "cart.fill", color: Color(red: 0.314, green: 0.470, blue: 0.760)),
-    .init(id: "traffic", titleKey: "Transport", symbol: "tram.fill", color: SoftLedgerTheme.positive),
-    .init(id: "stay", titleKey: "Stay", symbol: "house.fill", color: Color(red: 0.376, green: 0.570, blue: 0.494)),
-    .init(id: "vacation", titleKey: "Vacation", symbol: "beach.umbrella.fill", color: Color(red: 0.290, green: 0.565, blue: 0.690)),
-    .init(id: "transfer", titleKey: "Transfer", symbol: "banknote.fill", color: Color(red: 0.620, green: 0.514, blue: 0.218)),
-    .init(id: "ticket", titleKey: "Ticket", symbol: "ticket.fill", color: Color(red: 0.612, green: 0.424, blue: 0.729)),
-    .init(id: "game", titleKey: "Game", symbol: "dice.fill", color: Color(red: 0.553, green: 0.455, blue: 0.742)),
-    .init(id: "other", titleKey: "Other", symbol: "tag.fill", color: SoftLedgerTheme.mutedInk)
+    .init(id: "food", titleKey: "Meal", symbol: "fork.knife", emoji: "🍽️", paletteID: "apricot"),
+    .init(id: "beverage", titleKey: "Drink", symbol: "cup.and.saucer.fill", emoji: "☕️", paletteID: "cream"),
+    .init(id: "accommodation", titleKey: "Hotel", symbol: "bed.double.fill", emoji: "🛏️", paletteID: "iris"),
+    .init(id: "shopping", titleKey: "Shopping", symbol: "cart.fill", emoji: "🛍️", paletteID: "rose"),
+    .init(id: "traffic", titleKey: "Transport", symbol: "tram.fill", emoji: "🚋", paletteID: "cornflower"),
+    .init(id: "stay", titleKey: "Stay", symbol: "house.fill", emoji: "🏠", paletteID: "mint"),
+    .init(id: "vacation", titleKey: "Vacation", symbol: "beach.umbrella.fill", emoji: "🏖️", paletteID: "sky"),
+    .init(id: "transfer", titleKey: "Transfer", symbol: "banknote.fill", emoji: "💸", paletteID: "pistachio"),
+    .init(id: "ticket", titleKey: "Ticket", symbol: "ticket.fill", emoji: "🎟️", paletteID: "rose"),
+    .init(id: "game", titleKey: "Game", symbol: "dice.fill", emoji: "🎲", paletteID: "iris"),
+    .init(id: "other", titleKey: "Other", symbol: "tag.fill", emoji: "🏷️", paletteID: "cornflower")
 ]
 
 let transferCategory = expenseCategories.first(where: { $0.id == "transfer" })!

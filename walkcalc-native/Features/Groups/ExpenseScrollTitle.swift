@@ -11,12 +11,23 @@ enum ExpenseScrollTarget: Hashable {
 @Observable
 final class ExpenseScrollTitleState {
     let coordinateSpace = UUID()
-    var topInset: CGFloat = 0
+    private(set) var topInset: CGFloat = 0
     private(set) var date: Date?
     private(set) var layoutRevision = 0
     @ObservationIgnored private var activeDates: Set<Date> = []
     @ObservationIgnored private var validDates: Set<Date> = []
     @ObservationIgnored private var updatePending = false
+    @ObservationIgnored private var isScrolled = false
+
+    func updateViewport(topInset: CGFloat, isScrolled: Bool) {
+        self.topInset = topInset
+        self.isScrolled = isScrolled
+        // Section geometry can arrive before the new scroll view's first
+        // layout (including when cached records appear before a refresh).
+        // A date must never replace the group name while still at the top.
+        if !isScrolled { date = nil }
+        scheduleUpdate()
+    }
 
     func retainDates(_ dates: [Date]) {
         let next = Set(dates)
@@ -53,7 +64,7 @@ final class ExpenseScrollTitleState {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.updatePending = false
-            let next = self.activeDates.min()
+            let next = self.isScrolled ? self.activeDates.min() : nil
             if self.date != next { self.date = next }
         }
     }
@@ -65,10 +76,16 @@ struct ExpenseScrollTracking: ViewModifier {
     func body(content: Content) -> some View {
         content
             .coordinateSpace(name: state.coordinateSpace)
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentInsets.top
-            } action: { _, inset in
-                state.topInset = inset
+            .onScrollGeometryChange(for: ExpenseScrollViewport.self) { geometry in
+                ExpenseScrollViewport(
+                    topInset: geometry.contentInsets.top,
+                    // Insets change as the native large title collapses. Use
+                    // distance from the resting top, not raw contentOffset.
+                    isScrolled: geometry.containerSize.height > 0
+                        && geometry.contentOffset.y + geometry.contentInsets.top > 1
+                )
+            } action: { _, viewport in
+                state.updateViewport(topInset: viewport.topInset, isScrolled: viewport.isScrolled)
             }
             #if DEBUG
             .onAppear {
@@ -93,7 +110,9 @@ struct ExpenseDateTracking: ViewModifier {
                 .onGeometryChange(for: ExpenseDateVisibility.self) { proxy in
                     let frame = proxy.frame(in: .named(state.coordinateSpace))
                     // The 16pt inter-section gap belongs to the preceding date.
-                    return ExpenseDateVisibility(revision: revision, isActive: frame.minY <= top && frame.maxY + 16 > top)
+                    return ExpenseDateVisibility(revision: revision,
+                        isActive: frame.width > 0 && frame.height > 0
+                            && frame.minY <= top && frame.maxY + 16 > top)
                 } action: { visibility in
                     state.setActive(visibility.isActive, for: date, revision: visibility.revision)
                 }
@@ -102,6 +121,12 @@ struct ExpenseDateTracking: ViewModifier {
             content
         }
     }
+}
+
+/// Track only changes relevant to the title, not every pixel of scrolling.
+nonisolated private struct ExpenseScrollViewport: Equatable, Sendable {
+    let topInset: CGFloat
+    let isScrolled: Bool
 }
 
 /// A new data layout must re-report even when its Boolean matches the old one.

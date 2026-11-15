@@ -154,8 +154,16 @@ private struct NativeGroupFilterButton: UIViewRepresentable {
                 value.onCategoryChange([])
             }
             let categories = expenseCategories.map { category in
-                UIAction(
-                    title: L(category.titleKey), image: UIImage(systemName: category.symbol),
+                var title = L(category.titleKey)
+                var image = UIImage(systemName: category.symbol)
+                #if DEBUG
+                if UserDefaults.standard.bool(forKey: CategoryIconDebugSettings.storageKey) {
+                    title = "\(category.emoji)  \(title)"
+                    image = nil
+                }
+                #endif
+                return UIAction(
+                    title: title, image: image,
                     identifier: UIAction.Identifier("group-filter-category-\(category.id)"),
                     attributes: .keepsMenuPresented,
                     state: value.filters.categoryIds.contains(category.id) ? .on : .off

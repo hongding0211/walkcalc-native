@@ -293,3 +293,9 @@
 "Wallet.spendingUnavailable" = "Personal spending unavailable";
 "Personal spending: %@" = "Personal spending: %@";
 "Show settlement overview for this currency" = "Show settlement overview for this currency";
+
+"Earlier" = "Earlier";
+
+"Select a group" = "Select a group";
+
+"Choose a group to view its records." = "Choose a group to view its records.";

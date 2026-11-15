@@ -15,7 +15,8 @@ struct WalletCurrency: Identifiable {
 // Uses whole-ledger personal projections, never the currently loaded record page.
 enum GroupWalletData {
     static func cards(group: WalkGroup, participantID: String?, debts: [ResolvedDebt],
-                      suggestionReady: Bool, currencyCodes: Set<String> = []) -> [WalletCurrency] {
+                      suggestionReady: Bool, paletteCount: Int,
+                      currencyCodes: Set<String> = []) -> [WalletCurrency] {
         let member = group.allMembers.first { $0.uuid == participantID }
         guard group.hasCurrentUserBalanceSummary || member != nil else { return [] }
         let defaultCode = CurrencyCatalog.normalizedCode(group.currencyCode)
@@ -37,7 +38,13 @@ enum GroupWalletData {
         // Preserve server order, but keep the default currency first when it has activity.
         balances = balances.filter { CurrencyCatalog.normalizedCode($0.currencyCode) == defaultCode }
             + balances.filter { CurrencyCatalog.normalizedCode($0.currencyCode) != defaultCode }
-        let selectedCodes = Set(currencyCodes.map(CurrencyCatalog.normalizedCode))
+        let selectedCodes = Set(currencyCodes.map { CurrencyCatalog.normalizedCode($0) })
+        // Rank the full set before filtering, including requested zero-balance
+        // currencies. Server/default/stack order never determines card colors.
+        let colorCodes = Set(balances.map { CurrencyCatalog.normalizedCode($0.currencyCode) })
+            .union(selectedCodes).sorted()
+        let colorCount = max(1, paletteCount)
+        let colorStart = paletteStart(groupID: group.id, count: colorCount)
         let visible = selectedCodes.isEmpty ? balances : selectedCodes.sorted().map { code in
             balances.first { CurrencyCatalog.normalizedCode($0.currencyCode) == code } ?? zero(code)
         }
@@ -48,13 +55,23 @@ enum GroupWalletData {
             guard seen.insert(code).inserted else { return nil }
             let transfers = personal.filter { CurrencyCatalog.normalizedCode($0.currencyCode) == code }
             let ready = suggestionReady || !group.hasUnresolvedBalance
+            let relativeIndex = colorCodes.prefix { $0 < code }.count
             return WalletCurrency(
                 id: code, expenseMinor: projection.costMinor, balanceMinor: projection.debtMinor,
                 settlement: settlementText(transfers, participantID: participantID, projection: projection,
                     ready: ready),
-                artworkIndex: balances.firstIndex { CurrencyCatalog.normalizedCode($0.currencyCode) == code } ?? balances.count,
+                artworkIndex: (colorStart + relativeIndex) % colorCount,
                 isSettled: ready && Money.isZero(projection.debtMinor) && transfers.isEmpty)
         }
+    }
+
+    private static func paletteStart(groupID: String, count: Int) -> Int {
+        // FNV-1a over UTF-8 is stable across launches and devices. Swift's
+        // Hasher/hashValue is randomly seeded and cannot persist this mapping.
+        let hash = groupID.utf8.reduce(UInt64(14_695_981_039_346_656_037)) {
+            ($0 ^ UInt64($1)) &* 1_099_511_628_211
+        }
+        return Int(hash % UInt64(count))
     }
 
     private static func zero(_ code: String) -> MemberCurrencyProjection {

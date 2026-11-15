@@ -92,6 +92,7 @@ struct walkcalc_nativeApp: App {
                     .environmentObject(store)
                 #endif
             }
+            .modifier(WalletViewport())
             .environmentObject(pushNavigation)
             .environment(\.softLedgerAppTheme, store.selectedTheme)
             .softLedgerUIKitTint(store.selectedTheme)

@@ -584,18 +584,6 @@ struct SettingsSheet: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            #if DEBUG
-            Section("Debug") {
-                NavigationLink {
-                    WalletPaletteEditor()
-                } label: {
-                    Text("Color Palette")
-                        .foregroundStyle(.primary)
-                }
-            }
-            .listRowBackground(SoftLedgerTheme.formPaper)
-            #endif
-
             Section(L("Groups")) {
                 NavigationLink {
                     ArchivedGroupsView(groups: archivedGroups)
@@ -840,7 +828,6 @@ struct GroupSettingsSheet: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
     @ScaledMetric(relativeTo: .subheadline) private var ownerAvatarSize = 26
-    @ScaledMetric(relativeTo: .body) private var ownerContentMinHeight = 28
 
     let group: WalkGroup
     let onDone: () -> Void
@@ -954,46 +941,22 @@ struct GroupSettingsSheet: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            #if DEBUG
-            Section {
-                NavigationLink {
-                    GroupWalletTuningView(groupId: group.id)
-                } label: {
-                    Label("卡包调节", systemImage: "slider.horizontal.3")
-                }
-            } header: {
-                Text("调试")
-            } footer: {
-                Text("调节仅保存在本机，应用于所有群组。")
-            }
-            .listRowBackground(SoftLedgerTheme.formPaper)
-            #endif
-
             Section(L("Members")) {
-                VStack(spacing: 0) {
-                    LabeledContent(L("Group owner")) {
-                        if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
-                            HStack(spacing: 8) {
-                                SoftLedgerAvatar(member: owner, size: ownerAvatarSize)
-                                    .accessibilityHidden(true)
-                                Text(owner.name)
-                                    .font(.subheadline)
-                                    .foregroundStyle(SoftLedgerTheme.ink)
-                                    .lineLimit(1)
-                            }
+                HStack {
+                    Text(L("Group owner"))
+                    Spacer()
+                    if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
+                        HStack(spacing: 8) {
+                            SoftLedgerAvatar(member: owner, size: ownerAvatarSize)
+                                .accessibilityHidden(true)
+                            Text(owner.name)
+                                .font(.subheadline)
+                                .foregroundStyle(SoftLedgerTheme.ink)
+                                .lineLimit(1)
                         }
                     }
-                    .frame(minHeight: ownerContentMinHeight)
-                    .padding(.bottom, 14)
-                    Color(uiColor: .separator)
-                        .frame(height: 1)
                 }
-                // Fill the Form separator strip to avoid its unpainted outer pixel.
-                // The inset hairline above uses the system separator color.
-                .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 0, trailing: 20))
-                .alignmentGuide(.listRowSeparatorLeading) { _ in -20 }
-                .alignmentGuide(.listRowSeparatorTrailing) { $0.width + 20 }
-                .listRowSeparatorTint(SoftLedgerTheme.formPaper)
+                .listRowSeparator(.visible, edges: .bottom)
                 .listRowBackground(SoftLedgerTheme.formPaper)
 
                 NavigationLink {
@@ -2243,9 +2206,7 @@ struct RecordEditorView: View {
 
 private struct PaidByInlineEditor: View {
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
-    @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
-    @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
-    @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
+    @ScaledMetric(relativeTo: .caption2) private var textSpacing = 6
     @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
 
@@ -2261,7 +2222,7 @@ private struct PaidByInlineEditor: View {
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
 
-            JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, iconWidth: avatarSize + max(4, avatarSize / 9), rowSpacing: rowSpacing) { member in
+            ExpenseEditorChoiceGrid(items: members, id: \.id) { member, itemWidth in
                 let isMemberSelected = selection == member.uuid
 
                 Button {
@@ -2305,9 +2266,7 @@ private struct SplitInlineEditor: View {
     @Environment(\.softLedgerAppTheme) private var appTheme
 
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
-    @ScaledMetric(relativeTo: .caption2) private var itemWidth = 56
-    @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 10
-    @ScaledMetric(relativeTo: .caption2) private var textSpacing = 5
+    @ScaledMetric(relativeTo: .caption2) private var textSpacing = 6
     @ScaledMetric(relativeTo: .caption2) private var avatarSize = 36
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
 
@@ -2340,7 +2299,7 @@ private struct SplitInlineEditor: View {
                 .contentShape(Rectangle())
             }
 
-            JustifiedGrid(items: members, id: \.id, itemWidth: itemWidth, iconWidth: avatarSize + max(4, avatarSize / 9), rowSpacing: rowSpacing) { member in
+            ExpenseEditorChoiceGrid(items: members, id: \.id) { member, itemWidth in
                 let isMemberSelected = selection.contains(member.uuid)
 
                 Button {
@@ -2466,8 +2425,6 @@ private struct CategoryInlineEditor: View {
     @Environment(\.softLedgerAppTheme) private var appTheme
 
     @ScaledMetric(relativeTo: .caption) private var sectionSpacing = 16
-    @ScaledMetric(relativeTo: .caption2) private var itemWidth = 58
-    @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 12
     @ScaledMetric(relativeTo: .caption2) private var textSpacing = 6
     @ScaledMetric(relativeTo: .caption2) private var iconSize = 38
     @ScaledMetric(relativeTo: .caption2) private var iconFontSize = 15
@@ -2482,20 +2439,17 @@ private struct CategoryInlineEditor: View {
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
 
-            JustifiedGrid(items: expenseCategories, id: \.id, itemWidth: itemWidth, iconWidth: iconSize, rowSpacing: rowSpacing) { category in
+            ExpenseEditorChoiceGrid(items: expenseCategories, id: \.id) { category, itemWidth in
                 Button {
                     onEdit()
                     selection = category.id
                 } label: {
                     VStack(spacing: textSpacing) {
-                        Image(systemName: category.symbol)
-                            .font(.system(size: iconFontSize, weight: .semibold))
-                            .foregroundStyle(category.color)
-                            .frame(width: iconSize, height: iconSize)
-                            .background(category.color.opacity(0.13), in: Circle())
+                        ExpenseCategoryBadge(category: category, size: iconSize, symbolSize: iconFontSize)
                             .overlay {
                                 Circle()
-                                    .stroke(selection == category.id ? appTheme.accent : Color.clear, lineWidth: max(1.5, iconSize / 19))
+                                    .strokeBorder(selection == category.id ? appTheme.accent : Color.clear, lineWidth: max(2, iconSize / 19))
+                                    .padding(-3)
                             }
 
                         Text(L(category.titleKey))
@@ -2509,6 +2463,8 @@ private struct CategoryInlineEditor: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(L(category.titleKey))
+                .accessibilityAddTraits(selection == category.id ? .isSelected : [])
             }
         }
         .padding(.vertical, verticalPadding)
@@ -2534,18 +2490,21 @@ private struct ExpenseEditorFieldBlock<Content: View>: View {
     }
 }
 
-private struct JustifiedGrid<Item, ID: Hashable, Content: View>: View {
+// All three pickers share column centers, including when members occupy only
+// part of a row. Keep label widths and icon alignment independent of artwork size.
+private struct ExpenseEditorChoiceGrid<Item, ID: Hashable, Content: View>: View {
+    @ScaledMetric(relativeTo: .caption2) private var itemWidth = 58
+    @ScaledMetric(relativeTo: .caption2) private var iconWidth = 40
+    @ScaledMetric(relativeTo: .caption2) private var rowSpacing = 12
+
     let items: [Item]
     let id: KeyPath<Item, ID>
-    let itemWidth: CGFloat
-    let iconWidth: CGFloat
-    let rowSpacing: CGFloat
-    @ViewBuilder let content: (Item) -> Content
+    @ViewBuilder let content: (Item, CGFloat) -> Content
 
     var body: some View {
         JustifiedIconLayout(itemWidth: itemWidth, iconWidth: iconWidth, spacing: rowSpacing) {
             ForEach(items, id: id) { item in
-                content(item)
+                content(item, itemWidth)
             }
         }
     }
@@ -2601,7 +2560,7 @@ private struct BalancesRootView: View {
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    private let cornerRadius = SoftLedgerCornerRadius.card
     @ScaledMetric(relativeTo: .body) private var horizontalPadding = 20
     @ScaledMetric(relativeTo: .caption) private var topPadding = 8
     @ScaledMetric(relativeTo: .body) private var bottomPadding = 82
@@ -2691,11 +2650,7 @@ private struct BalancesRootView: View {
                     }
                     .padding(.horizontal, rowHorizontalPadding)
                     .padding(.vertical, rowVerticalPadding)
-                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                    }
+                    .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
                 }
                 .padding(.horizontal, horizontalPadding)
                 .padding(.top, topPadding)
@@ -2807,7 +2762,7 @@ private struct BalancesRootView: View {
 
 private struct SettlementPlanSection: View {
     @ScaledMetric(relativeTo: .headline) private var sectionSpacing = 9
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    private let cornerRadius = SoftLedgerCornerRadius.card
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 83
     @ScaledMetric(relativeTo: .subheadline) private var dividerTrailingPadding = 14
 
@@ -2842,11 +2797,7 @@ private struct SettlementPlanSection: View {
                     }
                 }
             }
-            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-            }
+            .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
         }
     }
 }
@@ -2934,7 +2885,7 @@ private struct MemberBalanceDetailView: View {
     @ScaledMetric(relativeTo: .subheadline) private var emptyRowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
+    private let cornerRadius = SoftLedgerCornerRadius.card
     @ScaledMetric(relativeTo: .body) private var horizontalPadding = 20
     @ScaledMetric(relativeTo: .caption) private var topPadding = 8
     @ScaledMetric(relativeTo: .body) private var bottomPadding = 28
@@ -3038,11 +2989,7 @@ private struct MemberBalanceDetailView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(summaryPadding)
-                    .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                    }
+                    .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
 
                     if records.isEmpty {
                         Text(L("No records yet"))
@@ -3051,11 +2998,7 @@ private struct MemberBalanceDetailView: View {
                             .frame(maxWidth: .infinity, minHeight: emptyRowMinHeight, alignment: .leading)
                             .padding(.horizontal, rowHorizontalPadding)
                             .padding(.vertical, rowVerticalPadding)
-                            .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                                    .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-                            }
+                            .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
                     } else {
                         GroupExpensesSection(
                             group: currentGroup,

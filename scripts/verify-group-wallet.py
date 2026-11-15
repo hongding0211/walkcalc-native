@@ -36,11 +36,30 @@ group.currentUserCurrencyBalances = [
 let debts = [ResolvedDebt(from: me, to: lin, amountMinor: "30000", currencyCode: "CNY"),
              ResolvedDebt(from: ming, to: me, amountMinor: "80000", currencyCode: "THB"),
              ResolvedDebt(from: lin, to: ming, amountMinor: "900000", currencyCode: "CNY")]
-func cards(_ g: WalkGroup, _ transfers: [ResolvedDebt] = debts, ready: Bool = true, filter: Set<String> = []) -> [WalletCurrency] {
-    GroupWalletData.cards(group: g, participantID: "me", debts: transfers, suggestionReady: ready, currencyCodes: filter)
+func cards(_ g: WalkGroup, _ transfers: [ResolvedDebt] = debts, ready: Bool = true, filter: Set<String> = [], paletteCount: Int = 8) -> [WalletCurrency] {
+    GroupWalletData.cards(group: g, participantID: "me", debts: transfers, suggestionReady: ready,
+        paletteCount: paletteCount, currencyCodes: filter)
 }
 let all = cards(group)
 precondition(all.map(\.id) == ["CNY", "THB", "SGD"])
+// FNV-1a("g") % 8 = 6. Color ranks follow CNY, SGD, THB,
+// independently of the default-first card order CNY, THB, SGD.
+precondition(all.map(\.artworkIndex) == [6, 0, 7], "Group hash sets the start; alphabetical currency ranks wrap the palette")
+var reordered = group
+reordered.currentUserCurrencyBalances.reverse()
+reordered.currencyCode = "THB"
+let originalColors = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0.artworkIndex) })
+precondition(cards(reordered).allSatisfy { originalColors[$0.id] == $0.artworkIndex },
+    "Server order and default currency must not alter colors")
+var another = group
+another.id = "hello"
+precondition(cards(another).map(\.artworkIndex) == [3, 5, 4], "Stable group hash changes the palette start")
+precondition(cards(group, paletteCount: 1).allSatisfy { $0.artworkIndex == 0 })
+precondition(cards(group, paletteCount: 2).map(\.artworkIndex) == [0, 0, 1], "Respect a resized debug palette")
+precondition(cards(group, paletteCount: 0).allSatisfy { $0.artworkIndex == 0 }, "Defensive empty count does not divide by zero")
+var duplicate = group
+duplicate.currentUserCurrencyBalances.append(projection("cny", cost: "120000"))
+precondition(cards(duplicate).map(\.artworkIndex) == all.map(\.artworkIndex), "Normalized duplicate codes cannot shift colors")
 precondition(all.map(\.expenseMinor) == ["120000", "680000", "24500"], "Use cost, never payments, debt, or a currency sum")
 precondition(all[0].settlement.contains("Lin") && !all[0].settlement.contains("Ming"))
 precondition(all[1].settlement.contains("Ming") && all[2].settlement == "Settled")
@@ -49,6 +68,8 @@ precondition(!cards(group, ready: false)[2].isSettled, "Do not mark settled whil
 let filtered = cards(group, filter: ["THB"])
 precondition(filtered.count == 1 && filtered[0].expenseMinor == "680000" && filtered[0].artworkIndex == all[1].artworkIndex)
 precondition(cards(group, filter: ["EUR"])[0].expenseMinor == "0")
+precondition(cards(group, filter: ["AUD", "CAD", "CNY"]).map(\.artworkIndex) == [6, 7, 0],
+    "Requested zero-balance currencies also receive consecutive alphabetical slots")
 precondition(!cards(group, ready: false)[0].settlement.contains("Lin"), "No counterparty while suggestions are unavailable")
 var settled = group
 settled.currentUserCurrencyBalances[0].debtMinor = "0"

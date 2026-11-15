@@ -45,10 +45,12 @@ private struct WalletComposition {
 
 private enum WalletGeometry {
     // Leave visible side rails around the rotated cards; only their tops peek out.
-    static let topInset: CGFloat = 22
+    static let topInset = WalletLayoutMetrics.topInset
     static let glassInset: CGFloat = 10
-    static let bottomInset: CGFloat = 12
-    static let cardRadius: CGFloat = 18
+    static let bottomInset = WalletLayoutMetrics.bottomInset
+    static let cardRadius = SoftLedgerCornerRadius.card
+    static let backingRadius = SoftLedgerCornerRadius.card
+    static let pocketRadius = SoftLedgerCornerRadius.card
 
     static func spacing(count: Int, exposedHeight: CGFloat, compression: Double) -> WalletStackSpacing {
         WalletStackSpacing(count: count, exposure: Double(exposedHeight), compression: compression)
@@ -152,9 +154,9 @@ private struct WalletCardArtwork: View {
 
     var body: some View {
         WalletCurrencySurface(index: index, appearance: appearance)
-            .clipShape(.rect(cornerRadius: WalletGeometry.cardRadius))
+            .clipShape(RoundedRectangle(cornerRadius: WalletGeometry.cardRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: WalletGeometry.cardRadius)
+                RoundedRectangle(cornerRadius: WalletGeometry.cardRadius, style: .continuous)
                     .strokeBorder(.white.opacity(0.65), lineWidth: 0.75)
             }
             .shadow(color: .black.opacity(0.16), radius: 4, y: -1)
@@ -185,9 +187,6 @@ private extension WalletMotion {
         landingDelay * maskRestoreFraction
     }
 
-    var dragMaskRestoreDelay: Double {
-        firstArrival(duration: dragReturnDuration, springBounce: dragBounce) * maskRestoreFraction
-    }
 }
 
 // Each card owns its draw keyframes; slot placement is a separate, retargetable
@@ -281,16 +280,20 @@ private struct WalletBlurredBackdrop: View {
     let reduceMotion: Bool
     let draggedID: String?
     let dragOffset: CGSize
+    let maximumHeight: CGFloat?
     private var count: Int { samples.count }
 
     var body: some View {
         GeometryReader { geometry in
             let cardWidth = max(1, geometry.size.width + 2 * WalletGeometry.glassInset - 2 * appearance.cardInset)
-            let cardHeight = cardWidth / CurrencyWalletLayout.cardAspectRatio
             let stackHeight = CGFloat(WalletGeometry.spacing(count: count, exposedHeight: exposedHeight,
                 compression: appearance.spacingDecay).stackHeight)
-            let deckHeight = max(cardHeight + 14,
-                                 exposedHeight + geometry.size.height + WalletGeometry.bottomInset)
+            let metrics = WalletLayoutMetrics(
+                width: geometry.size.width + 2 * WalletGeometry.glassInset,
+                cardInset: appearance.cardInset, glassHeightRatio: appearance.glassHeightRatio,
+                exposedHeight: exposedHeight, stackHeight: stackHeight,
+                contentHeight: geometry.size.height, maximumHeight: maximumHeight)
+            let deckHeight = metrics.height - WalletGeometry.topInset - stackHeight
             let cardsTop = geometry.size.height + WalletGeometry.bottomInset - stackHeight - deckHeight
             let glassTop = WalletGeometry.topInset - cardsTop
             let backingTop = max(0, WalletGeometry.backingTopInset(offset: appearance.backingOffset) - glassTop)
@@ -301,7 +304,7 @@ private struct WalletBlurredBackdrop: View {
                 ForEach(samples) { sample in
                     let index = orderedIDs.firstIndex(of: sample.id) ?? 0
                     WalletCardArtwork(index: sample.artworkIndex, appearance: appearance)
-                        .frame(width: cardWidth, height: cardHeight)
+                        .frame(width: cardWidth, height: metrics.cardHeight)
                         .modifier(WalletCardTravel(request: drawRequests[sample.id],
                             slotDuration: slotDurations[sample.id], index: index,
                             count: count, exposedHeight: exposedHeight, appearance: appearance,
@@ -315,7 +318,7 @@ private struct WalletBlurredBackdrop: View {
             .compositingGroup()
             .blur(radius: appearance.blur)
         }
-        .clipShape(.rect(cornerRadius: 22))
+        .clipShape(RoundedRectangle(cornerRadius: WalletGeometry.pocketRadius, style: .continuous))
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -355,45 +358,33 @@ private struct WalletPocketMask: Shape {
         let pocket = CGRect(x: glassFrame.minX + 1, y: startY - 1,
                             width: max(0, glassFrame.width - 2),
                             height: max(0, glassFrame.maxY - startY))
-        path.addPath(UnevenRoundedRectangle(bottomLeadingRadius: 21, bottomTrailingRadius: 21)
+        path.addPath(UnevenRoundedRectangle(bottomLeadingRadius: WalletGeometry.pocketRadius - 1,
+                                           bottomTrailingRadius: WalletGeometry.pocketRadius - 1, style: .continuous)
             .path(in: pocket))
         return path
     }
 }
 
-// Full-size cards, then the glass pocket. Cards retain the ISO ID-1
-// aspect ratio; each additional card adds only one exposed header to the wallet.
+// Full-size artwork behind a height-limited glass pocket.
 private struct CurrencyWalletLayout: Layout {
-    static let cardAspectRatio: CGFloat = 85.60 / 53.98
     let count: Int
     let exposedHeight: CGFloat
     let appearance: WalletAppearance
+    let maximumHeight: CGFloat?
 
-    private struct Metrics {
-        let width: CGFloat
-        let cardHeight: CGFloat
-        let glassHeight: CGFloat
-        let height: CGFloat
-    }
-
-    private func metrics(width: CGFloat, subviews: Subviews) -> Metrics {
-        let cardWidth = max(1, width - 2 * appearance.cardInset)
-        let cardHeight = cardWidth / Self.cardAspectRatio
+    private func metrics(width: CGFloat, subviews: Subviews) -> WalletLayoutMetrics {
         let contentHeight = subviews[subviews.count - 1]
             .sizeThatFits(.init(width: width - 2 * WalletGeometry.glassInset, height: nil)).height
-        let desiredGlassHeight = cardHeight * appearance.glassHeightRatio
-        let glassHeight = max(desiredGlassHeight, contentHeight)
         let stackHeight = CGFloat(WalletGeometry.spacing(count: count, exposedHeight: exposedHeight,
                 compression: appearance.spacingDecay).stackHeight)
-        let height = WalletGeometry.topInset + stackHeight + max(cardHeight + 14,
-                                                         exposedHeight + glassHeight + WalletGeometry.bottomInset)
-        return Metrics(width: width, cardHeight: cardHeight,
-                       glassHeight: glassHeight, height: height)
+        return WalletLayoutMetrics(width: width, cardInset: appearance.cardInset,
+            glassHeightRatio: appearance.glassHeightRatio, exposedHeight: exposedHeight,
+            stackHeight: stackHeight, contentHeight: contentHeight, maximumHeight: maximumHeight)
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let value = metrics(width: proposal.width ?? 350, subviews: subviews)
-        return CGSize(width: value.width, height: value.height)
+        return CGSize(width: proposal.width ?? 350, height: value.height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
@@ -406,6 +397,13 @@ private struct CurrencyWalletLayout: Layout {
 }
 
 struct CurrencyWallet: View {
+    @Environment(\.walletViewportHeight) private var viewportHeight
+    @Environment(\.walletUsesExpandedLayout) private var usesExpandedLayout
+    #if DEBUG
+    @AppStorage(WalletHeightLimit.storageKey) private var maximumHeightFraction = WalletHeightLimit.defaultFraction
+    #else
+    private let maximumHeightFraction = WalletHeightLimit.defaultFraction
+    #endif
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -437,6 +435,11 @@ struct CurrencyWallet: View {
 
     private var exposedHeight: CGFloat { appearance.exposure * exposureScale }
 
+    private var maximumHeight: CGFloat? {
+        WalletHeightLimit.maximumHeight(viewportHeight: viewportHeight,
+            fraction: maximumHeightFraction, regularWidth: usesExpandedLayout)
+    }
+
     private var availableIDs: [String] { samples.map(\.id) }
     private var orderedIDs: [String] { savedPosition.order.resolved(in: availableIDs) }
     private var orderedSamples: [WalletCurrency] {
@@ -449,7 +452,8 @@ struct CurrencyWallet: View {
 
     var body: some View {
         if let selected {
-            CurrencyWalletLayout(count: samples.count, exposedHeight: exposedHeight, appearance: appearance) {
+            CurrencyWalletLayout(count: samples.count, exposedHeight: exposedHeight,
+                                 appearance: appearance, maximumHeight: maximumHeight) {
                 information(selected)
                     .anchorPreference(key: WalletGlassBoundsKey.self, value: .bounds) { $0 }
             }
@@ -479,7 +483,7 @@ struct CurrencyWallet: View {
             }
             .onChange(of: activeDragID) { old, current in
                 // GestureState also resets on cancellation (e.g. a parent scroll).
-                if current != nil { openPocketMask() }
+                if current != nil { openPocketMask(immediately: true) }
                 if old != nil && current == nil { returnDraggedCard() }
             }
             .onDisappear { cancelDrag() }
@@ -498,7 +502,7 @@ struct CurrencyWallet: View {
                 if reduced { cancelDrag() }
             }
             .background {
-                RoundedRectangle(cornerRadius: 28)
+                RoundedRectangle(cornerRadius: WalletGeometry.backingRadius, style: .continuous)
                     .fill(appearance.backingColor.color)
                     .padding(.top, WalletGeometry.backingTopInset(offset: appearance.backingOffset))
             }
@@ -507,11 +511,15 @@ struct CurrencyWallet: View {
 
     private func cardStack(in size: CGSize) -> some View {
         let cardWidth = max(1, size.width - 2 * appearance.cardInset)
+        let stackHeight = CGFloat(WalletGeometry.spacing(count: samples.count,
+            exposedHeight: exposedHeight, compression: appearance.spacingDecay).stackHeight)
+        let cardHeight = WalletLayoutMetrics.fittedCardHeight(width: size.width,
+            cardInset: appearance.cardInset, walletHeight: size.height, stackHeight: stackHeight)
         return ZStack(alignment: .topLeading) {
             ForEach(samples) { sample in
                 let index = orderedIDs.firstIndex(of: sample.id) ?? 0
                 currencyCard(sample, index: index)
-                    .frame(width: cardWidth, height: cardWidth / CurrencyWalletLayout.cardAspectRatio)
+                    .frame(width: cardWidth, height: cardHeight)
                     .offset(x: appearance.cardInset, y: WalletGeometry.topInset)
                     .zIndex(Double(index))
             }
@@ -545,7 +553,7 @@ struct CurrencyWallet: View {
             .foregroundStyle(appearance.cardInk(at: sample.artworkIndex).color)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background { WalletCardArtwork(index: sample.artworkIndex, appearance: appearance) }
-            .contentShape(.rect(cornerRadius: WalletGeometry.cardRadius))
+            .contentShape(RoundedRectangle(cornerRadius: WalletGeometry.cardRadius, style: .continuous))
         }
         .buttonStyle(WalletCardButtonStyle(onPickup: pickUpCard))
         .modifier(WalletCardTravel(request: drawRequests[sample.id],
@@ -566,6 +574,9 @@ struct CurrencyWallet: View {
                 active = id
             }
             .onChanged { value in
+                // Remove the crop in the same update as the first movement.
+                // Waiting for GestureState's onChange clips the initial frame.
+                openPocketMask(immediately: true)
                 haptics.cancelLanding()
                 dragReturnToken = UUID()
                 let distance = hypot(value.translation.width, value.translation.height)
@@ -590,8 +601,7 @@ struct CurrencyWallet: View {
                                                    springBounce: appearance.motion.dragBounce),
             intensity: appearance.motion.landingHaptic,
             enabled: appearance.motion.hapticsEnabled && !reduceMotion)
-        // Start closing during the return, rather than waiting for all oscillations.
-        scheduleMaskRestore(after: reduceMotion ? 0 : appearance.motion.dragMaskRestoreDelay)
+        maskRestoreRequest = nil
         withAnimation(reduceMotion ? nil : .spring(duration: appearance.motion.dragReturnDuration,
                                                    bounce: appearance.motion.dragBounce),
                       completionCriteria: .removed) {
@@ -599,6 +609,7 @@ struct CurrencyWallet: View {
         } completion: {
             guard dragReturnToken == token else { return }
             draggedID = nil
+            scheduleMaskRestore(after: 0)
         }
     }
 
@@ -646,10 +657,16 @@ struct CurrencyWallet: View {
         maskRestoreRequest = UUID()
     }
 
-    private func openPocketMask() {
+    private func openPocketMask(immediately: Bool = false) {
         maskRestoreRequest = nil
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: appearance.motion.maskOpenDuration)) {
-            pocketMaskAmount = 0
+        if immediately || reduceMotion {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { pocketMaskAmount = 0 }
+        } else {
+            withAnimation(.easeInOut(duration: appearance.motion.maskOpenDuration)) {
+                pocketMaskAmount = 0
+            }
         }
     }
 
@@ -710,12 +727,12 @@ struct CurrencyWallet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .background {
             if reduceTransparency {
-                RoundedRectangle(cornerRadius: 22).fill(appearance.backingColor.color)
+                RoundedRectangle(cornerRadius: WalletGeometry.pocketRadius, style: .continuous).fill(appearance.backingColor.color)
             }
         }
         // The baseline samples the real stack with unmodified system glass.
         // Optional legacy treatments remain available for an explicit comparison.
-        .glassEffect(reduceTransparency ? .identity : nativeGlass, in: .rect(cornerRadius: 22))
+        .glassEffect(reduceTransparency ? .identity : nativeGlass, in: RoundedRectangle(cornerRadius: WalletGeometry.pocketRadius, style: .continuous))
         .background {
             if !reduceTransparency && !appearance.nativeGlassOnly {
                 ZStack {
@@ -724,21 +741,22 @@ struct CurrencyWallet: View {
                                               appearance: appearance, flatCards: typeSize.isAccessibilitySize,
                                               orderedIDs: orderedIDs, drawRequests: drawRequests, slotDurations: slotDurations,
                                               reduceMotion: reduceMotion,
-                                              draggedID: draggedID, dragOffset: dragOffset)
-                        RoundedRectangle(cornerRadius: 22)
+                                              draggedID: draggedID, dragOffset: dragOffset,
+                                              maximumHeight: maximumHeight)
+                        RoundedRectangle(cornerRadius: WalletGeometry.pocketRadius, style: .continuous)
                             .fill(.ultraThinMaterial)
                             .opacity(1 - appearance.clarity)
                     }
-                    RoundedRectangle(cornerRadius: 22)
+                    RoundedRectangle(cornerRadius: WalletGeometry.pocketRadius, style: .continuous)
                         .fill(WalletRGB.black.color.opacity(appearance.tint))
                 }
-                .clipShape(.rect(cornerRadius: 22))
+                .clipShape(RoundedRectangle(cornerRadius: WalletGeometry.pocketRadius, style: .continuous))
                 .allowsHitTesting(false)
             }
         }
         .overlay {
             if !reduceTransparency && !appearance.nativeGlassOnly && appearance.edgeHighlight > 0 {
-                RoundedRectangle(cornerRadius: 22)
+                RoundedRectangle(cornerRadius: WalletGeometry.pocketRadius, style: .continuous)
                     .strokeBorder(LinearGradient(colors: [
                         .white.opacity(appearance.edgeHighlight), .white.opacity(0.03),
                         .white.opacity(appearance.edgeHighlight * 0.6)

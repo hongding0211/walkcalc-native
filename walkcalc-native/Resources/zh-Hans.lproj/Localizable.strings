@@ -293,3 +293,9 @@
 "Wallet.spendingUnavailable" = "暂无个人开销数据";
 "Personal spending: %@" = "我的开销：%@";
 "Show settlement overview for this currency" = "显示这个币种的结清概览";
+
+"Earlier" = "更早";
+
+"Select a group" = "选择群组";
+
+"Choose a group to view its records." = "选择一个群组以查看账目。";

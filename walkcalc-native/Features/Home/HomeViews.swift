@@ -15,6 +15,9 @@ enum HomeSheet: Identifiable {
     case archivedGroups
     case about
     case signIn
+    #if DEBUG
+    case debug
+    #endif
 
     var id: String {
         switch self {
@@ -24,6 +27,9 @@ enum HomeSheet: Identifiable {
         case .archivedGroups: "archivedGroups"
         case .about: "about"
         case .signIn: "signIn"
+        #if DEBUG
+        case .debug: "debug"
+        #endif
         }
     }
 }
@@ -358,25 +364,21 @@ private struct LoginLayout {
     }
 }
 
-private enum HomeGroupListEntry: Identifiable {
-    case heading(String, primary: Bool)
-    case group(WalkGroup)
-
-    var id: String {
-        switch self {
-        case .heading(_, let primary): primary ? "heading-primary" : "heading-unpinned"
-        case .group(let group): "group-\(group.id)"
-        }
-    }
-}
-
 struct RootHomeView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.walletViewportHeight) private var viewportHeight
     @EnvironmentObject private var store: WalkcalcStore
     @EnvironmentObject private var pushNavigation: PushNavigationCoordinator
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var path: [Route] = Self.initialPath()
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    #if DEBUG
+    @State private var activeSheet: HomeSheet? = ProcessInfo.processInfo.arguments.contains("--ui-open-appearance-debug") ? .debug : nil
+    #else
     @State private var activeSheet: HomeSheet?
+    #endif
     @State private var archiveCandidate: WalkGroup?
     @State private var archiveBlockedCandidate: WalkGroup?
     @State private var deleteCandidate: WalkGroup?
@@ -406,24 +408,6 @@ struct RootHomeView: View {
         store.pinnedGroups(in: activeGroups)
     }
 
-    private var unpinnedGroups: [WalkGroup] {
-        activeGroups.filter { !store.isGroupPinned($0.id) }
-    }
-
-    // One ForEach preserves each card's identity when it crosses sections.
-    // The first heading also keeps its identity while All groups becomes Pinned.
-    private var groupListEntries: [HomeGroupListEntry] {
-        var entries: [HomeGroupListEntry] = [
-            .heading(pinnedGroups.isEmpty ? "All groups" : "Pinned", primary: true)
-        ]
-        entries += pinnedGroups.map { .group($0) }
-        if !pinnedGroups.isEmpty && !unpinnedGroups.isEmpty {
-            entries.append(.heading("All groups", primary: false))
-        }
-        entries += unpinnedGroups.map { .group($0) }
-        return entries
-    }
-
     private var pinAnimation: Animation {
         reduceMotion ? .easeInOut(duration: 0.15) : .spring(duration: 0.36, bounce: 0.12)
     }
@@ -444,25 +428,33 @@ struct RootHomeView: View {
     }
 
     private func groupSectionTitle(_ title: String) -> some View {
-        AnimatedGroupLabel(text: L(title))
-            .font(.callout.weight(.semibold))
+        AnimatedGroupLabel(text: title)
+            .font(.title3.weight(.bold))
             .foregroundStyle(SoftLedgerTheme.ink)
             .padding(.top, 4)
             .accessibilityAddTraits(.isHeader)
     }
 
-    private func groupRow(_ group: WalkGroup) -> some View {
+    private func groupRow(_ group: WalkGroup, isSidebar: Bool) -> some View {
         Button {
             store.preloadGroupContent(group.id)
-            path.append(.group(group.id))
+            path = [.group(group.id)]
         } label: {
             GroupSummaryRow(
                 group: group,
                 isPending: pendingGroupAction?.groupID == group.id,
-                isAnimationEnabled: isBalanceAnimationEnabled
+                isAnimationEnabled: isBalanceAnimationEnabled,
+                isSidebar: isSidebar
             )
         }
         .buttonStyle(.plain)
+        .background {
+            if selectedGroupID == group.id {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.tint.opacity(0.12))
+            }
+        }
+        .accessibilityAddTraits(selectedGroupID == group.id ? .isSelected : [])
         .disabled(pendingGroupAction != nil)
         .contextMenu {
             Button {
@@ -502,35 +494,39 @@ struct RootHomeView: View {
             && pendingGroupAction == nil
     }
 
-    var body: some View {
-        NavigationStack(path: $path) {
-            ZStack(alignment: .bottom) {
-                SoftLedgerBackground()
+    private func homeContent(isSidebar: Bool) -> some View {
+        ZStack(alignment: .bottom) {
+            SoftLedgerBackground()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        if activeGroups.isEmpty, store.canLoadMoreGroups {
-                            ProgressView()
-                                .softLedgerProgressTint()
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 80)
-                                .task { await store.loadMoreGroups() }
-                        } else if activeGroups.isEmpty {
-                            GroupsEmptyState(
-                                onCreateGroup: { activeSheet = .create },
-                                onJoinGroup: { requestJoinGroup() }
-                            )
-                        } else {
-                            HomeBalanceCard(isAnimationEnabled: isBalanceAnimationEnabled)
-                            LazyVStack(alignment: .leading, spacing: 16) {
-                                ForEach(groupListEntries) { entry in
-                                    switch entry {
-                                    case .heading(let title, _):
-                                        groupSectionTitle(title)
-                                            .transition(reduceMotion ? .identity : .offset(y: -6).combined(with: .opacity))
-                                    case .group(let group):
-                                        // The outer row survives the menu's identity reset.
-                                        ZStack { groupRow(group) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if activeGroups.isEmpty, store.canLoadMoreGroups {
+                        ProgressView()
+                            .softLedgerProgressTint()
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 80)
+                            .task { await store.loadMoreGroups() }
+                    } else if activeGroups.isEmpty {
+                        GroupsEmptyState(
+                            onCreateGroup: { activeSheet = .create },
+                            onJoinGroup: { requestJoinGroup() }
+                        )
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 60)) { context in
+                            LazyVStack(alignment: .leading, spacing: 24) {
+                                ForEach(HomeGroupSection.make(groups: activeGroups, now: context.date)) { section in
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        groupSectionTitle(section.title(locale: Locale(identifier: L10n.preferredLanguageIdentifier)))
+                                        VStack(spacing: 0) {
+                                            ForEach(section.groups) { group in
+                                                groupRow(group, isSidebar: isSidebar)
+                                                if group.id != section.groups.last?.id {
+                                                    Divider()
+                                                        .padding(.horizontal, 16)
+                                                }
+                                            }
+                                        }
+                                        .softLedgerSurface(borderOpacity: 0)
                                     }
                                 }
 
@@ -546,71 +542,130 @@ struct RootHomeView: View {
                             .animation(reduceMotion ? nil : pinAnimation, value: pinnedGroups.map(\.id))
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 34)
                 }
-                .refreshable { await store.refreshHome() }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 34)
             }
-            .navigationTitle(L("Groups"))
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            activeSheet = .create
-                        } label: {
-                            Label(L("Create group"), systemImage: "person.2")
-                        }
-
-                        Button {
-                            requestJoinGroup()
-                        } label: {
-                            Label(L("Join group"), systemImage: "person.2.badge.plus")
-                        }
+            .refreshable { await store.refreshHome() }
+        }
+        .navigationTitle(L("Groups"))
+        .navigationBarTitleDisplayMode(isSidebar ? .inline : .large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        activeSheet = .create
                     } label: {
-                        Image(systemName: "plus")
-                            .foregroundStyle(.primary)
+                        Label(L("Create group"), systemImage: "person.2")
                     }
-                    .accessibilityLabel(L("Add group"))
-                }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        if !store.isLoggedIn {
-                            Button {
-                                activeSheet = .signIn
-                            } label: {
-                                Label(L("Sign in"), systemImage: "person.crop.circle")
-                            }
-                            Divider()
-                        }
-
-                        Button {
-                            activeSheet = .archivedGroups
-                        } label: {
-                            Label(L("Archived groups"), systemImage: "archivebox")
-                        }
-
-                        Button {
-                            activeSheet = .settings
-                        } label: {
-                            Label(L("Settings"), systemImage: "gearshape")
-                        }
+                    Button {
+                        requestJoinGroup()
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .foregroundStyle(.primary)
+                        Label(L("Join group"), systemImage: "person.2.badge.plus")
                     }
-                    .accessibilityLabel(L("Settings"))
+                } label: {
+                    Label(L("Add group"), systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.primary)
                 }
+                .accessibilityLabel(L("Add group"))
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .navigationDestination(for: Route.self) { route in
-                switch route {
-                case .group(let id):
-                    GroupView(groupId: id)
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    if !store.isLoggedIn {
+                        Button {
+                            activeSheet = .signIn
+                        } label: {
+                            Label(L("Sign in"), systemImage: "person.crop.circle")
+                        }
+                        Divider()
+                    }
+
+                    Button {
+                        activeSheet = .archivedGroups
+                    } label: {
+                        Label(L("Archived groups"), systemImage: "archivebox")
+                    }
+
+                    Button {
+                        activeSheet = .settings
+                    } label: {
+                        Label(L("Settings"), systemImage: "gearshape")
+                    }
+                    #if DEBUG
+                    Divider()
+                    Button {
+                        activeSheet = .debug
+                    } label: {
+                        Label("调试", systemImage: "slider.horizontal.3")
+                    }
+                    #endif
+                } label: {
+                    Label(L("Settings"), systemImage: "ellipsis")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.primary)
                 }
+                .accessibilityLabel(L("Settings"))
             }
+        }
+        .toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    private var selectedGroupID: String? {
+        guard let route = path.last, case .group(let id) = route else { return nil }
+        return id
+    }
+
+    private var compactColumn: Binding<NavigationSplitViewColumn> {
+        Binding(
+            get: { path.isEmpty ? .sidebar : .detail },
+            set: { column in
+                if column == .sidebar { path = [] }
+            }
+        )
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            // Local window geometry also handles Duo Split View multitasking.
+            // A tall window keeps the familiar single-column navigation.
+            let windowHeight = viewportHeight > 0 ? viewportHeight : proxy.size.height
+            let showsColumns = horizontalSizeClass == .regular && proxy.size.width > windowHeight
+            NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: compactColumn) {
+                homeContent(isSidebar: showsColumns)
+                    // Allow the native split view to follow the fold while
+                    // preferring equal halves instead of a fixed 320pt sidebar.
+                    .navigationSplitViewColumnWidth(min: 280,
+                        ideal: max(280, proxy.size.width / 2), max: max(280, proxy.size.width / 2))
+                    .toolbar(removing: .sidebarToggle)
+                    .overlay(alignment: .trailing) {
+                        if showsColumns {
+                            Rectangle()
+                                .fill(Color(uiColor: .separator))
+                                .frame(width: 1 / displayScale)
+                                .ignoresSafeArea(edges: .vertical)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
+            } detail: {
+                NavigationStack {
+                    if let groupID = selectedGroupID {
+                        GroupView(groupId: groupID, onClose: { path = [] })
+                            .id(groupID)
+                    } else {
+                        ContentUnavailableView(L("Select a group"), systemImage: "person.2",
+                            description: Text(L("Choose a group to view its records.")))
+                            .background { SoftLedgerBackground() }
+                    }
+                }
+                .toolbar(removing: .sidebarToggle)
+            }
+            .navigationSplitViewStyle(.balanced)
+            .environment(\.horizontalSizeClass, showsColumns ? .regular : .compact)
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -644,6 +699,14 @@ struct RootHomeView: View {
                 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+            #if DEBUG
+            case .debug:
+                NavigationStack {
+                    AppearanceDebugView()
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            #endif
             case .about:
                 AboutSheet()
                     .presentationDetents([.medium])
@@ -699,7 +762,7 @@ struct RootHomeView: View {
                   let code = url.pathComponents.dropFirst().first else {
                 return
             }
-            path.append(.group(code))
+            path = [.group(code)]
         }
         .alert(L("Couldn't update pin"), isPresented: Binding(get: { pinError != nil }, set: { if !$0 { pinError = nil } })) {
             Button(L("OK"), role: .cancel) { pinError = nil }
@@ -758,7 +821,8 @@ struct RootHomeView: View {
     private func archiveConfirmed(_ group: WalkGroup) async {
         guard pendingGroupAction == nil else { return }
         pendingGroupAction = .archive(group.id)
-        _ = await store.archiveGroupWithFeedback(group.id)
+        let result = await store.archiveGroupWithFeedback(group.id)
+        if result.success, selectedGroupID == group.id { path = [] }
         pendingGroupAction = nil
     }
 
@@ -768,6 +832,7 @@ struct RootHomeView: View {
         pendingGroupAction = .delete(group.id)
         let result = await store.deleteGroupWithFeedback(group.id)
         if result.success {
+            if selectedGroupID == group.id { path = [] }
             SoftLedgerHaptics.success()
         }
         pendingGroupAction = nil
@@ -885,72 +950,6 @@ private struct JoinGroupSheet: View {
             } else {
                 isSubmitting = false
                 joinErrorMessage = result.message ?? L("No group matches this ID. Check it and try again.")
-            }
-        }
-    }
-}
-
-private struct HomeBalanceCard: View {
-    @EnvironmentObject private var store: WalkcalcStore
-
-    let isAnimationEnabled: Bool
-
-    private var balances: [CurrencyBalanceSummary] {
-        if !store.totalBalancesByCurrency.isEmpty {
-            // History still belongs in the ledger, but a zero net balance should
-            // not occupy a currency page in the home summary carousel.
-            return store.totalBalancesByCurrency
-                .filter { !Money.isZero($0.totalBalanceMinor) }
-                .sorted { $0.currencyCode < $1.currencyCode }
-        }
-        // Use the legacy total only when no per-currency summary was supplied.
-        guard !Money.isZero(store.totalBalanceMinor) else { return [] }
-        return [CurrencyBalanceSummary(
-            currencyCode: CurrencyCatalog.defaultCurrencyCode(),
-            totalBalanceMinor: store.totalBalanceMinor
-        )]
-    }
-
-    private func scopeCount(for currencyCode: String) -> Int {
-        let loadedCount = store.groups.filter {
-            let identityIds = Set([store.localOwner.uuid, store.user?.uuid].compactMap { $0 })
-            guard identityIds.isDisjoint(with: Set($0.archivedUsers)) else { return false }
-            let member = $0.allMembers.first { identityIds.contains($0.uuid) }
-            let currencyBalances = $0.hasCurrentUserBalanceSummary
-                ? $0.currentUserCurrencyBalances
-                : member?.currencyBalances ?? []
-            let actualBalances = currencyBalances.filter(\.hasLedgerActivity)
-            if actualBalances.isEmpty {
-                let legacyBalance = $0.hasCurrentUserBalanceSummary
-                    ? $0.currentUserBalanceMinor
-                    : member?.debtMinor ?? "0"
-                guard !Money.isZero(legacyBalance) else { return false }
-                return CurrencyCatalog.normalizedCode($0.currencyCode) == currencyCode
-            }
-            return actualBalances.contains {
-                CurrencyCatalog.normalizedCode($0.currencyCode) == currencyCode
-            }
-        }.count
-        return loadedCount > 0 ? loadedCount : max(store.groupTotal, store.groups.count)
-    }
-
-    var body: some View {
-        SoftLedgerCard {
-            if balances.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L("Total balance"))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    Text("0")
-                        .font(.system(size: 42, weight: .semibold, design: .rounded))
-                        .foregroundStyle(SoftLedgerTheme.ink)
-                }
-            } else {
-                CurrencyBalanceCarousel(
-                    balances: balances,
-                    isAnimationEnabled: isAnimationEnabled,
-                    scopeCount: scopeCount
-                )
             }
         }
     }
@@ -1643,19 +1642,18 @@ private extension Collection {
 private struct GroupSummaryRow: View {
     @EnvironmentObject private var store: WalkcalcStore
     @ScaledMetric(relativeTo: .caption) private var memberAvatarSize = 24
-    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 72
-    @ScaledMetric(relativeTo: .subheadline) private var horizontalPadding = 14
-    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding = 10
+    @ScaledMetric(relativeTo: .subheadline) private var rowMinHeight = 84
+    @ScaledMetric(relativeTo: .subheadline) private var horizontalPadding = 16
+    @ScaledMetric(relativeTo: .subheadline) private var verticalPadding = 14
     @ScaledMetric(relativeTo: .subheadline) private var rowSpacing = 12
-    @ScaledMetric(relativeTo: .subheadline) private var cornerRadius = 16
     @ScaledMetric(relativeTo: .caption) private var titleSpacing = 6
-    @ScaledMetric(relativeTo: .caption) private var metadataSpacing = 8
     @ScaledMetric(relativeTo: .subheadline) private var amountWidth = 100
     @ScaledMetric(relativeTo: .subheadline) private var amountHeight = 24
 
     let group: WalkGroup
     let isPending: Bool
     let isAnimationEnabled: Bool
+    var isSidebar = false
 
     private var myBalance: MoneyMinor {
         if group.hasCurrentUserBalanceSummary {
@@ -1727,40 +1725,39 @@ private struct GroupSummaryRow: View {
         HStack(spacing: rowSpacing) {
             VStack(alignment: .leading, spacing: titleSpacing) {
                 Text(group.name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.ink)
-                    .lineLimit(1)
+                    .lineLimit(isSidebar ? 2 : 1)
                     .truncationMode(.tail)
 
-                HStack(spacing: metadataSpacing) {
-                    SoftLedgerAvatarStack(members: displayMembers, visibleCount: 3, size: memberAvatarSize, showsTotal: false)
-                }
+                SoftLedgerAvatarStack(members: displayMembers, visibleCount: 3, size: memberAvatarSize, showsTotal: false)
             }
             .layoutPriority(1)
 
             Spacer()
 
-            if carouselBalances.isEmpty {
-                Text(zeroBalanceText)
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+            Group {
+                if carouselBalances.isEmpty {
+                    Text(zeroBalanceText)
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
+                } else {
+                    CurrencyBalanceCarousel(
+                        compactBalances: carouselBalances,
+                        isAnimationEnabled: isAnimationEnabled,
+                        amountColor: { moneyColor($0.totalBalanceMinor) }
+                    )
                     .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
-                    .layoutPriority(2)
-            } else {
-                CurrencyBalanceCarousel(
-                    compactBalances: carouselBalances,
-                    isAnimationEnabled: isAnimationEnabled,
-                    amountColor: { moneyColor($0.totalBalanceMinor) }
-                )
-                .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
-                .layoutPriority(2)
+                }
             }
+            .layoutPriority(2)
 
             if isPending {
                 ProgressView()
                     .controlSize(.small)
                     .softLedgerProgressTint()
-            } else {
+            } else if !isSidebar {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
@@ -1770,11 +1767,7 @@ private struct GroupSummaryRow: View {
         .padding(.vertical, verticalPadding)
         .frame(minHeight: rowMinHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
-        }
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(group.name), \(accessibilityBalanceText)")
         .accessibilityHint(L("Opens group details"))
