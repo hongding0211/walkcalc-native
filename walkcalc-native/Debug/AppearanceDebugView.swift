@@ -38,16 +38,16 @@ struct AppearanceDebugView: View {
             Section("卡包") {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("最大高度占比")
+                        Text("基础最大高度占比")
                         Spacer()
                         Text(walletHeightFraction, format: .percent.precision(.fractionLength(0)))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
                     Slider(value: $walletHeightFraction, in: WalletHeightLimit.fractionRange, step: 0.01) {
-                        Text("卡包最大高度占比")
+                        Text("卡包基础最大高度占比")
                     }
-                    Text("由系统宽度类型决定：紧凑宽度保持原比例；常规宽度仅在卡包自然高度超过上限时缩短。默认 30%；大字体优先保持可读。修改自动保存在本机。")
+                    Text("由系统宽度类型决定：紧凑宽度保持原比例；常规宽度限制单张卡包的基础高度，更多卡片露出的堆叠高度额外增加。默认 30%；大字体优先保持可读。修改自动保存在本机。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button("恢复默认高度") {

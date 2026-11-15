@@ -21,9 +21,12 @@ func metrics(width: CGFloat, height: CGFloat, count: Int, text: CGFloat = 110,
 let phone = metrics(width: 353, height: 852, count: 1, regularWidth: false)
 precondition(phone.height < 852 * 0.3, "An ordinary phone retains its natural wallet height")
 let duo = metrics(width: 660, height: 960, count: 4)
-precondition(abs(duo.height - 288) < 0.001, "Cap the whole wide wallet, including four headers")
+let duoStack = WalletStackSpacing(count: 4, exposure: 32, compression: 0.04).stackHeight
+precondition(abs(duo.height - duoStack - 288) < 0.001,
+    "Cap the single-card baseline, then add the exposed stack height")
 precondition(duo.glassHeight >= 110, "Settlement copy stays readable")
-precondition(duo.cardHeight < phone.cardHeight, "Capped four-card deck resizes the artwork too")
+let uncappedDuo = metrics(width: 660, height: 960, count: 4, regularWidth: false)
+precondition(duo.cardHeight < uncappedDuo.cardHeight, "Capped deck resizes the artwork too")
 let smaller = metrics(width: 660, height: 960, count: 4, fraction: 0.25)
 let larger = metrics(width: 660, height: 960, count: 4, fraction: 0.4)
 precondition(smaller.height < duo.height && larger.height > duo.height, "Slider changes visible wallet height")
@@ -34,6 +37,12 @@ for width: CGFloat in [280, 353, 500, 660, 900] {
                 let value = metrics(width: width, height: height, count: count, text: text)
                 precondition(value.height.isFinite && value.glassHeight >= text)
                 let stack = WalletStackSpacing(count: count, exposure: 32, compression: 0.04).stackHeight
+                let single = metrics(width: width, height: height, count: 1, text: text)
+                precondition(abs(value.height - single.height - stack) < 0.001,
+                    "Additional cards grow the total height by their exposed stack")
+                precondition(abs(value.cardHeight - single.cardHeight) < 0.001
+                    && abs(value.glassHeight - single.glassHeight) < 0.001,
+                    "More cards never squeeze the baseline card or pocket")
                 precondition(value.height >= 22 + stack + 32 + text + 12 - 0.001,
                     "Never overlap the currency headers and settlement copy")
                 precondition(22 + stack + value.cardHeight <= value.height - 12,
@@ -70,7 +79,7 @@ let naturallyShort = metrics(width: 280, height: 960, count: 1, fraction: 0.5)
 let uncappedShort = metrics(width: 280, height: 960, count: 1, fraction: 0.5, regularWidth: false)
 precondition(naturallyShort.height == uncappedShort.height,
     "Regular size class does not enlarge a wallet that already fits below the cap")
-print("PASS: system size-class policy, natural sizing, resizing all cards, open-mask bounds, large text and backdrop alignment")
+print("PASS: baseline cap, additive stack height, system size-class policy, open-mask bounds, large text and backdrop alignment")
 '''
 with tempfile.TemporaryDirectory(prefix='walkcalc-wallet-layout-') as folder:
     path = Path(folder)

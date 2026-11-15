@@ -13,7 +13,7 @@ enum WalletHeightLimit {
     }
 }
 
-// Cap the whole resting wallet, including the exposed currency headers.
+// Cap the single-card baseline; additional exposed headers grow the wallet.
 // Resize the actual cards as well, so opening the mask cannot reveal long tails.
 // Readable text and accessible currency headers take priority over the cap.
 struct WalletLayoutMetrics {
@@ -31,10 +31,11 @@ struct WalletLayoutMetrics {
         let naturalCardHeight = max(1, width - 2 * cardInset) / Self.cardAspectRatio
         let desiredGlassHeight = max(naturalCardHeight * glassHeightRatio, contentHeight)
         let headerHeight = Self.topInset + stackHeight
-        let minimumHeight = headerHeight + exposedHeight + contentHeight + Self.bottomInset
-        let naturalHeight = headerHeight + max(naturalCardHeight + 14,
+        let minimumBaseHeight = Self.topInset + exposedHeight + contentHeight + Self.bottomInset
+        let naturalBaseHeight = Self.topInset + max(naturalCardHeight + 14,
             exposedHeight + desiredGlassHeight + Self.bottomInset)
-        height = max(minimumHeight, min(naturalHeight, maximumHeight ?? naturalHeight))
+        let baseHeight = max(minimumBaseHeight, min(naturalBaseHeight, maximumHeight ?? naturalBaseHeight))
+        height = baseHeight + stackHeight
         glassHeight = max(contentHeight, min(desiredGlassHeight,
             height - headerHeight - exposedHeight - Self.bottomInset))
         cardHeight = Self.fittedCardHeight(width: width, cardInset: cardInset,
