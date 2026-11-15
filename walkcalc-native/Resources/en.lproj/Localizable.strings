@@ -284,3 +284,12 @@
 "Settlement.pay" = "should pay";
 "Settlement.pays" = "should pay";
 "Settlement.you" = "you";
+
+// Personal currency wallet
+"Wallet.payAndReceive" = "Pay %@; receive %@";
+"Wallet.toPay" = "You still need to pay %@";
+"Wallet.toReceive" = "You are still owed %@";
+"Wallet.loadingSettlement" = "Updating settlement suggestions…";
+"Wallet.spendingUnavailable" = "Personal spending unavailable";
+"Personal spending: %@" = "Personal spending: %@";
+"Show settlement overview for this currency" = "Show settlement overview for this currency";

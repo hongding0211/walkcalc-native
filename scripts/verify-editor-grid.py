@@ -22,9 +22,11 @@ for scale in [CGFloat(1), 1.5, 2.5] {
             for (_, row) in rows {
                 precondition(close(row.first!.midX - geometry.iconWidth / 2, 0))
                 if row.count > 1 {
-                    precondition(close(row.last!.midX + geometry.iconWidth / 2, width))
+                    precondition(row.last!.midX + geometry.iconWidth / 2 <= width + 0.001)
                     for index in 1..<row.count {
                         precondition(row[index].minX - row[index - 1].maxX >= geometry.spacing - 0.001)
+                        precondition(row[index].midX - row[index - 1].midX <= (geometry.itemWidth + geometry.spacing) * 1.25 + 0.001)
+                        precondition(close(row[index].midX, frames[index].midX), "Incomplete rows retain column alignment")
                     }
                 }
                 if let previousBottom { precondition(close(row[0].minY, previousBottom + geometry.spacing)) }
@@ -34,9 +36,19 @@ for scale in [CGFloat(1), 1.5, 2.5] {
         }
     }
 }
-let four = JustifiedIconGeometry(itemWidth: 56, iconWidth: 40, spacing: 10).frames(width: 340, heights: [60, 60, 60, 60])
-precondition(close(four[3].midX + 20, 340), "No phantom fifth slot")
-print("PASS: \(cases) grid cases; icons touch both content edges, actual row heights, no overlaps or empty slots")
+let geometry = JustifiedIconGeometry(itemWidth: 56, iconWidth: 40, spacing: 10)
+for width in [CGFloat(340), 600, 844] {
+    let pair = geometry.frames(width: width, heights: [60, 60])
+    precondition(close(pair[0].midX, 20) && close(pair[1].midX, 86), "Two people stay together on the left")
+    let four = geometry.frames(width: width, heights: [60, 60, 60, 60])
+    precondition(close(four[3].midX, 218), "Short rows keep natural spacing")
+}
+let filled = geometry.frames(width: 340, heights: Array(repeating: 60, count: 7))
+precondition(close(filled[4].midX + 20, 340), "Full rows use available width")
+precondition(close(filled[5].midX, filled[0].midX) && close(filled[6].midX, filled[1].midX))
+let wide = geometry.frames(width: 844, heights: Array(repeating: 60, count: 12))
+precondition(wide.allSatisfy { close($0.minY, 0) }, "Wide layouts are not capped at five columns")
+print("PASS: \(cases) grid cases; short rows flow left, bounded gaps, responsive columns, measured heights and no overlaps")
 '''
 with tempfile.TemporaryDirectory(prefix='walkcalc-editor-grid-') as directory:
     source_file = Path(directory) / 'main.swift'

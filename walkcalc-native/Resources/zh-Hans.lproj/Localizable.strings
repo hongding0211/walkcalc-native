@@ -284,3 +284,12 @@
 "Settlement.pay" = "需支付";
 "Settlement.pays" = "需支付";
 "Settlement.you" = "你";
+
+// Personal currency wallet
+"Wallet.payAndReceive" = "待付%@，待收%@";
+"Wallet.toPay" = "你还需支付%@";
+"Wallet.toReceive" = "你还需收回%@";
+"Wallet.loadingSettlement" = "正在更新结清建议…";
+"Wallet.spendingUnavailable" = "暂无个人开销数据";
+"Personal spending: %@" = "我的开销：%@";
+"Show settlement overview for this currency" = "显示这个币种的结清概览";

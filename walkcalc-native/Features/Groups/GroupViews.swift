@@ -21,17 +21,6 @@ enum GroupSheet: Identifiable {
     }
 }
 
-private extension GroupSheet {
-    var keepsTopBalanceVisible: Bool {
-        switch self {
-        case .balances, .myBalance:
-            return true
-        case .newExpense, .editExpense, .groupSettings, .peopleSetup:
-            return false
-        }
-    }
-}
-
 struct GroupView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.softLedgerAppTheme) private var appTheme
@@ -98,12 +87,6 @@ struct GroupView: View {
         RecordQuery(text: submittedSearchText, filters: filters, revision: searchRevision)
     }
 
-    private var isBalanceAnimationEnabled: Bool {
-        (activeSheet == nil || activeSheet?.keepsTopBalanceVisible == true)
-            && deleteCandidate == nil
-            && !isDeletingRecord
-    }
-
     var body: some View {
         #if DEBUG
         let _ = ExpenseScrollTitleVerification.countGroupBody()
@@ -119,9 +102,7 @@ struct GroupView: View {
                         } else {
                             // The group list already supplies this summary; record
                             // loading must not hide it or replace it with a placeholder.
-                            GroupSummaryCard(group: group, isAnimationEnabled: isBalanceAnimationEnabled) { member in
-                                activeSheet = .myBalance(member)
-                            }
+                            overview(for: group)
                             .id(ExpenseScrollTarget.overview)
                             GroupBalancesSection(group: group) { selectedMember in
                                 activeSheet = .balances(selectedMember)
@@ -249,6 +230,10 @@ struct GroupView: View {
         }
     }
 
+    private func overview(for group: WalkGroup) -> some View {
+        GroupWalletOverview(group: group)
+    }
+
     private var groupActions: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
             GroupRecordFilterToolbar(
@@ -368,84 +353,6 @@ private struct GroupRecordsLoadingSection: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(SoftLedgerTheme.rule.opacity(0.62), lineWidth: 1)
             }
-    }
-}
-
-private struct GroupSummaryCard: View {
-    @EnvironmentObject private var store: WalkcalcStore
-    let group: WalkGroup
-    let isAnimationEnabled: Bool
-    let onOpenBalance: (Member) -> Void
-
-    private var currentMember: Member? {
-        guard let userId = store.currentParticipantID(for: group) else { return nil }
-        return group.allMembers.first { $0.uuid == userId }
-    }
-
-    private var balances: [CurrencyBalanceSummary] {
-        store.filteredCurrencyBalances(allBalances, groupId: group.id)
-    }
-
-    private var allBalances: [CurrencyBalanceSummary] {
-        let projections = group.hasCurrentUserBalanceSummary
-            ? group.currentUserCurrencyBalances
-            : currentMember?.currencyBalances ?? []
-        let actualBalances = projections
-            .filter(\.hasLedgerActivity)
-            .sorted { $0.currencyCode < $1.currencyCode }
-        if !actualBalances.isEmpty {
-            return actualBalances.map {
-                CurrencyBalanceSummary(currencyCode: $0.currencyCode, totalBalanceMinor: $0.debtMinor)
-            }
-        }
-        let legacyBalance = group.hasCurrentUserBalanceSummary
-            ? group.currentUserBalanceMinor
-            : currentMember?.debtMinor ?? "0"
-        let legacyRecordCount = group.hasCurrentUserBalanceSummary
-            ? group.currentUserRecordCount
-            : currentMember?.recordCount ?? 0
-        guard legacyRecordCount > 0 || !Money.isZero(legacyBalance) else { return [] }
-        return [CurrencyBalanceSummary(
-            currencyCode: CurrencyCatalog.normalizedCode(group.currencyCode),
-            totalBalanceMinor: legacyBalance
-        )]
-    }
-
-    private func balanceStateText(_ balance: CurrencyBalanceSummary) -> String {
-        switch Money.compare(balance.totalBalanceMinor, "0") {
-        case .orderedDescending:
-            return L("Owed to you")
-        case .orderedAscending:
-            return L("You owe")
-        case .orderedSame:
-            return L("Settled")
-        }
-    }
-
-    var body: some View {
-        SoftLedgerCard {
-            if balances.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L("Total balance"))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
-                    Text("0")
-                        .font(.system(size: 42, weight: .semibold, design: .rounded))
-                        .foregroundStyle(SoftLedgerTheme.ink)
-                }
-            } else {
-                CurrencyBalanceCarousel(
-                    balances: balances,
-                    isAnimationEnabled: isAnimationEnabled,
-                    subtitle: balanceStateText
-                ) { _ in
-                    guard let currentMember else { return }
-                    onOpenBalance(currentMember)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .allowsHitTesting(currentMember != nil)
     }
 }
 

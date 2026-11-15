@@ -41,7 +41,7 @@ enum SoftLedgerThemeConfig {
     static let defaultAppTheme: AppTheme = .mono
 
     static let neutral = SoftLedgerNeutralPalette(
-        canvas: SoftLedgerColorToken(light: 0xF7F7F7, dark: 0x000000),
+        canvas: SoftLedgerColorToken(light: 0xF2F1F6, dark: 0x000000),
         paper: SoftLedgerColorToken(light: 0xFFFFFF, dark: 0x141414),
         formPaper: SoftLedgerColorToken(light: 0xFFFFFF, dark: 0x1C1C1C),
         defaultText: SoftLedgerColorToken(light: 0x1C1C1C, dark: 0xF2F2F2),

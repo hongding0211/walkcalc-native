@@ -8,10 +8,13 @@ struct MemberDetailsPlayground: View {
     @StateObject private var store: WalkcalcStore
     let screen: Screen
 
-    init(screen: Screen = .members, edgeCases: Bool = false) {
+    init(screen: Screen = .members, edgeCases: Bool = false, twoMembers: Bool = false) {
         self.screen = screen
         let store = WalkcalcStore()
         store.applyDebugFixture(.appStore)
+        if twoMembers && !edgeCases {
+            store.groups = Array(store.groups.suffix(1))
+        }
         // Initials keep the preview independent of avatar image servers.
         for index in store.groups.indices {
             for memberIndex in store.groups[index].membersInfo.indices {
@@ -100,4 +103,5 @@ struct MemberDetailsPlayground: View {
 #Preview("群组结清入口 · 真实组件") { MemberDetailsPlayground(screen: .group) }
 #Preview("超长姓名与多人账单") { MemberDetailsPlayground(edgeCases: true) }
 #Preview("账单编辑 · 间距") { MemberDetailsPlayground(screen: .editor) }
+#Preview("账单编辑 · 两人") { MemberDetailsPlayground(screen: .editor, twoMembers: true) }
 #endif

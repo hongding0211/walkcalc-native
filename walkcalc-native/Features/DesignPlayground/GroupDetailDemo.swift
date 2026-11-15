@@ -4,10 +4,10 @@ import UIKit
 
 private struct GroupDetailScenario {
     let title: String
-    let myBalance: String
     let memberInitials: [String]
     let debts: [GroupDetailMockDebt]
     let records: [GroupDetailMockRecord]
+    var overview: GroupDetailOverview = .init()
 
     var shouldShowPeopleSetup: Bool {
         memberInitials.count == 1 && records.isEmpty
@@ -15,7 +15,6 @@ private struct GroupDetailScenario {
 
     static let populated = GroupDetailScenario(
         title: "May Trip",
-        myBalance: "+¥86.20",
         memberInitials: ["H", "L", "M", "Y"],
         debts: GroupDetailMockDebt.samples,
         records: GroupDetailMockRecord.samples
@@ -23,11 +22,39 @@ private struct GroupDetailScenario {
 
     static let peopleSetupEmpty = GroupDetailScenario(
         title: "New group",
-        myBalance: "¥0.00",
         memberInitials: ["H"],
         debts: [],
         records: []
     )
+}
+
+// Mock amounts describe expense shares, not a spending limit or a wallet balance.
+private struct GroupDetailOverview {
+    enum Settlement {
+        case receivable, payable, settled
+
+        var title: String {
+            switch self {
+            case .receivable: "You're owed"
+            case .payable: "You owe"
+            case .settled: "All settled"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .receivable: GroupDetailTheme.positive
+            case .payable: GroupDetailTheme.negative
+            case .settled: GroupDetailTheme.secondaryInk
+            }
+        }
+    }
+
+    var settlement: Settlement = .receivable
+    let currency = "CNY"
+    let mySpending = "214.65"
+    let groupSpending = "858.60"
+    let outstanding = "86.20"
 }
 
 private struct SoftLedgerGroupDetailPlayground: View {
@@ -65,8 +92,11 @@ private struct SoftLedgerGroupDetailPlayground: View {
                         }
                     } else {
                         GroupDetailSummaryCard(
-                            balance: scenario.myBalance
-                        )
+                            overview: scenario.overview
+                        ) {
+                            initialBalanceMemberName = "Hong"
+                            isShowingBalances = true
+                        }
                         GroupDetailDebtSection(
                             debts: debts,
                             onShowDetails: showBalances,
@@ -1311,20 +1341,70 @@ private struct GroupDetailResolveTransfersButton: View {
 }
 
 private struct GroupDetailSummaryCard: View {
-    let balance: String
+    @ScaledMetric(relativeTo: .largeTitle) private var amountSize = 42
+    let overview: GroupDetailOverview
+    let onOpenBalance: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("My balance")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(GroupDetailTheme.secondaryInk)
-            Text(balance)
-                .font(.system(size: 42, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(GroupDetailTheme.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("My spending")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(GroupDetailTheme.secondaryInk)
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        spendingAmount
+                        currencyLabel
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        spendingAmount
+                        currencyLabel
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("My spending, \(overview.mySpending) \(overview.currency)")
+            }
+
+            Button(action: onOpenBalance) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        settlementLabel
+                        Spacer(minLength: 12)
+                        detailsLabel
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        settlementLabel
+                        detailsLabel
+                    }
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens your balance details")
+
+            Divider()
+                .overlay(GroupDetailTheme.rule.opacity(0.54))
+
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    Text("Group spending")
+                    Spacer(minLength: 16)
+                    Text("\(overview.currency) \(overview.groupSpending)")
+                        .monospacedDigit()
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Group spending")
+                    Text("\(overview.currency) \(overview.groupSpending)")
+                        .monospacedDigit()
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(GroupDetailTheme.secondaryInk)
+            .accessibilityElement(children: .combine)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .groupDetailGlass(cornerRadius: 18)
         .overlay {
@@ -1332,7 +1412,39 @@ private struct GroupDetailSummaryCard: View {
                 .stroke(GroupDetailTheme.rule.opacity(0.7), lineWidth: 1)
         }
         .shadow(color: GroupDetailTheme.ink.opacity(0.045), radius: 12, y: 6)
-        .accessibilityElement(children: .combine)
+    }
+
+    private var spendingAmount: some View {
+        Text(overview.mySpending)
+            .font(.system(size: amountSize, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(GroupDetailTheme.ink)
+    }
+
+    private var currencyLabel: some View {
+        Text(overview.currency)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(GroupDetailTheme.secondaryInk)
+    }
+
+    private var settlementLabel: some View {
+        Text(overview.settlement == .settled
+             ? overview.settlement.title
+             : "\(overview.settlement.title) \(overview.currency) \(overview.outstanding)")
+            .font(.subheadline.weight(.semibold))
+            .monospacedDigit()
+            .foregroundStyle(overview.settlement.color)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var detailsLabel: some View {
+        HStack(spacing: 5) {
+            Text("Details")
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+        }
+        .font(.subheadline)
+        .foregroundStyle(GroupDetailTheme.secondaryInk)
     }
 }
 
@@ -2036,5 +2148,19 @@ private func adaptive(light: UInt32, dark: UInt32) -> Color {
     NavigationStack {
         SoftLedgerGroupDetailPlayground(scenario: .peopleSetupEmpty)
     }
+}
+
+#Preview("Spending · you owe") {
+    GroupDetailSummaryCard(overview: .init(settlement: .payable), onOpenBalance: {})
+        .padding(20)
+        .frame(maxHeight: .infinity)
+        .background(GroupDetailTheme.canvas)
+}
+
+#Preview("Spending · settled") {
+    GroupDetailSummaryCard(overview: .init(settlement: .settled), onOpenBalance: {})
+        .padding(20)
+        .frame(maxHeight: .infinity)
+        .background(GroupDetailTheme.canvas)
 }
 #endif

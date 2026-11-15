@@ -505,7 +505,6 @@ struct SettingsSheet: View {
     @State private var confirmLogout = false
     @State private var showingProfile = false
     @State private var showingSignIn = false
-    @State private var displayedTheme = AppTheme.load()
 
     var body: some View {
         Form {
@@ -585,13 +584,17 @@ struct SettingsSheet: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            Section(L("Appearance")) {
-                ThemePickerRow(selectedTheme: displayedTheme) { theme in
-                    displayedTheme = theme
-                    store.setTheme(theme)
+            #if DEBUG
+            Section("Debug") {
+                NavigationLink {
+                    WalletPaletteEditor()
+                } label: {
+                    Text("Color Palette")
+                        .foregroundStyle(.primary)
                 }
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
+            #endif
 
             Section(L("Groups")) {
                 NavigationLink {
@@ -654,17 +657,10 @@ struct SettingsSheet: View {
                 } label: {
                     Image(systemName: "checkmark")
                 }
-                .id(displayedTheme.id)
-                .tint(displayedTheme.accent)
+                .tint(store.selectedTheme.accent)
                 .buttonStyle(.borderedProminent)
                 .accessibilityLabel(L("Done"))
             }
-        }
-        .onAppear {
-            displayedTheme = store.selectedTheme
-        }
-        .onChange(of: store.selectedTheme) { _, theme in
-            displayedTheme = theme
         }
         .alert(L("Confirm logout?"), isPresented: $confirmLogout) {
             Button(L("Cancel"), role: .cancel) {}
@@ -691,72 +687,6 @@ struct SettingsSheet: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-    }
-}
-
-private struct ThemePickerRow: View {
-    let selectedTheme: AppTheme
-    let onSelect: (AppTheme) -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ForEach(AppTheme.allCases) { theme in
-                Button {
-                    onSelect(theme)
-                } label: {
-                    ThemePreviewSwatch(theme: theme, isSelected: selectedTheme == theme)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L(theme.titleKey))
-                .accessibilityValue(selectedTheme == theme ? L("Selected") : "")
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(minHeight: 44)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct ThemePreviewSwatch: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    let theme: AppTheme
-    let isSelected: Bool
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Circle()
-                .fill(theme.accent)
-                .overlay {
-                    Circle().stroke(SoftLedgerTheme.rule.opacity(0.72), lineWidth: 1)
-                }
-                .frame(width: 26, height: 26)
-
-            if isSelected {
-                Circle()
-                    .fill(theme.accent)
-                    .frame(width: 15, height: 15)
-                    .overlay {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(checkmarkColor)
-                    }
-                    .overlay {
-                        Circle().stroke(SoftLedgerTheme.formPaper, lineWidth: 1.5)
-                    }
-                    .offset(x: 2, y: 2)
-            }
-        }
-        .frame(width: 44, height: 44)
-        .contentShape(Rectangle())
-    }
-
-    private var checkmarkColor: Color {
-        if theme == .mono, colorScheme == .dark {
-            return Color.black
-        }
-        return Color.white
     }
 }
 
@@ -1023,6 +953,21 @@ struct GroupSettingsSheet: View {
                 .disabled(store.pendingGroupPins[group.id] != nil)
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
+
+            #if DEBUG
+            Section {
+                NavigationLink {
+                    GroupWalletTuningView(groupId: group.id)
+                } label: {
+                    Label("卡包调节", systemImage: "slider.horizontal.3")
+                }
+            } header: {
+                Text("调试")
+            } footer: {
+                Text("调节仅保存在本机，应用于所有群组。")
+            }
+            .listRowBackground(SoftLedgerTheme.formPaper)
+            #endif
 
             Section(L("Members")) {
                 VStack(spacing: 0) {
@@ -2652,6 +2597,7 @@ private struct BalancesRootView: View {
     @State private var resolvingMode: ResolveMode?
     @State private var resolvingDebtID: ResolvedDebt.ID?
     @State private var resolveMessage: String?
+    @ScaledMetric(relativeTo: .body) private var settlementBottomPadding = 12
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
     @ScaledMetric(relativeTo: .caption) private var rowVerticalPadding = 4
     @ScaledMetric(relativeTo: .subheadline) private var dividerLeadingPadding = 54
@@ -2728,6 +2674,7 @@ private struct BalancesRootView: View {
                             pendingResolveDebts = [debt]
                             showsResolveConfirmation = true
                         }
+                        .padding(.bottom, settlementBottomPadding)
                     }
 
                     LazyVStack(spacing: 0) {

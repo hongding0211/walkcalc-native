@@ -8,13 +8,18 @@ struct JustifiedIconGeometry {
     func frames(width: CGFloat, heights: [CGFloat]) -> [CGRect] {
         guard !heights.isEmpty else { return [] }
         let width = max(iconWidth, width)
-        let columns = max(1, min(5, Int((width - iconWidth) / (itemWidth + spacing)) + 1))
+        let naturalStep = itemWidth + spacing
+        let columns = max(1, Int((width - iconWidth) / naturalStep) + 1)
+        // Short lists flow from the leading edge at their natural spacing.
+        // Full rows may stretch slightly; subsequent rows reuse those columns.
+        let fullRowStep = columns > 1
+            ? min(naturalStep * 1.25, (width - iconWidth) / CGFloat(columns - 1))
+            : 0
+        let step = heights.count >= columns ? fullRowStep : naturalStep
         var frames: [CGRect] = []
         var top: CGFloat = 0
         for start in stride(from: 0, to: heights.count, by: columns) {
             let end = min(start + columns, heights.count)
-            let count = end - start
-            let step = count > 1 ? (width - iconWidth) / CGFloat(count - 1) : 0
             for index in start..<end {
                 // Align the visible icons, allowing their centered labels to be wider.
                 let center = iconWidth / 2 + CGFloat(index - start) * step

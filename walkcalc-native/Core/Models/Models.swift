@@ -386,16 +386,9 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 
     static func load(from defaults: UserDefaults = .standard) -> AppTheme {
-        if let storedValue = defaults.string(forKey: storageKey),
-           let storedTheme = AppTheme(rawValue: storedValue) {
-            return storedTheme
-        }
-
-        if let legacyValue = defaults.string(forKey: legacyStorageKey) {
-            return theme(forLegacyValue: legacyValue)
-        }
-
-        return defaultTheme
+        // Theme selection is temporarily unavailable. Keep saved preferences intact
+        // for a future palette redesign, but use the monochrome theme everywhere.
+        return .mono
     }
 
     static func theme(forLegacyValue value: String) -> AppTheme {

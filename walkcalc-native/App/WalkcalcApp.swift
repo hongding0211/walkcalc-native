@@ -73,7 +73,8 @@ struct walkcalc_nativeApp: App {
                         ProcessInfo.processInfo.arguments.contains("--member-self") ? .yourself :
                         ProcessInfo.processInfo.arguments.contains("--member-detail") ? .member :
                         ProcessInfo.processInfo.arguments.contains("--member-group") ? .group : .members,
-                        edgeCases: ProcessInfo.processInfo.arguments.contains("--member-edge-cases")
+                        edgeCases: ProcessInfo.processInfo.arguments.contains("--member-edge-cases"),
+                        twoMembers: ProcessInfo.processInfo.arguments.contains("--member-pair")
                     )
                 } else if ProcessInfo.processInfo.arguments.contains("--design-playground-startup") {
                     LaunchScreenPlayground(phase:

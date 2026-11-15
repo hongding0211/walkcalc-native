@@ -13,13 +13,9 @@ enum HTTPMethod: String {
 struct APIClient: Sendable {
     private static let ssoSource = "walkcalc"
 
-    #if DEBUG
-    var baseURL = URL(string: ProcessInfo.processInfo.environment["WALKCALC_API_BASE_URL"] ?? "http://127.0.0.1:3500")!
-    var webBaseURL = URL(string: ProcessInfo.processInfo.environment["HONG97_WEB_BASE_URL"] ?? "http://localhost:3000")!
-    #else
+    // Both configurations use the live service; local development can override these URLs.
     var baseURL = URL(string: ProcessInfo.processInfo.environment["WALKCALC_API_BASE_URL"] ?? "https://hong97.ltd/api")!
     var webBaseURL = URL(string: ProcessInfo.processInfo.environment["HONG97_WEB_BASE_URL"] ?? "https://hong97.ltd")!
-    #endif
 
     var ledgerAPIEnabled: Bool {
         Self.environmentFlag("WALKCALC_LEDGER_API_ENABLED", defaultValue: true)
@@ -54,8 +50,10 @@ struct APIClient: Sendable {
     func warmUpNetworkAccess() async {
         await withTaskGroup(of: Void.self) { group in
             #if DEBUG
-            group.addTask {
-                await Self.triggerLocalNetworkPrivacyPrompt()
+            if [baseURL, webBaseURL].contains(where: { $0.scheme == "http" }) {
+                group.addTask {
+                    await Self.triggerLocalNetworkPrivacyPrompt()
+                }
             }
             #endif
             for url in networkWarmUpURLs() {
