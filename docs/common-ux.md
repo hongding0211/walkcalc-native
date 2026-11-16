@@ -278,6 +278,7 @@ Examples:
 
 Visual rules:
 
+- Missing user photos use the existing initial avatar with a background from the shared eight-color palette and the same subtle top-to-bottom gradient as category badges. Assign the color by a stable hash of the user/member ID modulo the palette count, so renaming or relaunching does not change it. Use contrasting text in both appearances.
 - Render `+N` as an avatar-sized circle, not loose text.
 - Keep avatar size and overlap consistent within the same component.
 - Do not reserve empty avatar slots for missing members.

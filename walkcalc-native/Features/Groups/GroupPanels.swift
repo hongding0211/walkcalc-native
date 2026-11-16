@@ -780,9 +780,11 @@ struct ArchivedGroupsView: View {
                 deleteCandidate = nil
             }
         } message: {
-            if deleteCandidate?.shouldShowDeleteResolutionNotice == true {
-                Text(L("Any unresolved balances will be automatically resolved to zero before this group is deleted."))
-            }
+            Text([
+                L("Deleting this group is permanent and cannot be undone."),
+                deleteCandidate?.shouldShowDeleteResolutionNotice == true
+                    ? L("Any unresolved balances will be automatically resolved to zero before this group is deleted.") : nil
+            ].compactMap { $0 }.joined(separator: "\n\n"))
         }
     }
 
@@ -1105,8 +1107,12 @@ struct GroupSettingsSheet: View {
             switch confirmation {
             case .archive:
                 Text(L("Only groups with zero balances can be archived."))
-            case .delete where currentGroup.shouldShowDeleteResolutionNotice:
-                Text(L("Any unresolved balances will be automatically resolved to zero before this group is deleted."))
+            case .delete:
+                Text([
+                    L("Deleting this group is permanent and cannot be undone."),
+                    currentGroup.shouldShowDeleteResolutionNotice
+                        ? L("Any unresolved balances will be automatically resolved to zero before this group is deleted.") : nil
+                ].compactMap { $0 }.joined(separator: "\n\n"))
             default:
                 EmptyView()
             }

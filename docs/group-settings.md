@@ -136,6 +136,7 @@ Management actions are lower-frequency and potentially destructive. Keep them gr
 - Do not show an icon.
 - Use native destructive role styling.
 - Ask for confirmation before deleting.
+- Always state that deletion is permanent and cannot be undone, including when deleting an archived group. Show the existing unresolved-balance notice after this warning when applicable.
 - Do not make delete the easiest or most visually prominent action.
 
 ## 5. Omitted items

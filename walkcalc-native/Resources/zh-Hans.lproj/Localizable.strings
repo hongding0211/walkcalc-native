@@ -116,6 +116,7 @@
 "Delete expense" = "删除支出";
 "Delete group" = "删除群组";
 "Delete group?" = "删除群组？";
+"Deleting this group is permanent and cannot be undone." = "群组一旦删除，将无法恢复。";
 "Done" = "完成";
 "Drink" = "饮品";
 "Edit expense" = "编辑支出";

@@ -458,9 +458,11 @@ struct RootHomeView: View {
                     .fill(.tint.opacity(0.12))
             }
         }
+        // The system lifts this row without its section's background.
+        .background(SoftLedgerTheme.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityAddTraits(selectedGroupID == group.id ? .isSelected : [])
         .disabled(pendingGroupAction != nil)
-        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16))
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16, style: .continuous))
         .contextMenu {
             Button {
                 Task { await togglePin(group.id) }
@@ -765,9 +767,11 @@ struct RootHomeView: View {
                 deleteCandidate = nil
             }
         } message: {
-            if deleteCandidate?.shouldShowDeleteResolutionNotice == true {
-                Text(L("Any unresolved balances will be automatically resolved to zero before this group is deleted."))
-            }
+            Text([
+                L("Deleting this group is permanent and cannot be undone."),
+                deleteCandidate?.shouldShowDeleteResolutionNotice == true
+                    ? L("Any unresolved balances will be automatically resolved to zero before this group is deleted.") : nil
+            ].compactMap { $0 }.joined(separator: "\n\n"))
         }
         .onOpenURL { url in
             guard url.scheme == "walkingcalc",

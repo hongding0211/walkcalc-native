@@ -116,6 +116,7 @@
 "Delete expense" = "Delete expense";
 "Delete group" = "Delete group";
 "Delete group?" = "Delete group?";
+"Deleting this group is permanent and cannot be undone." = "Deleting this group is permanent and cannot be undone.";
 "Done" = "Done";
 "Drink" = "Drink";
 "Edit expense" = "Edit expense";

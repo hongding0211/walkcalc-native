@@ -396,6 +396,31 @@ private struct CurrencyWalletLayout: Layout {
     }
 }
 
+// Position the amount just above center; reserve room below it for the summary.
+private struct WalletInformationLayout: Layout {
+    private let spacing: CGFloat = 3
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let contentProposal = ProposedViewSize(width: width, height: nil)
+        let amountHeight = subviews[0].sizeThatFits(contentProposal).height
+        let summaryHeight = subviews[1].sizeThatFits(contentProposal).height
+        let minimumHeight = amountHeight + 2 * (spacing + summaryHeight)
+        return CGSize(width: width, height: max(minimumHeight, proposal.height ?? 0))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout ()) {
+        let contentProposal = ProposedViewSize(width: bounds.width, height: nil)
+        let amountHeight = subviews[0].sizeThatFits(contentProposal).height
+        let amountCenterY = bounds.midY - 8
+        subviews[0].place(at: CGPoint(x: bounds.midX, y: amountCenterY),
+                          anchor: .center, proposal: contentProposal)
+        subviews[1].place(at: CGPoint(x: bounds.midX, y: amountCenterY + amountHeight / 2 + spacing),
+                          anchor: .top, proposal: contentProposal)
+    }
+}
+
 struct CurrencyWallet: View {
     @Environment(\.walletViewportHeight) private var viewportHeight
     @Environment(\.walletUsesExpandedLayout) private var usesExpandedLayout
@@ -423,10 +448,13 @@ struct CurrencyWallet: View {
 
     let samples: [WalletCurrency]
     let appearance: WalletAppearance
+    let onShowDetails: (() -> Void)?
 
-    init(groupID: String, participantID: String?, samples: [WalletCurrency], appearance: WalletAppearance) {
+    init(groupID: String, participantID: String?, samples: [WalletCurrency], appearance: WalletAppearance,
+         onShowDetails: (() -> Void)? = nil) {
         self.samples = samples
         self.appearance = appearance
+        self.onShowDetails = onShowDetails
         _positionData = AppStorage(wrappedValue: Data(),
             WalletCardPosition.storageKey(groupID: groupID, participantID: participantID))
     }
@@ -684,10 +712,18 @@ struct CurrencyWallet: View {
         }
     }
 
+    @ViewBuilder
     private func information(_ sample: WalletCurrency) -> some View {
-        informationContent(sample)
-            // Keep the glass responsive to touch without opening a details sheet.
-            .onTapGesture { }
+        if let onShowDetails {
+            Button(action: onShowDetails) {
+                informationContent(sample)
+                    .contentShape(RoundedRectangle(cornerRadius: WalletGeometry.pocketRadius, style: .continuous))
+            }
+            .buttonStyle(WalletCardButtonStyle(onPickup: {}))
+            .accessibilityHint(L("View details"))
+        } else {
+            informationContent(sample)
+        }
     }
 
     private var nativeGlass: Glass {
@@ -702,7 +738,7 @@ struct CurrencyWallet: View {
     }
 
     private func informationContent(_ sample: WalletCurrency) -> some View {
-        VStack(alignment: .center, spacing: 6) {
+        WalletInformationLayout {
             Text(sample.spending)
                 .font(.system(size: amountSize, weight: .semibold, design: .rounded))
                 .monospacedDigit()

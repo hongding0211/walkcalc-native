@@ -270,6 +270,10 @@ VStack(spacing: 18) {
 
 The summary area explains the user's position in the group. It should be calm and compact, not a full dashboard.
 
+The current wallet's front glass area opens the same root details sheet as `View details`, without button press dimming, scaling, or pickup haptics. Exposed currency cards retain their currency-selection and drag interactions; tapping them does not open the sheet.
+
+Position the spending amount itself 8pt above the glass's vertical midpoint, with the settlement summary 3pt below it. Reserve enough height for wrapped summaries and larger text while preserving that amount position.
+
 ### Primary Content
 
 - Show one summary card directly below the native large title.

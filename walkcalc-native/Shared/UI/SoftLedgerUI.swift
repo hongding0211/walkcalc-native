@@ -353,6 +353,7 @@ private struct SoftLedgerGlassModifier: ViewModifier {
 
 struct SoftLedgerAvatar: View {
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
 
     var user: UserProfile?
     var member: Member?
@@ -372,6 +373,18 @@ struct SoftLedgerAvatar: View {
         SoftLedgerAvatarURL.url(from: avatarURL, displaySize: size, displayScale: displayScale)
     }
 
+    private var fallbackColors: WalletColorPair {
+        let identifier = user?.uuid ?? member?.uuid ?? displayName
+        // Stable across launches; Swift's hashValue uses a random seed.
+        let hash = identifier.utf8.reduce(UInt64(14_695_981_039_346_656_037)) {
+            ($0 ^ UInt64($1)) &* 1_099_511_628_211
+        }
+        let palette = WalletColorPair.defaults
+        let base = palette[Int(hash % UInt64(palette.count))].first
+        return CategoryBadgeAppearance.colors(base: base, saturation: colorScheme == .dark
+            ? CategoryBadgeAppearance.darkSaturation : CategoryBadgeAppearance.lightSaturation)
+    }
+
     var body: some View {
         Group {
             if let optimizedURL {
@@ -387,12 +400,14 @@ struct SoftLedgerAvatar: View {
     }
 
     private var fallback: some View {
-        Circle()
-            .fill(SoftLedgerTheme.canvas)
+        let colors = fallbackColors
+        return Circle()
+            .fill(LinearGradient(colors: [colors.first.color, colors.second.color],
+                                 startPoint: .top, endPoint: .bottom))
             .overlay {
                 Text(String(displayName.prefix(1)).uppercased())
                     .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                    .foregroundStyle(colors.ink(mode: .automatic, custom: .black).color)
             }
     }
 }

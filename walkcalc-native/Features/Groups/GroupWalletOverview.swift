@@ -3,6 +3,7 @@ import SwiftUI
 struct GroupWalletOverview: View {
     @EnvironmentObject private var store: WalkcalcStore
     let group: WalkGroup
+    var onShowDetails: (() -> Void)? = nil
     #if DEBUG
     @WalletAppearanceSettings private var appearance: WalletAppearance
     #else
@@ -24,7 +25,8 @@ struct GroupWalletOverview: View {
                     .frame(maxWidth: .infinity)
             }
         } else {
-            CurrencyWallet(groupID: group.id, participantID: participantID, samples: cards, appearance: appearance)
+            CurrencyWallet(groupID: group.id, participantID: participantID, samples: cards,
+                           appearance: appearance, onShowDetails: onShowDetails)
         }
     }
 }

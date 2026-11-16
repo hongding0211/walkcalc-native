@@ -248,7 +248,9 @@ struct GroupView: View {
     }
 
     private func overview(for group: WalkGroup) -> some View {
-        GroupWalletOverview(group: group)
+        GroupWalletOverview(group: group) {
+            activeSheet = .balances(nil)
+        }
             .id(group.id)
     }
 

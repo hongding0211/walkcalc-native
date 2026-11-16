@@ -447,6 +447,8 @@ Rules:
 
 Each group row supports a long-press context menu.
 
+Each row owns an opaque paper background with the same rounded shape as its native context-menu preview; the lifted row must not rely on the surrounding section for its background.
+
 Menu items:
 
 - `Archive`
