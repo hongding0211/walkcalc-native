@@ -827,6 +827,7 @@ private enum ArchivedGroupPendingAction: Equatable {
 struct GroupSettingsSheet: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .body) private var memberAvatarSize = 20
 
     let group: WalkGroup
     let onDone: () -> Void
@@ -944,7 +945,7 @@ struct GroupSettingsSheet: View {
                 LabeledContent(L("Group owner")) {
                     if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
                         HStack(spacing: 8) {
-                            SoftLedgerAvatarStack(members: [owner], visibleCount: 1, borderColor: SoftLedgerTheme.formPaper)
+                            SoftLedgerAvatarStack(members: [owner], visibleCount: 1, size: memberAvatarSize, borderColor: SoftLedgerTheme.formPaper)
                                 .accessibilityHidden(true)
                             Text(owner.name)
                                 .font(.subheadline)
@@ -961,7 +962,7 @@ struct GroupSettingsSheet: View {
                     HStack {
                         Text(L("Members"))
                         Spacer()
-                        SoftLedgerAvatarStack(members: currentGroup.allMembers, visibleCount: 4, borderColor: SoftLedgerTheme.formPaper, showsTotal: false)
+                        SoftLedgerAvatarStack(members: currentGroup.allMembers, visibleCount: 4, size: memberAvatarSize, borderColor: SoftLedgerTheme.formPaper, showsTotal: false)
                     }
                 }
                 .listRowBackground(SoftLedgerTheme.formPaper)
@@ -1049,6 +1050,8 @@ struct GroupSettingsSheet: View {
             }
             .listRowBackground(SoftLedgerTheme.formPaper)
         }
+        // Explicit spacing avoids a fractional section offset leaving a pixel gap between rows.
+        .listSectionSpacing(16)
         .disabled(isSubmitting)
         .scrollContentBackground(.hidden)
         .background {
@@ -1948,12 +1951,8 @@ struct RecordEditorView: View {
     var body: some View {
         Form {
             Section {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Button {
-                        currencyFeedbackTrigger &+= 1
-                        focusedField = nil
-                        isShowingCurrencyPicker = true
-                    } label: {
+                HStack(alignment: .center, spacing: 6) {
+                    Button(action: showCurrencyPicker) {
                         Text(CurrencyCatalog.symbol(for: selectedCurrencyCode))
                             .font(.system(size: 40, weight: .semibold, design: .rounded))
                             .foregroundStyle(SoftLedgerTheme.ink)
@@ -1971,6 +1970,18 @@ struct RecordEditorView: View {
                         .minimumScaleFactor(0.72)
                         .focused($focusedField, equals: .amount)
                         .softLedgerAccentTint()
+
+                    Button(action: showCurrencyPicker) {
+                        Text(selectedCurrencyCode.uppercased())
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.5))
+                            .fixedSize()
+                            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(L("Currency")), \(selectedCurrencyCode)")
+                    .accessibilityHint(L("Select currency"))
                 }
                 .padding(.vertical, 10)
             }
@@ -2121,6 +2132,12 @@ struct RecordEditorView: View {
             dismiss()
             onDone()
         }
+    }
+
+    private func showCurrencyPicker() {
+        currencyFeedbackTrigger &+= 1
+        focusedField = nil
+        isShowingCurrencyPicker = true
     }
 
     private func beginEditing() {
@@ -2926,7 +2943,7 @@ private struct MemberBalanceDetailView: View {
         let actualBalances = currentMember.currencyBalances
             .filter(\.hasLedgerActivity)
             .sorted { $0.currencyCode < $1.currencyCode }
-        if !actualBalances.isEmpty {
+        if !currentMember.currencyBalances.isEmpty {
             return actualBalances
         }
         guard recordTotal > 0
@@ -2947,12 +2964,12 @@ private struct MemberBalanceDetailView: View {
     }
 
     private var carouselBalances: [CurrencyBalanceSummary] {
-        store.filteredCurrencyBalances(displayBalances.map {
+        displayBalances.filter { !Money.isZero($0.debtMinor) }.map {
             CurrencyBalanceSummary(
                 currencyCode: $0.currencyCode,
                 totalBalanceMinor: $0.debtMinor
             )
-        }, groupId: group.id)
+        }
     }
 
     private var pageTitle: String {
@@ -2975,9 +2992,9 @@ private struct MemberBalanceDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 14) {
                         if carouselBalances.isEmpty {
-                            Text("0")
-                                .font(.system(size: 42, weight: .semibold, design: .rounded))
-                                .foregroundStyle(SoftLedgerTheme.ink)
+                            Text(L("Settled"))
+                                .font(.title2.weight(.semibold))
+                                .foregroundStyle(SoftLedgerTheme.secondaryInk)
                             Text(recordSummary)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(SoftLedgerTheme.secondaryInk)
@@ -2987,11 +3004,7 @@ private struct MemberBalanceDetailView: View {
                                 isAnimationEnabled: true,
                                 title: nil,
                                 subtitle: { _ in recordSummary },
-                                amountColor: {
-                                    Money.isZero($0.totalBalanceMinor)
-                                        ? SoftLedgerTheme.ink
-                                        : moneyColor($0.totalBalanceMinor)
-                                }
+                                amountColor: { moneyColor($0.totalBalanceMinor) }
                             )
                         }
                     }

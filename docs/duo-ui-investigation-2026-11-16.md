@@ -61,3 +61,10 @@ Physical Duo installation and launch succeeded after retrying one connection tim
 ## Filter glyph balance
 User found the 24pt inactive symbol slightly large and the selected inner glyph smaller. Reduced inactive to22pt and increased the padded circular SF Symbol to36pt. Simulator screenshots measure the longest inner line at65px in both states (previously70px inactive versus58px active). Uses native symbols and existing Menu; no custom background. Debug/Release builds and visual checks passed. Artifacts: MUCAA/output/walkcalc-filter-balance-20261116.
 Physical Duo installation succeeded. Automatic launch was denied because the device was locked; user can unlock and open the installed build.
+
+
+## Group settings row seam follow-up — November 17
+
+Reproduced the dark seam below Group owner on the Duo iOS 27.1 simulator. Runtime frames showed owner at y=306 with height=52, while Members began at y=358⅓: a one-physical-pixel gap. This was a layout gap, not an extra separator. Smaller avatars, HStack versus LabeledContent, removing custom backgrounds, native Form/List, and zero row spacing did not independently remove it; these experiments were reverted.
+
+The retained change uses the native `listSectionSpacing(16)` setting and 20pt avatars scaled with body text. Original Form, LabeledContent, colors, backgrounds, and separators remain. Final expanded dark-mode screenshot has continuous RGB(28,28,28) along both outer margins across the owner/member boundary; folded dark and light layouts were visually checked. Simulator Debug and device Release builds and diff check passed. The Release build was installed and launched successfully on Hong’s physical iPhone Duo; the seam has not been visually verified on that device. Temporary runtime hierarchy diagnostics were removed. Screenshots: `/tmp/walkcalc-owner-before-dark.png`, `/tmp/walkcalc-owner-final-dark.png`; build log: `/tmp/walkcalc-group-avatar-build.log`.

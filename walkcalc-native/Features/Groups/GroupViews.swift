@@ -632,7 +632,7 @@ struct BalancePreviewRow: View {
         let actualBalances = member.currencyBalances
             .filter(\.hasLedgerActivity)
             .sorted { $0.currencyCode < $1.currencyCode }
-        if !actualBalances.isEmpty {
+        if !member.currencyBalances.isEmpty {
             return actualBalances
         }
         guard recordCount > 0 || !Money.isZero(member.debtMinor) || !Money.isZero(member.costMinor) else {
@@ -650,7 +650,7 @@ struct BalancePreviewRow: View {
     }
 
     private var carouselBalances: [CurrencyBalanceSummary] {
-        displayBalances.map {
+        displayBalances.filter { !Money.isZero($0.debtMinor) }.map {
             CurrencyBalanceSummary(
                 currencyCode: $0.currencyCode,
                 totalBalanceMinor: $0.debtMinor
@@ -677,7 +677,13 @@ struct BalancePreviewRow: View {
 
                 Spacer()
 
-                if !carouselBalances.isEmpty {
+                if carouselBalances.isEmpty {
+                    Text(L("Settled"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.secondaryInk)
+                        .frame(width: amountWidth, height: amountHeight, alignment: .trailing)
+                        .layoutPriority(2)
+                } else {
                     CurrencyBalanceCarousel(
                         compactBalances: carouselBalances,
                         isAnimationEnabled: true,
