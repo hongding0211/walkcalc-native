@@ -460,6 +460,7 @@ struct RootHomeView: View {
         }
         .accessibilityAddTraits(selectedGroupID == group.id ? .isSelected : [])
         .disabled(pendingGroupAction != nil)
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16))
         .contextMenu {
             Button {
                 Task { await togglePin(group.id) }
@@ -668,7 +669,6 @@ struct RootHomeView: View {
                 NavigationStack {
                     if let groupID = selectedGroupID {
                         GroupView(groupId: groupID, onClose: { path = [] })
-                            .id(groupID)
                     } else {
                         ContentUnavailableView(L("Select a group"), systemImage: "person.2",
                             description: Text(L("Choose a group to view its records.")))

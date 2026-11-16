@@ -80,13 +80,14 @@ struct GroupView: View {
     }
 
     private struct RecordQuery: Equatable {
+        let groupID: String
         let text: String
         let filters: GroupRecordFilters
         let revision: Int
     }
 
     private var recordQuery: RecordQuery {
-        RecordQuery(text: submittedSearchText, filters: filters, revision: searchRevision)
+        RecordQuery(groupID: groupId, text: submittedSearchText, filters: filters, revision: searchRevision)
     }
 
     var body: some View {
@@ -150,6 +151,7 @@ struct GroupView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 34)
             }
+            .defaultScrollAnchor(.top, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .scrollDismissesKeyboard(.interactively)
             .modifier(ExpenseScrollTracking(state: scrollTitle))
@@ -167,10 +169,10 @@ struct GroupView: View {
 
         }
         .modifier(ExpenseNavigationTitle(groupName: group?.name ?? L("Group"), state: scrollTitle))
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(horizontalSizeClass == .regular ? .inline : .large)
         .toolbar {
             if #available(iOS 27.1, *) {
-                // Custom UIKit controls otherwise remain horizontal on Duo.
+                // Keep filter and settings together in Duo’s vertical toolbar.
                 groupActions.axisBehavior(.verticalPreferred)
             } else {
                 groupActions
@@ -207,6 +209,27 @@ struct GroupView: View {
         .onChange(of: filters) { _, _ in
             needsQueryScrollToTop = true
         }
+        .onChange(of: groupId) { _, _ in
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                activeSheet = nil
+                isSearchPresented = false
+                isSearchFocused = false
+                searchText = ""
+                submittedSearchText = ""
+                searchRevision = 0
+                deleteCandidate = nil
+                isDeletingRecord = false
+                recordRefreshID = nil
+                isRefreshingRecords = false
+                hasCompletedInitialLoad = false
+                displayedFilters = nil
+                needsQueryScrollToTop = false
+                scrollTitle.reset()
+                scrollPosition.scrollTo(edge: .top)
+            }
+        }
         .task(id: recordQuery) { await refreshGroupContent() }
         .onChange(of: activeSheet?.id) { previous, current in
             if previous != nil, current == nil, !submittedSearchText.isEmpty,
@@ -226,6 +249,7 @@ struct GroupView: View {
 
     private func overview(for group: WalkGroup) -> some View {
         GroupWalletOverview(group: group)
+            .id(group.id)
     }
 
     @ToolbarContentBuilder
@@ -263,7 +287,6 @@ struct GroupView: View {
                     updateRecordFilters { $0.categoryIds = ids }
                 }
             )
-            .equatable()
             Button {
                 activeSheet = .groupSettings
             } label: {
@@ -324,7 +347,7 @@ struct GroupView: View {
         let request = recordQuery
         let refreshID = UUID()
         recordRefreshID = refreshID
-        isRefreshingRecords = showLoading
+        isRefreshingRecords = showLoading && (!hasLoadedRecords || needsQueryScrollToTop)
         defer {
             // Cancellation must finish loading, but an older request must not
             // clear the indicator owned by a newer search/filter request.
@@ -848,7 +871,7 @@ struct ExpenseRow: View {
                         .minimumScaleFactor(0.78)
                         .allowsTightening(true)
                     Text(compactCreatedAt)
-                        .font(.caption2.weight(.semibold))
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(SoftLedgerTheme.mutedInk)
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)

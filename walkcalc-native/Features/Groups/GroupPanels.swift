@@ -827,7 +827,6 @@ private enum ArchivedGroupPendingAction: Equatable {
 struct GroupSettingsSheet: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
-    @ScaledMetric(relativeTo: .subheadline) private var ownerAvatarSize = 26
 
     let group: WalkGroup
     let onDone: () -> Void
@@ -942,12 +941,10 @@ struct GroupSettingsSheet: View {
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section(L("Members")) {
-                HStack {
-                    Text(L("Group owner"))
-                    Spacer()
+                LabeledContent(L("Group owner")) {
                     if let owner = currentGroup.ownerMember ?? currentUserOwnerFallback {
                         HStack(spacing: 8) {
-                            SoftLedgerAvatar(member: owner, size: ownerAvatarSize)
+                            SoftLedgerAvatarStack(members: [owner], visibleCount: 1, borderColor: SoftLedgerTheme.formPaper)
                                 .accessibilityHidden(true)
                             Text(owner.name)
                                 .font(.subheadline)
@@ -956,7 +953,6 @@ struct GroupSettingsSheet: View {
                         }
                     }
                 }
-                .listRowSeparator(.visible, edges: .bottom)
                 .listRowBackground(SoftLedgerTheme.formPaper)
 
                 NavigationLink {

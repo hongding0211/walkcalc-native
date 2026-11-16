@@ -59,7 +59,9 @@ struct walkcalc_nativeApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if ExpenseScrollTitleVerification.isEnabled {
+                if ProcessInfo.processInfo.arguments.contains("--native-menu-probe") {
+                    NativeMenuProbe()
+                } else if ExpenseScrollTitleVerification.isEnabled {
                     ExpenseScrollTitleVerificationHost()
                 } else if ProcessInfo.processInfo.arguments.contains("--design-playground-home") {
                     SoftLedgerGroupHomePlayground()

@@ -102,8 +102,18 @@ VIEW_METHOD
         fatalError("Refresh failed to reach expected state")
     }
     @MainActor static func main() async {
+        // Re-entering a cached group must not replace its records with Loading.
+        let cached = View(Store())
+        let cachedRefresh = Task { await cached.refreshGroupContent() }
+        await until { cached.store.ledgerRepository.requests.count == 1 }
+        precondition(!cached.isRefreshingRecords, "Cached content must remain visible")
+        cached.store.ledgerRepository.finish(0)
+        await cachedRefresh.value
+        precondition(cached.hasCompletedInitialLoad)
+
         // SwiftUI cancellation used to return before clearing loading forever.
         let store = Store(), view = View(Store())
+        view.hasLoadedRecords = false
         let cancelled = Task { await view.refreshGroupContent() }
         await until { view.store.ledgerRepository.requests.count == 1 }
         precondition(view.isRefreshingRecords)
@@ -118,6 +128,7 @@ VIEW_METHOD
         await until { store.ledgerRepository.requests.count == 1 }
         old.cancel()
         ui.recordQuery.text = "new"
+        ui.needsQueryScrollToTop = true
         let new = Task { await ui.refreshGroupContent() }
         await until { store.ledgerRepository.requests.count == 2 }
         store.ledgerRepository.finish(0)

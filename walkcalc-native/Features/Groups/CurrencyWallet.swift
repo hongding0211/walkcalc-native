@@ -713,6 +713,9 @@ struct CurrencyWallet: View {
                 .accessibilityLabel(String(format: L("Personal spending: %@"), sample.spending))
             Text(sample.settlement)
                 .font(.footnote)
+                // Reserve short/long settlement summaries consistently; allow
+                // longer accessible text to grow instead of truncating it.
+                .lineLimit(2...)
                 .foregroundStyle(appearance.glassInk(at: sample.artworkIndex).color.opacity(0.7))
                 .fixedSize(horizontal: false, vertical: true)
                 .transaction { transaction in
