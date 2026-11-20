@@ -707,11 +707,17 @@ func moneyColor(_ value: MoneyMinor?) -> Color {
     return Money.isNegative(value) ? SoftLedgerTheme.negative : SoftLedgerTheme.positive
 }
 
+func recordNoteForDisplay(_ record: WalkRecord) -> String {
+    record.isDebtResolve && record.text == WalkRecord.automaticSettlementNote
+        ? L("Debt Resolve")
+        : record.text
+}
+
 func recordTitle(_ record: WalkRecord) -> String {
-    if !record.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        return record.text
-    }
-    return L(expenseCategory(for: record).titleKey)
+    let note = recordNoteForDisplay(record)
+    return note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ? L(expenseCategory(for: record).titleKey)
+        : note
 }
 
 extension Array {

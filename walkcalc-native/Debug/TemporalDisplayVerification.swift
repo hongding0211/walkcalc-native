@@ -105,6 +105,19 @@ enum TemporalDisplayVerification {
         }
         let may = date(year: 2026, month: 5, day: 15, hour: 12, minute: 0, calendar: calendar)
         let earlier = date(year: 2026, month: 5, day: 11, hour: 12, minute: 0, calendar: calendar)
+        let flatRows = [
+            (samples[0].0, now, "Today 01:00", "今天 01:00"),
+            (samples[1].0, now, "Yesterday", "昨天"),
+            (earlier, may, "May 11", "5月11日"),
+            (samples[2].0, now, "Dec 31, 2025", "2025年12月31日")
+        ]
+        for (index, row) in flatRows.enumerated() {
+            for (locale, expected) in [("en", row.2), ("zh-Hans", row.3)] {
+                results.append(Result(name: "flat-row-\(locale)-\(index)", expected: expected,
+                    actual: TemporalDisplay.recordListDateString(fromMilliseconds: row.0.timeIntervalSince1970 * 1000,
+                        now: row.1, locale: Locale(identifier: locale), calendar: calendar)))
+            }
+        }
         for (locale, expected) in [("en", "May 11"), ("zh-Hans", "5月11日")] {
             results.append(Result(name: "section-month-day-\(locale)", expected: expected,
                                   actual: TemporalDisplay.sectionTitle(for: earlier, now: may, locale: Locale(identifier: locale), calendar: calendar)))

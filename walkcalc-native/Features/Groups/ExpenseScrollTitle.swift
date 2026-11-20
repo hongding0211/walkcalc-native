@@ -16,6 +16,7 @@ final class ExpenseScrollTitleState {
     private(set) var layoutRevision = 0
     @ObservationIgnored private var activeDates: Set<Date> = []
     @ObservationIgnored private var validDates: Set<Date> = []
+    @ObservationIgnored private var datesAreAscending = false
     @ObservationIgnored private var updatePending = false
     @ObservationIgnored private var isScrolled = false
 
@@ -31,10 +32,15 @@ final class ExpenseScrollTitleState {
 
     func retainDates(_ dates: [Date]) {
         let next = Set(dates)
-        if validDates != next {
-            validDates = next
+        let ascending = (dates.first ?? .distantPast) < (dates.last ?? .distantPast)
+        if datesAreAscending != ascending {
+            activeDates.removeAll()
+            datesAreAscending = ascending
+            layoutRevision += 1
+        } else if validDates != next {
             layoutRevision += 1
         }
+        validDates = next
         activeDates.formIntersection(validDates)
         if let date, !validDates.contains(date) {
             self.date = nil
@@ -64,7 +70,7 @@ final class ExpenseScrollTitleState {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.updatePending = false
-            let next = self.isScrolled ? self.activeDates.min() : nil
+            let next = self.isScrolled ? (self.datesAreAscending ? self.activeDates.max() : self.activeDates.min()) : nil
             if self.date != next { self.date = next }
         }
     }
@@ -138,6 +144,7 @@ nonisolated private struct ExpenseDateVisibility: Equatable, Sendable {
 struct ExpenseNavigationTitle: ViewModifier {
     let groupName: String
     let state: ExpenseScrollTitleState
+    var followsDates = true
     @State private var now = Date()
 
     func body(content: Content) -> some View {
@@ -150,7 +157,7 @@ struct ExpenseNavigationTitle: ViewModifier {
                     do { try await Task.sleep(for: .seconds(60)) }
                     catch { return }
                     let next = Date()
-                    if !Calendar.autoupdatingCurrent.isDate(now, inSameDayAs: next) {
+                    if !GroupRecordSort.sectionCalendar.isDate(now, inSameDayAs: next) {
                         now = next
                     }
                 }
@@ -158,8 +165,8 @@ struct ExpenseNavigationTitle: ViewModifier {
     }
 
     private func title(now: Date) -> String {
-        if let date = state.date {
-            return TemporalDisplay.sectionTitle(for: date, now: now)
+        if followsDates, let date = state.date {
+            return TemporalDisplay.sectionTitle(for: date, now: now, calendar: GroupRecordSort.sectionCalendar)
         }
         return groupName
     }

@@ -6,8 +6,7 @@ Group settings is a low-frequency management surface for one group. It should be
 
 ### Entry
 
-- The group detail top-right `ellipsis` opens `Group settings` directly.
-- Do not show a top-level action menu from this `ellipsis`.
+- In the group detail toolbar, open the `ellipsis` menu and choose `Group settings`.
 - Do not expose `Share`, `Archive group`, or `Delete group` in the group detail top bar.
 - Adding expenses remains a separate bottom creation action and does not belong in settings.
 

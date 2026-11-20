@@ -1,6 +1,17 @@
 import SwiftUI
 import UIKit
 
+private struct GroupSheetContentMaxWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    var groupSheetContentMaxWidth: CGFloat? {
+        get { self[GroupSheetContentMaxWidthKey.self] }
+        set { self[GroupSheetContentMaxWidthKey.self] = newValue }
+    }
+}
+
 struct GroupSheetView: View {
     @EnvironmentObject private var store: WalkcalcStore
     let groupId: String
@@ -585,6 +596,8 @@ struct SettingsSheet: View {
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section(L("Groups")) {
+                Toggle(L("Show split amounts in the list"), isOn: $store.showsPerPersonAmount)
+
                 NavigationLink {
                     ArchivedGroupsView(groups: archivedGroups)
                 } label: {
@@ -602,7 +615,7 @@ struct SettingsSheet: View {
                         Text(L("Privacy Policy"))
                             .foregroundStyle(.primary)
                         Spacer()
-                        Image(systemName: "chevron.right")
+                            Image(systemName: "arrow.up.right")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(.tertiary)
                             .accessibilityHidden(true)
@@ -611,17 +624,14 @@ struct SettingsSheet: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-            }
-            .listRowBackground(SoftLedgerTheme.formPaper)
 
-            if store.isLoggedIn {
-                Section {
+                if store.isLoggedIn {
                     Button(L("Log out"), role: .destructive) {
                         confirmLogout = true
                     }
                 }
-                .listRowBackground(SoftLedgerTheme.formPaper)
             }
+            .listRowBackground(SoftLedgerTheme.formPaper)
         }
         .scrollContentBackground(.hidden)
         .background(SoftLedgerTheme.canvas)
@@ -1885,13 +1895,17 @@ struct AddMemberSearchView: View {
 struct RecordEditorView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
-    @FocusState private var focusedField: ExpenseEditorField?
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.groupSheetContentMaxWidth) private var contentMaxWidth
+    @FocusState private var isNoteFocused: Bool
 
     let groupId: String
     let record: WalkRecord?
     let onDone: () -> Void
 
     @State private var amount: String
+    @State private var isAmountFocused = false
     @State private var selectedCurrencyCode: String
     @State private var paidBy: String
     @State private var splitMembers: Set<String>
@@ -1914,7 +1928,7 @@ struct RecordEditorView: View {
         _paidBy = State(initialValue: record?.who ?? "")
         _splitMembers = State(initialValue: Set(record?.forWhom ?? []))
         _categoryId = State(initialValue: record.map { expenseCategory(for: $0).id } ?? "food")
-        _note = State(initialValue: record?.text ?? "")
+        _note = State(initialValue: record.map(recordNoteForDisplay) ?? "")
         _date = State(initialValue: record?.occurredAt.walkDate ?? Date())
         _hasEditIntent = State(initialValue: record == nil)
     }
@@ -1938,12 +1952,6 @@ struct RecordEditorView: View {
         return recordTitle(record)
     }
 
-    private var canSave: Bool {
-        (try? Money.parseDisplay(amount)).map { Money.isPositive($0) } == true
-            && !paidBy.isEmpty
-            && !splitMembers.isEmpty
-    }
-
     private var allowsMutation: Bool {
         guard let record else { return true }
         guard let group else { return false }
@@ -1955,6 +1963,22 @@ struct RecordEditorView: View {
     }
 
     var body: some View {
+        let validation = Result { try Money.parseDisplay(amount) }
+        let total = (try? validation.get()).flatMap { Money.isPositive($0) ? $0 : nil }
+        let canSave = total != nil && !paidBy.isEmpty && !splitMembers.isEmpty
+        let amountOutOfRange = if case .failure(MoneyError.outOfRange) = validation { true } else { false }
+        let share: MoneyMinor? = total.flatMap { total in
+            guard record?.isDebtResolve != true, splitMembers.count > 1 else { return nil }
+            return Money.averageShare(total, count: splitMembers.count)
+        }
+        let formattedShare = share.map {
+            CurrencyCatalog.formatted($0, currencyCode: selectedCurrencyCode, style: .exact)
+        }
+        let caption = amountOutOfRange
+            ? L("Amount exceeds the limit")
+            : formattedShare.map { String(format: L("%@ / person"), $0) }
+        let amountOffset = -4 / displayScale
+
         Form {
             Section {
                 HStack(alignment: .center, spacing: 6) {
@@ -1962,20 +1986,30 @@ struct RecordEditorView: View {
                         Text(CurrencyCatalog.symbol(for: selectedCurrencyCode))
                             .font(.system(size: 40, weight: .semibold, design: .rounded))
                             .foregroundStyle(SoftLedgerTheme.ink)
+                                .offset(y: amountOffset)
                             .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("\(L("Currency")), \(selectedCurrencyCode)")
                     .accessibilityHint(L("Select currency"))
-                    TextField("0.00", text: $amount)
-                        .keyboardType(.decimalPad)
-                        .font(.system(size: 44, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(SoftLedgerTheme.ink)
-                        .minimumScaleFactor(0.72)
-                        .focused($focusedField, equals: .amount)
-                        .softLedgerAccentTint()
+
+                    ExpenseAmountInput(amount: $amount, isFocused: $isAmountFocused)
+                        .frame(minWidth: 0, maxWidth: .infinity)
+                        .offset(y: amountOffset)
+                        .overlay(alignment: .bottomLeading) {
+                            Text(caption ?? "")
+                                .font(.caption.monospacedDigit().weight(.medium))
+                                .foregroundStyle(amountOutOfRange ? SoftLedgerTheme.negative : SoftLedgerTheme.mutedInk)
+                                .lineLimit(1)
+                                .truncationMode(amountOutOfRange ? .tail : .head)
+                                .contentTransition(amountOutOfRange ? .identity : .numericText())
+                                .animation(reduceMotion || share == nil ? nil : .smooth(duration: 0.22), value: share)
+                                .offset(y: 14)
+                                .allowsHitTesting(false)
+                                .accessibilityLabel(formattedShare.map { String(format: L("%@ per person"), $0) } ?? caption ?? "")
+                                .accessibilityHidden(caption == nil)
+                        }
 
                     Button(action: showCurrencyPicker) {
                         Text(selectedCurrencyCode.uppercased())
@@ -2022,7 +2056,7 @@ struct RecordEditorView: View {
                 ExpenseEditorFieldBlock(title: L("Note")) {
                     TextField(L("Expense note"), text: $note, axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
-                        .focused($focusedField, equals: .note)
+                        .focused($isNoteFocused)
                         .softLedgerAccentTint()
                         .accessibilityLabel(L("Note"))
                 }
@@ -2062,6 +2096,8 @@ struct RecordEditorView: View {
         .sensoryFeedback(SoftLedgerHaptics.tap(), trigger: currencyFeedbackTrigger)
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.interactively)
+        .frame(maxWidth: contentMaxWidth)
+        .frame(maxWidth: .infinity)
         .background {
             // Cover the area exposed outside the keyboard's rounded corners.
             SoftLedgerBackground()
@@ -2118,21 +2154,21 @@ struct RecordEditorView: View {
                 splitMembers = Set(members.map(\.uuid))
                 categoryId = "food"
                 note = Locale.preferredLanguages.first?.hasPrefix("en") == true ? "Pizza with friends" : "和朋友吃披萨"
-                focusedField = nil
+                isAmountFocused = false
                 return
             }
             #endif
             if record == nil {
-                focusedField = .amount
+                isAmountFocused = true
             }
         }
-        .onChange(of: focusedField) { _, newValue in
-            if newValue != nil {
+        .onChange(of: isAmountFocused || isNoteFocused) { _, isEditing in
+            if isEditing {
                 beginEditing()
             }
         }
-        .softLedgerDismissesKeyboardOnBackgroundTap(isActive: focusedField != nil) {
-            focusedField = nil
+        .softLedgerDismissesKeyboardOnBackgroundTap(isActive: isAmountFocused || isNoteFocused) {
+            clearEditorFocus()
         }
         .recordDeleteConfirmation(groupId: groupId, record: $deleteCandidate) { _ in
             dismiss()
@@ -2142,13 +2178,18 @@ struct RecordEditorView: View {
 
     private func showCurrencyPicker() {
         currencyFeedbackTrigger &+= 1
-        focusedField = nil
+        clearEditorFocus()
         isShowingCurrencyPicker = true
     }
 
     private func beginEditing() {
         guard record != nil, allowsMutation else { return }
         hasEditIntent = true
+    }
+
+    private func clearEditorFocus() {
+        isAmountFocused = false
+        isNoteFocused = false
     }
 
     private func cancelEditing() {
@@ -2159,7 +2200,7 @@ struct RecordEditorView: View {
         }
         resetDraft()
         message = nil
-        focusedField = nil
+        clearEditorFocus()
         hasEditIntent = false
         dismiss()
         onDone()
@@ -2171,7 +2212,7 @@ struct RecordEditorView: View {
         splitMembers = Set(record?.forWhom ?? [])
         categoryId = record.map { expenseCategory(for: $0).id } ?? "food"
         date = record?.occurredAt.walkDate ?? Date()
-        note = record?.text ?? ""
+        note = record.map(recordNoteForDisplay) ?? ""
         selectedCurrencyCode = record.map {
             CurrencyCatalog.normalizedCode($0.currencyCode ?? group?.currencyCode)
         } ?? store.preferredRecordCurrencyCode(for: groupId)
@@ -2201,7 +2242,7 @@ struct RecordEditorView: View {
                 paid: amount,
                 forWhom: Array(splitMembers),
                 type: categoryId,
-                text: note,
+                text: note == recordNoteForDisplay(record) ? record.text : note,
                 occurredAt: date.timeIntervalSince1970 * 1000,
                 isSettlement: record.isDebtResolve,
                 currencyCode: selectedCurrencyCode
@@ -2286,11 +2327,6 @@ private struct PaidByInlineEditor: View {
     private func displayName(for member: Member) -> String {
         member.uuid == currentParticipantID ? L("You") : member.name
     }
-}
-
-private enum ExpenseEditorField {
-    case amount
-    case note
 }
 
 private struct SplitInlineEditor: View {
@@ -2471,6 +2507,8 @@ private struct CategoryInlineEditor: View {
                 .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
 
             ExpenseEditorChoiceGrid(items: expenseCategories, id: \.id) { category, itemWidth in
+                let isSelected = selection == category.id
+
                 Button {
                     onEdit()
                     selection = category.id
@@ -2479,13 +2517,13 @@ private struct CategoryInlineEditor: View {
                         ExpenseCategoryBadge(category: category, size: iconSize, symbolSize: iconFontSize)
                             .overlay {
                                 Circle()
-                                    .strokeBorder(selection == category.id ? appTheme.accent : Color.clear, lineWidth: max(2, iconSize / 19))
+                                    .strokeBorder(isSelected ? appTheme.accent : Color.clear, lineWidth: max(2, iconSize / 19))
                                     .padding(-3)
                             }
 
                         Text(L(category.titleKey))
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(selection == category.id ? SoftLedgerTheme.ink : SoftLedgerTheme.secondaryInk)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(isSelected ? SoftLedgerTheme.ink : SoftLedgerTheme.secondaryInk.opacity(0.74))
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(width: itemWidth)
@@ -2495,7 +2533,7 @@ private struct CategoryInlineEditor: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(L(category.titleKey))
-                .accessibilityAddTraits(selection == category.id ? .isSelected : [])
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
         .padding(.vertical, verticalPadding)
@@ -2580,6 +2618,7 @@ struct BalancesWorkspace: View {
 
 private struct BalancesRootView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @Environment(\.groupSheetContentMaxWidth) private var contentMaxWidth
     @State private var resolveFeedbackTrigger = 0
     @State private var showsResolveConfirmation = false
     @State private var pendingResolveMode = ResolveMode.all
@@ -2683,7 +2722,9 @@ private struct BalancesRootView: View {
                     .padding(.vertical, rowVerticalPadding)
                     .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
                 }
+                .frame(maxWidth: contentMaxWidth, alignment: .leading)
                 .padding(.horizontal, horizontalPadding)
+                .frame(maxWidth: .infinity)
                 .padding(.top, topPadding)
                 .padding(.bottom, bottomPadding)
             }
@@ -2912,6 +2953,7 @@ private struct SettlementPlanRow: View {
 
 private struct MemberBalanceDetailView: View {
     @EnvironmentObject private var store: WalkcalcStore
+    @Environment(\.groupSheetContentMaxWidth) private var contentMaxWidth
     @ScaledMetric(relativeTo: .body) private var summaryPadding = 18
     @ScaledMetric(relativeTo: .subheadline) private var emptyRowMinHeight = 54
     @ScaledMetric(relativeTo: .subheadline) private var rowHorizontalPadding = 14
@@ -3036,7 +3078,9 @@ private struct MemberBalanceDetailView: View {
                         )
                     }
                 }
+                .frame(maxWidth: contentMaxWidth, alignment: .leading)
                 .padding(.horizontal, horizontalPadding)
+                .frame(maxWidth: .infinity)
                 .padding(.top, topPadding)
                 .padding(.bottom, bottomPadding)
             }

@@ -37,12 +37,13 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
     func groupDetail(groupId: String, recordPageSize: Int, recordSearch: RecordSearchRequest? = nil, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let group = group(id: groupId) else { return .failure(.sourceUnavailable()) }
-        let records = (recordsByGroup[groupId] ?? []).filter { recordSearch?.matches($0, defaultCurrency: group.currencyCode) ?? true }
-        let slice = pageSlice(records, page: 1, pageSize: recordPageSize)
+        let records = recordsByGroup[groupId] ?? []
+        let filtered = recordSearch?.filteredRecords(records, defaultCurrency: group.currencyCode) ?? records
+        let slice = pageSlice(filtered, page: 1, pageSize: recordPageSize)
         return .success(LedgerGroupSnapshot(
             group: group,
             records: slice.items,
-            recordPagination: Pagination(page: 1, size: recordPageSize, total: records.count),
+            recordPagination: Pagination(page: 1, size: recordPageSize, total: filtered.count),
             source: .local(id: groupId),
             refreshedToken: nil
         ))
@@ -56,9 +57,8 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
 
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
-        let filtered = (recordsByGroup[groupId] ?? []).filter {
-            search?.matches($0, defaultCurrency: group(id: groupId)?.currencyCode) ?? true
-        }
+        let records = recordsByGroup[groupId] ?? []
+        let filtered = search?.filteredRecords(records, defaultCurrency: group(id: groupId)?.currencyCode) ?? records
         let slice = pageSlice(filtered, page: page, pageSize: pageSize)
         return .success(LedgerPage(items: slice.items, pagination: Pagination(page: page, size: pageSize, total: filtered.count), source: .local(id: groupId), refreshedToken: nil))
     }
@@ -305,7 +305,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         var created: [WalkRecord] = []
         let resolvedCurrencyCode = CurrencyCatalog.normalizedCode(currencyCode ?? group.currencyCode)
         for transfer in settlementSuggestions(for: group, currencyCode: resolvedCurrencyCode) {
-            if case .success(let response) = await addSettlementRecord(groupId: groupId, fromId: transfer.fromId, toId: transfer.toId, amountMinor: transfer.amountMinor, note: "resolve", currencyCode: resolvedCurrencyCode, context: context),
+            if case .success(let response) = await addSettlementRecord(groupId: groupId, fromId: transfer.fromId, toId: transfer.toId, amountMinor: transfer.amountMinor, note: WalkRecord.automaticSettlementNote, currencyCode: resolvedCurrencyCode, context: context),
                let record = response.value {
                 created.append(record)
             }

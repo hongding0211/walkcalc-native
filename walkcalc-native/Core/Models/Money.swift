@@ -2,30 +2,26 @@ import Foundation
 
 typealias MoneyMinor = String
 
-private let maxAbsMinor = Decimal(999_999_999_999_999_999)
-
 enum Money {
+    private static let maxIntegerDigits = 16
+    private static let maximumDisplayLength = maxIntegerDigits + 4
+
     static func parseDisplay(_ value: String) throws -> MoneyMinor {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pattern = #"^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$"#
+        guard trimmed.utf8.count <= maximumDisplayLength else { throw MoneyError.outOfRange }
+        let pattern = #"\A-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?\z"#
         guard trimmed.range(of: pattern, options: .regularExpression) != nil else {
             throw MoneyError.invalid
         }
 
         let negative = trimmed.hasPrefix("-")
-        let unsigned = negative ? String(trimmed.dropFirst()) : trimmed
-        let parts = unsigned.split(separator: ".", omittingEmptySubsequences: false)
-        let integerPart = Decimal(string: String(parts.first ?? "0")) ?? 0
+        let unsigned = negative ? trimmed.dropFirst() : trimmed[...]
+        let parts = unsigned.split(separator: ".")
+        guard parts[0].utf8.count <= maxIntegerDigits else { throw MoneyError.outOfRange }
         let fractionRaw = parts.count > 1 ? String(parts[1]) : ""
-        let fraction = Decimal(string: fractionRaw.padding(toLength: 2, withPad: "0", startingAt: 0)) ?? 0
-        var minor = integerPart * 100 + fraction
-        if negative {
-            minor *= -1
-        }
-        guard abs(minor) <= maxAbsMinor else {
-            throw MoneyError.outOfRange
-        }
-        return NSDecimalNumber(decimal: minor).stringValue
+        let fraction = fractionRaw.padding(toLength: 2, withPad: "0", startingAt: 0)
+        guard let minor = Int64(String(parts[0]) + fraction) else { throw MoneyError.outOfRange }
+        return String(negative ? -minor : minor)
     }
 
     static func normalize(_ value: Any?) -> MoneyMinor {
@@ -102,6 +98,15 @@ enum Money {
             return "\(base)"
         }
         return "\(base + (remainder > 0 ? 1 : -1))"
+    }
+
+    static func averageShare(_ value: MoneyMinor, count: Int) -> MoneyMinor {
+        guard count > 1, let total = Int64(value) else { return value }
+        let divisor = Int64(count)
+        let quotient = total / divisor
+        let remainder = total % divisor
+        guard remainder.magnitude * 2 >= UInt64(divisor) else { return String(quotient) }
+        return String(quotient + (total < 0 ? -1 : 1))
     }
 
     static func display(_ value: MoneyMinor?) -> String {

@@ -6,8 +6,13 @@ enum LedgerRepositoryVerification {
     static func assertAllCasesPass() async {
         let oldFilters = try! JSONDecoder().decode(GroupRecordFilters.self, from: Data(#"{"currencyCodes":["USD"],"onlyRelatedToMe":true}"#.utf8))
         expect(oldFilters, equals: GroupRecordFilters(currencyCodes: ["USD"], onlyRelatedToMe: true), prefix: "filter-backward-compatible")
-        let persisted = GroupRecordFilters(currencyCodes: ["USD"], onlyRelatedToMe: true, categoryIds: ["food", "traffic"])
-        expect(try! JSONDecoder().decode(GroupRecordFilters.self, from: JSONEncoder().encode(persisted)), equals: persisted, prefix: "category-filter-persistence")
+        let amountAscending = GroupRecordSort(field: .amount, order: .ascending)
+        let persisted = GroupRecordFilters(currencyCodes: ["USD"], onlyRelatedToMe: true, categoryIds: ["food", "traffic"], sort: amountAscending)
+        expect(try! JSONDecoder().decode(GroupRecordFilters.self, from: JSONEncoder().encode(persisted)), equals: persisted, prefix: "filter-and-sort-persistence")
+        expect(GroupRecordFilters().isActive, equals: false, prefix: "default-sort-inactive")
+        expect(GroupRecordFilters(currencyCodes: ["USD"]).isActive, equals: true, prefix: "default-sort-with-filter-active")
+        expect(GroupRecordFilters(sort: GroupRecordSort(order: .ascending)).isActive, equals: true, prefix: "date-ascending-active")
+        expect(GroupRecordFilters(sort: GroupRecordSort(field: .amount)).isActive, equals: true, prefix: "amount-descending-active")
         URLProtocol.registerClass(MockLedgerURLProtocol.self)
         defer {
             URLProtocol.unregisterClass(MockLedgerURLProtocol.self)
@@ -118,6 +123,8 @@ enum LedgerRepositoryVerification {
         expectFailure(unavailable, kind: .sourceUnavailable, prefix: "source-unavailable")
 
         await verifyPersistentLocalPins(owner: owner)
+        await verifyLocalRecordSorting(source: InMemoryLedgerDataSource(), context: localContext)
+        await verifyLocalRecordSorting(source: try! SwiftDataLedgerDataSource.inMemory(), context: localContext)
         await verifyRemoteContracts()
         await verifyRemoteAuthFailures()
         NSLog("PASS: ledger repository and filtered request verification")
@@ -142,6 +149,58 @@ enum LedgerRepositoryVerification {
         _ = expectSuccess(await reloaded.pinGroup(code: groupID, isPinned: false, context: context), prefix: "persistent-unpin")
         let detail = expectSuccess(await reloaded.groupDetail(groupId: groupID, recordPageSize: 1, context: context), prefix: "persistent-unpin-detail")
         expect(detail.group?.isPinned, equals: Optional(false), prefix: "persistent-unpin-state")
+    }
+
+    private static func verifyLocalRecordSorting(source: any LedgerDataSource, context: LedgerSessionContext) async {
+        let repository = LedgerRepository(remoteSource: source, localSource: source)
+        let groupId = expectSuccess(await repository.createGroup(name: "Sort", currencyCode: "CNY", context: context), prefix: "sort-create-group").value!
+        let calendar = GroupRecordSort.sectionCalendar
+        let today = calendar.startOfDay(for: .now)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let ownerId = context.localOwner!.uuid
+        let guestId = expectSuccess(
+            await repository.addTempUser(code: groupId, name: "Dinner guest", context: context),
+            prefix: "sort-add-guest"
+        ).value!
+        let entries = [
+            ("Dinner cheap", "900", today.addingTimeInterval(7200), "USD", "food", [ownerId]),
+            ("Dinner yesterday", "100", yesterday.addingTimeInterval(3600), "CNY", "food", [ownerId]),
+            ("Dinner expensive", "1000", today.addingTimeInterval(3600), "CNY", "food", [ownerId, guestId]),
+            ("Dinner taxi", "4000", today.addingTimeInterval(10800), "CNY", "traffic", [ownerId]),
+        ]
+        for (note, amount, date, currency, category, participantIds) in entries {
+            let result = await repository.addRecord(
+                groupId: groupId, who: ownerId, paidMinor: amount, forWhom: participantIds,
+                type: category, text: note, long: "", lat: "", occurredAt: date.timeIntervalSince1970 * 1000,
+                currencyCode: currency, context: context
+            )
+            _ = expectSuccess(result, prefix: "sort-add-record")
+        }
+        var request = RecordSearchRequest.noteOrCategoryName(query: "Dinner")
+        request.categoryIds = ["food"]
+
+        request.sort = GroupRecordSort(field: .amount, order: .ascending)
+        let first = expectSuccess(await repository.groupDetail(groupId: groupId, recordPageSize: 1, recordSearch: request, context: context), prefix: "local-sort-first")
+        let second = expectSuccess(await repository.records(groupId: groupId, page: 2, pageSize: 1, search: request, context: context), prefix: "local-sort-next")
+        expect(first.recordPagination?.total, equals: 3, prefix: "local-sort-filtered-total")
+        expect((first.records + second.items).map(\.text), equals: ["Dinner yesterday", "Dinner cheap"], prefix: "local-amount-sort-before-pagination")
+
+        request.sort = GroupRecordSort(field: .amount)
+        let descending = expectSuccess(await repository.records(groupId: groupId, page: 1, pageSize: 10, search: request, context: context), prefix: "local-amount-descending")
+        expect(descending.items.map(\.text), equals: ["Dinner expensive", "Dinner cheap", "Dinner yesterday"], prefix: "local-amount-global-descending")
+        expect(
+            descending.items.map { Money.averageShare($0.paidMinor, count: $0.forWhom.count) },
+            equals: ["500", "900", "100"], prefix: "local-sort-uses-paid-amount"
+        )
+
+        request.amountBasis = .perPerson
+        let splitFirst = expectSuccess(await repository.groupDetail(groupId: groupId, recordPageSize: 1, recordSearch: request, context: context), prefix: "local-split-first")
+        let splitSecond = expectSuccess(await repository.records(groupId: groupId, page: 2, pageSize: 1, search: request, context: context), prefix: "local-split-next")
+        expect((splitFirst.records + splitSecond.items).map(\.text), equals: ["Dinner cheap", "Dinner expensive"], prefix: "local-split-sort-before-pagination")
+
+        request.sort = GroupRecordSort(order: .ascending)
+        let ascending = expectSuccess(await repository.records(groupId: groupId, page: 1, pageSize: 10, search: request, context: context), prefix: "local-date-ascending")
+        expect(ascending.items.map(\.text), equals: ["Dinner yesterday", "Dinner expensive", "Dinner cheap"], prefix: "local-date-sort")
     }
 
     private static let mockBaseURL = URL(string: "https://ledger-verification.invalid/api")!
@@ -183,18 +242,23 @@ enum LedgerRepositoryVerification {
         _ = expectSuccess(await repository.resolveDebts(groupId: "AB12", currencyCode: "USD", context: context), prefix: "remote-resolve-all")
         _ = expectSuccess(await repository.deleteGroup(code: "AB12", context: context), prefix: "remote-delete-group")
 
-        let filters = RecordSearchRequest(operator: "or", conditions: [], currencyCodes: ["CNY", "USD"], participantId: "user-1")
+        let filters = RecordSearchRequest(operator: "or", conditions: [], currencyCodes: ["CNY", "USD"], participantId: "user-1", sort: GroupRecordSort())
         _ = expectSuccess(await repository.groupDetail(groupId: "AB12", recordPageSize: 10, recordSearch: filters, context: context), prefix: "remote-filter-first-page")
         _ = expectSuccess(await repository.records(groupId: "AB12", page: 2, pageSize: 10, search: filters, context: context), prefix: "remote-filter-next-page")
         let filteredRequests = MockLedgerURLProtocol.requests.filter { $0.path == "/api/walkcalc/groups/AB12/records" && $0.query["currencyCodes"] != nil }
         expect(filteredRequests.count, equals: 2, prefix: "remote-filter-count")
-        expect(filteredRequests.allSatisfy { $0.query["currencyCodes"] == "CNY,USD" && $0.query["participantId"] == "user-1" && $0.query["search"] == nil }, equals: true, prefix: "remote-filter-query")
+        expect(filteredRequests.allSatisfy {
+            $0.query["currencyCodes"] == "CNY,USD" && $0.query["participantId"] == "user-1" && $0.query["search"] == nil
+                && $0.query["sortBy"] == "occurredAt" && $0.query["sortOrder"] == "desc" && $0.query["timeZone"] == nil
+        }, equals: true, prefix: "remote-filter-query")
 
         var combinedSearch = RecordSearchRequest.noteOrCategoryName(query: "Dinner")
         combinedSearch.currencyCodes = filters.currencyCodes
         combinedSearch.participantId = filters.participantId
         combinedSearch.categoryIds = ["food", "transfer"]
         combinedSearch.includeSettlements = true
+        combinedSearch.sort = GroupRecordSort(field: .amount, order: .ascending)
+        combinedSearch.amountBasis = .perPerson
         _ = expectSuccess(await repository.groupDetail(groupId: "AB12", recordPageSize: 10, recordSearch: combinedSearch, context: context), prefix: "remote-combined-first-page")
         _ = expectSuccess(await repository.records(groupId: "AB12", page: 2, pageSize: 10, search: combinedSearch, context: context), prefix: "remote-combined-next-page")
         let combinedRequests = MockLedgerURLProtocol.requests.filter {
@@ -205,6 +269,8 @@ enum LedgerRepositoryVerification {
         expect(combinedRequests.allSatisfy {
             $0.query["currencyCodes"] == "CNY,USD" && $0.query["participantId"] == "user-1"
                 && $0.query["categoryIds"] == "food,transfer" && $0.query["includeSettlements"] == "true"
+                && $0.query["sortBy"] == "amount" && $0.query["sortOrder"] == "asc" && $0.query["timeZone"] == nil
+                && $0.query["amountBasis"] == "perPerson"
                 && $0.query["search"]?.contains("Dinner") == true
                 && $0.query["search"]?.contains("\"field\":\"note\"") == true
                 && $0.query["search"]?.contains("\"field\":\"categoryName\"") == true

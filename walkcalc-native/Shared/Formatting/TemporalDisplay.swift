@@ -98,6 +98,27 @@ enum TemporalDisplay {
         )
     }
 
+    static func recordListDateString(
+        fromMilliseconds milliseconds: TimeInterval,
+        now: Date,
+        locale: Locale = appLocale,
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> String {
+        let date = milliseconds.walkDate
+        let language = TemporalDisplayLanguage(locale: locale)
+        switch bucket(for: date, now: now, calendar: calendar) {
+        case .today:
+            let today = sectionTitle(for: date, now: now, locale: locale, calendar: calendar)
+            return "\(today) \(language.timeString(from: date, calendar: calendar))"
+        case .yesterday:
+            return language.yesterday(context: .compact)
+        default:
+            return calendar.isDate(date, equalTo: now, toGranularity: .year)
+                ? language.monthDayString(from: date, calendar: calendar)
+                : language.yearMonthDayString(from: date, calendar: calendar)
+        }
+    }
+
     static func bucket(
         for date: Date,
         now: Date = Date(),

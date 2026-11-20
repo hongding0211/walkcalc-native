@@ -13,6 +13,7 @@ sources = [
     "Core/Ledger/LedgerDataLayer.swift", "Core/Ledger/InMemoryLedgerDataSource.swift",
     "Core/Ledger/SwiftDataLedgerModels.swift", "Core/Ledger/SwiftDataLedgerDataSource.swift",
     "Shared/UI/ThemeConfig.swift", "Shared/Localization/L10n.swift",
+    "Shared/Formatting/TemporalDisplay.swift",
     "Features/Groups/WalletColor.swift",
     "Debug/LedgerRepositoryVerification.swift",
 ]

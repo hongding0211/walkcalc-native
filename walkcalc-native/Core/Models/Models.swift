@@ -195,6 +195,8 @@ struct WalkGroup: Identifiable, Hashable {
 }
 
 struct WalkRecord: Identifiable, Hashable {
+    static let automaticSettlementNote = "Settlement"
+
     var id: String { recordId }
     var recordId: String
     var who: String
@@ -211,29 +213,99 @@ struct WalkRecord: Identifiable, Hashable {
     var createdBy: String?
     var modifiedBy: String?
     var currencyCode: String? = nil
+
+    var hasSplitAmount: Bool { !isDebtResolve && forWhom.count > 1 }
+
+    func amountMinor(perPerson: Bool) -> MoneyMinor {
+        perPerson && hasSplitAmount ? Money.averageShare(paidMinor, count: forWhom.count) : paidMinor
+    }
+}
+
+struct GroupRecordSort: Codable, Hashable {
+    enum Field: String, Codable, CaseIterable {
+        case occurredAt, amount
+
+        var title: String { L(self == .occurredAt ? "Date" : "Amount") }
+    }
+
+    enum Order: String, Codable, CaseIterable {
+        case ascending = "asc"
+        case descending = "desc"
+
+        var title: String { L(self == .ascending ? "Ascending" : "Descending") }
+    }
+
+    enum AmountBasis: String {
+        case total, perPerson
+    }
+
+    var field: Field = .occurredAt
+    var order: Order = .descending
+
+    static var sectionCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        return calendar
+    }
+
+    func ordered(_ records: [WalkRecord], amountBasis: AmountBasis = .total) -> [WalkRecord] {
+        records.sorted { recordPrecedes($0, $1, amountBasis: amountBasis) }
+    }
+
+    func sections(for records: [WalkRecord], now: Date) -> [(date: Date, records: [WalkRecord])] {
+        let calendar = Self.sectionCalendar
+        let grouped = Dictionary(grouping: records) {
+            TemporalDisplay.sectionDate(for: $0.occurredAt.walkDate, now: now, calendar: calendar)
+        }
+        let dates = grouped.keys.sorted(by: field == .occurredAt && order == .ascending ? (<) : (>))
+        return dates.map { ($0, ordered(grouped[$0, default: []])) }
+    }
+
+    private func recordPrecedes(_ left: WalkRecord, _ right: WalkRecord, amountBasis: AmountBasis) -> Bool {
+        if field == .amount {
+            let perPerson = amountBasis == .perPerson
+            let comparison = Money.compare(left.amountMinor(perPerson: perPerson), right.amountMinor(perPerson: perPerson))
+            if comparison != .orderedSame {
+                return comparison == (order == .ascending ? .orderedAscending : .orderedDescending)
+            }
+        }
+
+        let ascendingTime = field == .occurredAt && order == .ascending
+        if left.occurredAt != right.occurredAt {
+            return ascendingTime ? left.occurredAt < right.occurredAt : left.occurredAt > right.occurredAt
+        }
+        if left.createdAt != right.createdAt {
+            return ascendingTime ? left.createdAt < right.createdAt : left.createdAt > right.createdAt
+        }
+        return ascendingTime ? left.id < right.id : left.id > right.id
+    }
 }
 
 struct GroupRecordFilters: Codable, Hashable {
     var currencyCodes: Set<String> = []
     var onlyRelatedToMe = false
     var categoryIds: Set<String> = []
+    var sort = GroupRecordSort()
 
-    init(currencyCodes: Set<String> = [], onlyRelatedToMe: Bool = false, categoryIds: Set<String> = []) {
+    init(currencyCodes: Set<String> = [], onlyRelatedToMe: Bool = false, categoryIds: Set<String> = [], sort: GroupRecordSort = GroupRecordSort()) {
         self.currencyCodes = currencyCodes
         self.onlyRelatedToMe = onlyRelatedToMe
         self.categoryIds = categoryIds
+        self.sort = sort
     }
 
-    private enum CodingKeys: String, CodingKey { case currencyCodes, onlyRelatedToMe, categoryIds }
+    private enum CodingKeys: String, CodingKey { case currencyCodes, onlyRelatedToMe, categoryIds, sort }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         currencyCodes = try values.decodeIfPresent(Set<String>.self, forKey: .currencyCodes) ?? []
         onlyRelatedToMe = try values.decodeIfPresent(Bool.self, forKey: .onlyRelatedToMe) ?? false
         categoryIds = try values.decodeIfPresent(Set<String>.self, forKey: .categoryIds) ?? []
+        sort = try values.decodeIfPresent(GroupRecordSort.self, forKey: .sort) ?? GroupRecordSort()
     }
 
-    var isActive: Bool { onlyRelatedToMe || !currencyCodes.isEmpty || !categoryIds.isEmpty }
+    var hasFilters: Bool { onlyRelatedToMe || !currencyCodes.isEmpty || !categoryIds.isEmpty }
+    var isActive: Bool { hasFilters || sort != GroupRecordSort() }
     var currencySummary: String {
         currencyCodes.isEmpty ? L("All currencies") : currencyCodes.sorted().joined(separator: ", ")
     }
@@ -242,7 +314,8 @@ struct GroupRecordFilters: Codable, Hashable {
     }
     var summary: String {
         [currencyCodes.isEmpty ? nil : currencySummary, onlyRelatedToMe ? L("Related to me") : nil,
-         categoryIds.isEmpty ? nil : categorySummary]
+         categoryIds.isEmpty ? nil : categorySummary,
+         sort == GroupRecordSort() ? nil : "\(sort.field.title), \(sort.order.title)"]
             .compactMap { $0 }.joined(separator: " · ")
     }
     func includesCurrency(_ code: String?) -> Bool {
@@ -257,8 +330,15 @@ struct RecordSearchRequest: Encodable, Hashable {
     var participantId: String? = nil
     var categoryIds: [String] = []
     var includeSettlements = false
+    var sort: GroupRecordSort? = nil
+    var amountBasis: GroupRecordSort.AmountBasis? = nil
 
     private enum CodingKeys: String, CodingKey { case `operator`, conditions }
+
+    func filteredRecords(_ records: [WalkRecord], defaultCurrency: String?) -> [WalkRecord] {
+        let filtered = records.filter { matches($0, defaultCurrency: defaultCurrency) }
+        return sort?.ordered(filtered, amountBasis: amountBasis ?? .total) ?? filtered
+    }
 
     func matches(_ record: WalkRecord, defaultCurrency: String?) -> Bool {
         guard currencyCodes.isEmpty || currencyCodes.contains(CurrencyCatalog.normalizedCode(record.currencyCode ?? defaultCurrency)) else { return false }

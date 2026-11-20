@@ -84,11 +84,13 @@ struct GroupView: View {
         let groupID: String
         let text: String
         let filters: GroupRecordFilters
+        let amountBasis: GroupRecordSort.AmountBasis?
         let revision: Int
     }
 
     private var recordQuery: RecordQuery {
-        RecordQuery(groupID: groupId, text: submittedSearchText, filters: filters, revision: searchRevision)
+        RecordQuery(groupID: groupId, text: submittedSearchText, filters: filters,
+                    amountBasis: store.recordAmountBasis(for: groupId), revision: searchRevision)
     }
 
     var body: some View {
@@ -101,7 +103,7 @@ struct GroupView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     if let group {
-                        if hasLoadedRecords && records.isEmpty && !filters.isActive && submittedSearchText.isEmpty && !isRefreshingRecords {
+                        if hasLoadedRecords && records.isEmpty && !filters.hasFilters && submittedSearchText.isEmpty && !isRefreshingRecords {
                             GroupRecordsEmptyState()
                         } else {
                             // The group list already supplies this summary; record
@@ -124,6 +126,8 @@ struct GroupView: View {
                                 GroupExpensesSection(
                                     group: group,
                                     records: records,
+                                    sort: filters.sort,
+                                    showsPerPersonAmount: store.showsPerPersonAmount,
                                     isLoadingMore: store.isLoadingRecords(groupId: group.id, search: submittedSearchText),
                                     onDelete: { record in
                                         guard store.canMutateRecord(record, in: group) else { return }
@@ -171,11 +175,14 @@ struct GroupView: View {
             }
 
         }
-        .modifier(ExpenseNavigationTitle(groupName: group?.name ?? L("Group"), state: scrollTitle))
+        .modifier(ExpenseNavigationTitle(
+            groupName: group?.name ?? L("Group"), state: scrollTitle,
+            followsDates: filters.sort.field == .occurredAt
+        ))
         .navigationBarTitleDisplayMode(horizontalSizeClass == .regular ? .inline : .large)
         .toolbar {
             if #available(iOS 27.1, *) {
-                // Keep filter and settings together in Duo’s vertical toolbar.
+                // Keep both menus together in Duo’s vertical toolbar.
                 groupActions.axisBehavior(.verticalPreferred)
             } else {
                 groupActions
@@ -210,6 +217,9 @@ struct GroupView: View {
             if !submittedSearchText.isEmpty { searchRevision += 1 }
         }
         .onChange(of: filters) { _, _ in
+            needsQueryScrollToTop = true
+        }
+        .onChange(of: recordQuery.amountBasis) { _, _ in
             needsQueryScrollToTop = true
         }
         .onChange(of: groupId) { _, _ in
@@ -248,6 +258,7 @@ struct GroupView: View {
                 if let onClose { onClose() } else { dismiss() }
             }
         }
+        .environment(\.groupSheetContentMaxWidth, contentMaxWidth)
     }
 
     private func overview(for group: WalkGroup) -> some View {
@@ -290,15 +301,34 @@ struct GroupView: View {
                 },
                 onCategoryChange: { ids in
                     updateRecordFilters { $0.categoryIds = ids }
+                },
+                onSortFieldChange: { field in
+                    updateRecordFilters { $0.sort.field = field }
+                },
+                onSortOrderChange: { order in
+                    updateRecordFilters { $0.sort.order = order }
+                },
+                onReset: {
+                    updateRecordFilters { $0 = GroupRecordFilters() }
                 }
             )
-            Button {
-                activeSheet = .groupSettings
+            Menu {
+                Section(L("View options")) {
+                    Toggle(isOn: $store.showsPerPersonAmount) {
+                        Label(L("Per person"), systemImage: "dollarsign.circle")
+                    }
+                }
+                Button {
+                    activeSheet = .groupSettings
+                } label: {
+                    Label(L("Group settings"), systemImage: "gearshape")
+                }
             } label: {
                 Image(systemName: "ellipsis")
                     .foregroundStyle(.primary)
             }
-            .accessibilityLabel(L("Group settings"))
+            .menuOrder(.fixed)
+            .accessibilityLabel(L("Group actions"))
         }
     }
 
@@ -727,52 +757,44 @@ struct GroupExpensesSection: View {
 
     let group: WalkGroup
     let records: [WalkRecord]
+    var sort: GroupRecordSort? = nil
+    var showsPerPersonAmount = false
     @State private var sections: [ExpenseDateSection] = []
     let isLoadingMore: Bool
     let onDelete: (WalkRecord) -> Void
     let onEdit: (WalkRecord) -> Void
     var scrollTitle: ExpenseScrollTitleState? = nil
 
+    private var sectionCalendar: Calendar {
+        sort == nil ? .autoupdatingCurrent : GroupRecordSort.sectionCalendar
+    }
+
     var body: some View {
+        if let sort, sort.field == .amount {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                let rows = sort.ordered(records, amountBasis: showsPerPersonAmount ? .perPerson : .total)
+                recordCard(rows, showsTimeOnly: false, now: context.date, isLoadingMore: isLoadingMore)
+            }
+            .onAppear { scrollTitle?.retainDates([]) }
+        } else {
+            dateSections
+        }
+    }
+
+    private var dateSections: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             LazyVStack(alignment: .leading, spacing: 16) {
                 ForEach(sections) { section in
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(TemporalDisplay.sectionTitle(for: section.date, now: context.date))
+                        Text(TemporalDisplay.sectionTitle(for: section.date, now: context.date, calendar: sectionCalendar))
                             .font(.headline.weight(.semibold))
                             .foregroundStyle(SoftLedgerTheme.ink)
                             .accessibilityAddTraits(.isHeader)
 
-                        LazyVStack(spacing: 0) {
-                            ForEach(section.records) { record in
-                                ExpenseRow(
-                                    record: record,
-                                    group: group,
-                                    showsTimeOnly: true,
-                                    onDelete: store.canMutateRecord(record, in: group) ? {
-                                        onDelete(record)
-                                    } : nil
-                                ) {
-                                    onEdit(record)
-                                }
-                                if record.id != section.records.last?.id {
-                                    Divider()
-                                        .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                        .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
-                                        .padding(.trailing, rowHorizontalPadding)
-                                }
-                            }
-                            if section.id == sections.last?.id && isLoadingMore {
-                                Divider()
-                                    .overlay(SoftLedgerTheme.rule.opacity(0.56))
-                                    .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
-                                    .padding(.trailing, rowHorizontalPadding)
-                                LedgerPaginationLoadingView()
-                                    .padding(.horizontal, rowHorizontalPadding)
-                            }
-                        }
-                        .padding(.vertical, rowVerticalPadding)
-                        .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
+                        recordCard(
+                            section.records, showsTimeOnly: true, now: context.date,
+                            isLoadingMore: section.id == sections.last?.id && isLoadingMore
+                        )
                     }
                     .modifier(ExpenseDateTracking(date: section.date, state: scrollTitle))
                 }
@@ -781,23 +803,59 @@ struct GroupExpensesSection: View {
             .onChange(of: records, initial: true) { _, _ in
                 rebuildSections(now: context.date)
             }
-            .onChange(of: Calendar.autoupdatingCurrent.startOfDay(for: context.date)) { _, _ in
+            .onChange(of: sort) { _, _ in
+                rebuildSections(now: context.date)
+            }
+            .onChange(of: sectionCalendar.startOfDay(for: context.date)) { _, _ in
                 rebuildSections(now: context.date)
             }
         }
+    }
+
+    private func recordCard(_ records: [WalkRecord], showsTimeOnly: Bool, now: Date, isLoadingMore: Bool) -> some View {
+        LazyVStack(spacing: 0) {
+            ForEach(records) { record in
+                ExpenseRow(
+                    record: record,
+                    group: group,
+                    showsTimeOnly: showsTimeOnly,
+                    now: now,
+                    showsPerPersonAmount: showsPerPersonAmount,
+                    onDelete: store.canMutateRecord(record, in: group) ? { onDelete(record) } : nil
+                ) {
+                    onEdit(record)
+                }
+                if record.id != records.last?.id || isLoadingMore {
+                    Divider()
+                        .overlay(SoftLedgerTheme.rule.opacity(0.56))
+                        .padding(.leading, dividerLeadingPadding + rowHorizontalPadding)
+                        .padding(.trailing, rowHorizontalPadding)
+                }
+            }
+            if isLoadingMore {
+                LedgerPaginationLoadingView()
+                    .padding(.horizontal, rowHorizontalPadding)
+            }
+        }
+        .padding(.vertical, rowVerticalPadding)
+        .softLedgerSurface(cornerRadius: cornerRadius, borderOpacity: 0.62)
     }
 
     private func rebuildSections(now: Date) {
         #if DEBUG
         if ExpenseScrollTitleVerification.isEnabled { ExpenseScrollTitleVerification.sectionRebuilds += 1 }
         #endif
-        let grouped = Dictionary(grouping: records) {
-            TemporalDisplay.sectionDate(for: $0.occurredAt.walkDate, now: now)
-        }
-        sections = grouped.keys.sorted(by: >).map { date in
-            ExpenseDateSection(date: date, records: (grouped[date] ?? []).sorted {
-                $0.occurredAt == $1.occurredAt ? $0.id < $1.id : $0.occurredAt > $1.occurredAt
-            })
+        if let sort {
+            sections = sort.sections(for: records, now: now).map { ExpenseDateSection(date: $0.date, records: $0.records) }
+        } else {
+            let grouped = Dictionary(grouping: records) {
+                TemporalDisplay.sectionDate(for: $0.occurredAt.walkDate, now: now)
+            }
+            sections = grouped.keys.sorted(by: >).map { date in
+                ExpenseDateSection(date: date, records: (grouped[date] ?? []).sorted {
+                    $0.occurredAt == $1.occurredAt ? $0.id < $1.id : $0.occurredAt > $1.occurredAt
+                })
+            }
         }
         scrollTitle?.retainDates(sections.map(\.date))
     }
@@ -820,13 +878,17 @@ struct ExpenseRow: View {
     let record: WalkRecord
     let group: WalkGroup
     let showsTimeOnly: Bool
+    let now: Date
+    let showsPerPersonAmount: Bool
     let onDelete: (() -> Void)?
     let action: () -> Void
 
-    init(record: WalkRecord, group: WalkGroup, showsTimeOnly: Bool = false, onDelete: (() -> Void)? = nil, action: @escaping () -> Void) {
+    init(record: WalkRecord, group: WalkGroup, showsTimeOnly: Bool, now: Date, showsPerPersonAmount: Bool = false, onDelete: (() -> Void)? = nil, action: @escaping () -> Void) {
         self.record = record
         self.group = group
         self.showsTimeOnly = showsTimeOnly
+        self.now = now
+        self.showsPerPersonAmount = showsPerPersonAmount
         self.onDelete = onDelete
         self.action = action
     }
@@ -851,14 +913,19 @@ struct ExpenseRow: View {
     private var compactCreatedAt: String {
         showsTimeOnly
             ? TemporalDisplay.timeString(fromMilliseconds: record.occurredAt)
-            : TemporalDisplay.string(fromMilliseconds: record.occurredAt, context: .dense)
+            : TemporalDisplay.recordListDateString(fromMilliseconds: record.occurredAt, now: now)
     }
 
     private var fullCreatedAt: String {
-        TemporalDisplay.string(fromMilliseconds: record.occurredAt, context: .full)
+        TemporalDisplay.string(fromMilliseconds: record.occurredAt, context: .full, now: now)
     }
 
     var body: some View {
+        let isSplit = showsPerPersonAmount && record.hasSplitAmount
+        let amount = record.amountMinor(perPerson: showsPerPersonAmount)
+        let amountLabel = CurrencyCatalog.formatted(amount, currencyCode: record.currencyCode ?? group.currencyCode)
+        let spokenAmount = isSplit ? String(format: L("%@ per person"), amountLabel) : amountLabel
+
         Button(action: action) {
             HStack(spacing: rowSpacing) {
                 ExpenseCategoryBadge(category: category, size: iconSize, symbolSize: iconFontSize)
@@ -875,7 +942,7 @@ struct ExpenseRow: View {
                 .layoutPriority(1)
 
                 VStack(alignment: .trailing, spacing: trailingSpacing) {
-                    Text(CurrencyCatalog.formatted(record.paidMinor, currencyCode: record.currencyCode ?? group.currencyCode))
+                    Text(amountLabel)
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.ink)
                         .lineLimit(1)
@@ -919,7 +986,7 @@ struct ExpenseRow: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(recordTitle(record)), \(participantSummary(compact: false)), \(CurrencyCatalog.formatted(record.paidMinor, currencyCode: record.currencyCode ?? group.currencyCode)), \(fullCreatedAt)")
+        .accessibilityLabel("\(recordTitle(record)), \(participantSummary(compact: false)), \(spokenAmount), \(fullCreatedAt)")
     }
 }
 

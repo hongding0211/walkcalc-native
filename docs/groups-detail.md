@@ -36,7 +36,8 @@ The group detail page is a secondary page inside the Groups navigation flow. Its
 
 - Keep filter and `ellipsis` in the same native toolbar group. On iOS 27.1+, apply `.axisBehavior(.verticalPreferred)` to the group to prefer the shared vertical group on Duo. Older systems keep the existing horizontal layout.
 - Duo axis adaptation follows Apple’s [Raise the bar with iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111462/) guidance for custom toolbar views.
-- The `ellipsis` opens `Group settings` directly.
+- The `ellipsis` opens a native menu with a `View options` section containing the `Per person` toggle and a coin icon. A section divider separates it from `Group settings`.
+- The toggle defaults to off and shares its device-wide value with `Settings → Groups → Show split amounts in the list`. When enabled, an expense with multiple participants shows the total divided by the participant count and rounded for display. Settlements and expenses with fewer than two participants show the original amount. The row displays the formatted currency amount alone.
 - The settings surface is specified in `docs/group-settings.md`.
 - Do not show a separate `Share` text button in the navigation bar.
 - Do not mix a text capsule action and an icon action in the top bar.
@@ -52,11 +53,15 @@ Rules:
 ### Filters
 
 - The filter action opens a native system Menu, like the Messages filter menu. Preserve the system typography, icons, spacing, width, and submenu navigation; do not replace it with a custom popover.
-- The root menu contains `All`, `Related to me`, and `Currency` and `Category` submenus. All and Related to me are mutually exclusive scopes; All is selected by default, preserving the native checkmark column. All alone does not activate the filter highlight. There is no `Filter by` heading. Related records include payments made by the current participant and records they participate in, including settlements.
+- The root menu contains a `Related to me` toggle and `Currency` and `Category` submenus. The toggle defaults to off, which shows records from all members. When on, it includes payments made by the current participant and records they participate in, including settlements.
 - `Currency` opens a nested list with an All option and multiple checkmarked currency selections. All is selected when no specific currencies are selected. Selecting any currency deselects All; selecting All clears the specific currencies. Deselecting the last currency restores All, so the native checkmark column always remains present. Use native menu dismissal behavior. On Duo 27.1, selecting a value returns to the root; reopen the submenu for further choices. This behavior is accepted for the native-menu trial.
 - Currency choices come from the whole group's currency projections plus its default currency and saved selections. They must not disappear when the current record page is filtered.
 - No selected currencies means all currencies. Changes apply immediately. The native filter Menu and ellipsis share the system toolbar capsule. Active filters use a 36pt filled circular SF Symbol (scaled for Dynamic Type); inactive filters use a 22pt plain symbol (matching the inner glyph of the circular symbol). Do not draw a custom background or mutate UIKit menu previews. Currency and Category labels include a native subtitle showing up to two selected values plus a remaining count, or All currencies/All categories. The combined summary also remains in accessibilityValue.
+- The toolbar reserves the same space for either filter symbol so enabling a filter does not move the menu's source button.
 - `Category` is a native multi-select submenu sourced from the same `expenseCategories` catalog as the expense editor. Show localized names and native category symbols, an All option, checkmarks, and a subtitle with up to two selected names plus a remaining count. Each selection returns to the root menu on Duo 27.1 and preserves currency and participation scope; All clears only categories. No selection means every category. Persist selected IDs with backward-compatible decoding of existing saved filters.
+- `Sort by` selects Date or Amount and shows the current field as its subtitle. The `Ascending` toggle is in the root menu and is off by default for descending order. Sort actions keep the filter menu open. Date descending is the default and only highlights the filter control when another filter is active. Other sort selections highlight it and persist with the group's filters.
+- When a filter is active or sorting differs from the default, an untitled section below `Ascending` shows `Reset`. It clears the participation, currency, and category filters and restores Date descending in one update.
+- Date sorting follows the selected direction across sections and within them. Current-year records and yesterday use day sections. Other records use year sections. Amount sorting orders the entire filtered list by the amount shown on each row, using either the full total or the rounded per-person amount. Changing the per-person preference while sorting by amount reloads the list from page one with the new basis. Its rows show Today with the time, Yesterday, or a calendar date with the year when needed. The navigation title shows the group name in this mode. Local and remote queries sort the filtered results before pagination, including search and refresh.
 - Category filtering affects records and search only, not balance or settlement-summary cards. Send `categoryIds` on initial loads, search, refresh, and pagination. Transfer additionally sends `includeSettlements=true`, matching the app's presentation of settlements as transfers. Local queries follow the same semantics.
 - Persist selections on the client by owner/account and group. Initial load, refresh, search, and pagination use the same query. Local and remote ledgers apply filters before pagination.
 - `Related to me` changes only the main record list and its search. Total balance and suggested payments are already personal.
@@ -83,6 +88,7 @@ The old UIButton coordinator regression harness was removed with that implementa
 
 ```swift
 struct GroupDetailView: View {
+    @AppStorage("showsPerPersonExpenseAmount") private var showsPerPersonAmount = false
     @State private var isSearchPresented = false
     @State private var searchText = ""
 
@@ -102,12 +108,20 @@ struct GroupDetailView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isShowingGroupSettings = true
+                Menu {
+                    Section("View options") {
+                        Toggle(isOn: $showsPerPersonAmount) {
+                            Label("Per person", systemImage: "dollarsign.circle")
+                        }
+                    }
+                    Button("Group settings", systemImage: "gearshape") {
+                        isShowingGroupSettings = true
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                 }
-                .accessibilityLabel("Group settings")
+                .menuOrder(.fixed)
+                .accessibilityLabel("Group actions")
             }
 
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
@@ -177,7 +191,7 @@ Do not show this empty state when:
 - Keep the same native group detail container:
   - `.navigationTitle(group.name)`
   - `.navigationBarTitleDisplayMode(.large)`
-  - top-right `ellipsis` for `Group settings`
+  - top-right `ellipsis` menu for group actions
   - bottom search and add-record toolbar
 - Replace the main content sections with the empty state.
 - Do not show the summary card.
@@ -353,6 +367,7 @@ Presentation:
 - Show the drag indicator:
   - `.presentationDragIndicator(.visible)`
 - The sheet starts as a half-height layer and can be pulled higher.
+- In expanded portrait, center the balances and member details content using the group detail width cap of 560 pt.
 - Closing the sheet returns to the group detail page without losing scroll position.
 
 Structure:
@@ -608,6 +623,7 @@ The expense editor is used for both creating and editing an expense. It is a sho
 - Show the drag indicator:
   - `.presentationDragIndicator(.visible)`
 - Do not first present a medium sheet and then expand automatically.
+- In expanded portrait, center the new and edit expense forms using the group detail width cap of 560 pt.
 - Closing or saving returns to the group detail page without changing the parent scroll position.
 
 ### Navigation And Titles
@@ -678,7 +694,10 @@ Save eligibility:
 - Amount is the most important field and appears alone in the first section.
 - Use a large numeric text field with decimal keyboard.
 - Use monospaced digits.
+- Keep the amount font size fixed and group the integer digits with commas while editing. When the start of a long amount scrolls out of view, fade the leading edge.
+- Trim surrounding whitespace in pasted amounts and accept valid grouping commas. Reject invalid text and keep at most two decimal digits by dropping extra digits.
 - Keep the currency symbol visible but visually secondary.
+- Place the muted per-person currency amount with its `/ person` label or validation feedback below the input inside the amount card's existing padding. Keep the card height fixed as the amount or selected participants change. Animate changes to the per-person number unless Reduce Motion is enabled.
 - The text insertion cursor should use the sheet tint.
 
 ### Paid by
@@ -756,6 +775,7 @@ Default category set should cover the existing app categories:
 - Label/copy: `Optional note`.
 - Keep it optional.
 - It should not be required for save.
+- Automatically generated settlement records display the localized `Settlement` note. The record timestamp appears in the usual time field.
 
 ### Delete expense
 

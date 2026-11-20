@@ -76,6 +76,8 @@ private enum HomeRefreshResult {
 
 @MainActor
 final class WalkcalcStore: ObservableObject {
+    private static let perPersonAmountPreferenceKey = "showsPerPersonExpenseAmount"
+
     @Published var token: String?
     @Published var user: UserProfile?
     @Published var groups: [WalkGroup] = []
@@ -93,6 +95,16 @@ final class WalkcalcStore: ObservableObject {
     @Published private(set) var isSigningIn = false
     @Published var urgentAlert: StoreAlert?
     @Published var selectedTheme: AppTheme = AppTheme.load()
+    @Published var showsPerPersonAmount = UserDefaults.standard.bool(forKey: perPersonAmountPreferenceKey) {
+        didSet {
+            guard oldValue != showsPerPersonAmount else { return }
+            UserDefaults.standard.set(showsPerPersonAmount, forKey: Self.perPersonAmountPreferenceKey)
+            let groupIds = Set(groups.map(\.id)).union(recordsByGroup.keys).union(groupContentRefreshTasks.keys)
+            for groupId in groupIds where recordFilters(for: groupId).sort.field == .amount {
+                invalidateRecordList(for: groupId)
+            }
+        }
+    }
     @Published var isFixtureMode = false
     @Published private var recordSearchResultsByKey: [String: [WalkRecord]] = [:]
     @Published private var recordSearchTotalsByKey: [String: Int] = [:]
@@ -117,6 +129,7 @@ final class WalkcalcStore: ObservableObject {
     private let localOwnerId: String
     private let groupPageSize = 20
     @Published private var recordFiltersByScope: [String: GroupRecordFilters] = [:]
+    private var recordFilterRevisions: [String: Int] = [:]
     private var recordCacheRevisions: [String: Int] = [:]
     private let recordPageSize = 10
     private var groupsPage = 0
@@ -847,6 +860,16 @@ final class WalkcalcStore: ObservableObject {
         let key = recordFilterPreferenceKey(groupId)
         UserDefaults.standard.set(try? JSONEncoder().encode(filters), forKey: key)
         recordFiltersByScope[key] = filters
+        invalidateRecordList(for: groupId)
+    }
+
+    func recordAmountBasis(for groupId: String) -> GroupRecordSort.AmountBasis? {
+        guard recordFilters(for: groupId).sort.field == .amount else { return nil }
+        return showsPerPersonAmount ? .perPerson : .total
+    }
+
+    private func invalidateRecordList(for groupId: String) {
+        recordFilterRevisions[groupId, default: 0] += 1
         groupContentRefreshTasks[groupId]?.cancel()
         groupContentRefreshTasks[groupId] = nil
         groupContentRefreshQueries[groupId] = nil
@@ -921,9 +944,12 @@ final class WalkcalcStore: ObservableObject {
         guard api.ledgerAPIEnabled else { return }
         let context = context(for: id)
         let filters = recordFilters(for: id)
+        let filterRevision = recordFilterRevisions[id, default: 0]
         let pinRevision = groupListRevision
-        let result = await ledgerRepository.groupDetail(groupId: id, recordPageSize: recordPageSize, recordSearch: recordSearchRequest(for: query, groupId: id), context: context)
-        guard !Task.isCancelled, filters == recordFilters(for: id) else { return }
+        let request = recordSearchRequest(for: query, groupId: id)
+        let result = await ledgerRepository.groupDetail(groupId: id, recordPageSize: recordPageSize, recordSearch: request, context: context)
+        guard !Task.isCancelled, filterRevision == recordFilterRevisions[id, default: 0],
+              filters == recordFilters(for: id), request.amountBasis == recordAmountBasis(for: id) else { return }
         switch result {
         case .success(let snapshot):
             applyRefreshedToken(snapshot.refreshedToken)
@@ -1014,7 +1040,7 @@ final class WalkcalcStore: ObservableObject {
     func records(groupId: String, search: String = "") -> [WalkRecord] {
         let query = normalizedQuery(search)
         guard !query.isEmpty else {
-            return (recordsByGroup[groupId] ?? []).filter { recordSearchRequest(for: "", groupId: groupId)?.matches($0, defaultCurrency: group(id: groupId)?.currencyCode) ?? true }
+            return localSearchMatches(groupId: groupId, query: "")
         }
         let key = recordListKey(groupId: groupId, search: query)
         let localMatches = localSearchMatches(groupId: groupId, query: query)
@@ -1681,7 +1707,7 @@ final class WalkcalcStore: ObservableObject {
                 fromId: debt.from.uuid,
                 toId: debt.to.uuid,
                 amountMinor: debt.amountMinor,
-                note: "resolve",
+                note: WalkRecord.automaticSettlementNote,
                 currencyCode: debt.currencyCode,
                 context: context
             )
@@ -2019,7 +2045,8 @@ final class WalkcalcStore: ObservableObject {
     }
 
     private func recordListKey(groupId: String, search: String) -> String {
-        "\(groupId)::records::\(recordCacheRevisions[groupId, default: 0])::\(recordFilters(for: groupId).currencyCodes.sorted().joined(separator: ","))::\(recordFilters(for: groupId).onlyRelatedToMe)::\(recordFilters(for: groupId).categoryIds.sorted().joined(separator: ","))::\(search)"
+        let filters = recordFilters(for: groupId)
+        return "\(groupId)::records::\(recordCacheRevisions[groupId, default: 0])::\(filters.currencyCodes.sorted().joined(separator: ","))::\(filters.onlyRelatedToMe)::\(filters.categoryIds.sorted().joined(separator: ","))::\(filters.sort.field.rawValue)::\(filters.sort.order.rawValue)::\(search)"
     }
 
     private func memberRecordKey(groupId: String, memberId: String) -> String {
@@ -2034,10 +2061,11 @@ final class WalkcalcStore: ObservableObject {
         query.isEmpty ? nil : query
     }
 
-    private func recordSearchRequest(for query: String, groupId: String) -> RecordSearchRequest? {
+    private func recordSearchRequest(for query: String, groupId: String) -> RecordSearchRequest {
         let filters = recordFilters(for: groupId)
-        guard !query.isEmpty || filters.isActive else { return nil }
         var request = query.isEmpty ? RecordSearchRequest(operator: "or", conditions: []) : .noteOrCategoryName(query: query)
+        request.sort = filters.sort
+        request.amountBasis = recordAmountBasis(for: groupId)
         request.currencyCodes = filters.currencyCodes.sorted()
         request.categoryIds = filters.categoryIds.sorted()
         request.includeSettlements = filters.categoryIds.contains(transferCategory.id)
@@ -2048,9 +2076,9 @@ final class WalkcalcStore: ObservableObject {
     }
 
     private func localSearchMatches(groupId: String, query: String) -> [WalkRecord] {
-        (recordsByGroup[groupId] ?? []).filter {
-            recordSearchRequest(for: query, groupId: groupId)?.matches($0, defaultCurrency: group(id: groupId)?.currencyCode) ?? true
-        }
+        let request = recordSearchRequest(for: query, groupId: groupId)
+        let currency = group(id: groupId)?.currencyCode
+        return (recordsByGroup[groupId] ?? []).filter { request.matches($0, defaultCurrency: currency) }
     }
 
     private func mergedRecords(_ primary: [WalkRecord], with secondary: [WalkRecord]) -> [WalkRecord] {

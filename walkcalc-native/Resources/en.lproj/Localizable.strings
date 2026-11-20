@@ -32,6 +32,7 @@
 "Edit fail" = "Edit fail";
 "Edit record" = "Edit record";
 "Enter a valid amount with up to 2 decimal places" = "Enter a valid amount with up to 2 decimal places";
+"Amount exceeds the limit" = "Amount exceeds the limit";
 "Enter the Group ID shared by another member." = "Enter the Group ID shared by another member.";
 "Enter name" = "Enter name";
 "Expense splitting for groups, trips, and daily costs." = "Expense splitting for groups, trips, and daily costs.";
@@ -234,6 +235,11 @@
 "Next currency" = "Next currency";
 
 "Filters" = "Filters";
+"Sort by" = "Sort by";
+"Amount" = "Amount";
+"Ascending" = "Ascending";
+"Descending" = "Descending";
+"Reset" = "Reset";
 
 "All currencies" = "All currencies";
 
@@ -252,6 +258,12 @@
 "Account" = "Account";
 "Appearance" = "Appearance";
 "Group settings" = "Group settings";
+"Group actions" = "Group actions";
+"View options" = "View options";
+"Per person" = "Per person";
+"Show split amounts in the list" = "Show split amounts in the list";
+"%@ per person" = "%@ per person";
+"%@ / person" = "%@ / person";
 "Add group" = "Add group";
 "Me" = "Me";
 "QR Code" = "QR Code";

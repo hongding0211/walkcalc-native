@@ -243,6 +243,13 @@ struct APIClient: Sendable {
         }
         if recordSearch?.includeSettlements == true { query["includeSettlements"] = "true" }
         if let participantId = recordSearch?.participantId { query["participantId"] = participantId }
+        if let sort = recordSearch?.sort {
+            query["sortBy"] = sort.field.rawValue
+            query["sortOrder"] = sort.order.rawValue
+            if sort.field == .amount, let basis = recordSearch?.amountBasis {
+                query["amountBasis"] = basis.rawValue
+            }
+        }
         return try await request(.get, path: "/walkcalc/groups/\(groupCode)/records", query: query, token: token) { raw in
             arrayPayload(raw).map(mapRecord)
         }
@@ -421,6 +428,8 @@ struct APIClient: Sendable {
         var components = URLComponents(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))), resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
             components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+            // The server's query parser treats a literal plus sign as a space.
+            components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = timeout

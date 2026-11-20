@@ -81,11 +81,11 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext) else { return .failure(.sourceUnavailable()) }
-            let records = sortedRecords(group.records).filter { recordSearch?.matches(projectRecord($0), defaultCurrency: group.currencyCode) ?? true }
+            let records = records(in: group, matching: recordSearch)
             let slice = pageSlice(records, page: 1, pageSize: recordPageSize)
             return .success(LedgerGroupSnapshot(
                 group: projectGroup(group),
-                records: slice.items.map(projectRecord),
+                records: slice.items,
                 recordPagination: Pagination(page: 1, size: recordPageSize, total: records.count),
                 source: .local(id: groupId),
                 refreshedToken: nil
@@ -113,12 +113,10 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let modelContext = ModelContext(container)
         do {
             guard let group = try fetchGroup(groupId, modelContext) else { return .failure(.sourceUnavailable()) }
-            let filtered = sortedRecords(group.records).filter {
-                search?.matches(projectRecord($0), defaultCurrency: group.currencyCode) ?? true
-            }
+            let filtered = records(in: group, matching: search)
             let slice = pageSlice(filtered, page: page, pageSize: pageSize)
             return .success(LedgerPage(
-                items: slice.items.map(projectRecord),
+                items: slice.items,
                 pagination: Pagination(page: page, size: pageSize, total: filtered.count),
                 source: .local(id: groupId),
                 refreshedToken: nil
@@ -408,7 +406,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                     paidMinor: transfer.amountMinor,
                     forWhom: [transfer.toId],
                     type: transferCategory.id,
-                    text: "resolve",
+                    text: WalkRecord.automaticSettlementNote,
                     long: "",
                     lat: "",
                     occurredAt: currentTimestamp(),
@@ -521,6 +519,12 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         let query = search?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !query.isEmpty else { return groups }
         return groups.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.id.localizedCaseInsensitiveContains(query) }
+    }
+
+    private func records(in group: LocalLedgerGroupModel, matching search: RecordSearchRequest?) -> [WalkRecord] {
+        let records = search?.sort == nil ? sortedRecords(group.records) : group.records
+        let projected = records.map(projectRecord)
+        return search?.filteredRecords(projected, defaultCurrency: group.currencyCode) ?? projected
     }
 
     private func sortedRecords(_ records: [LocalLedgerRecordModel]) -> [LocalLedgerRecordModel] {

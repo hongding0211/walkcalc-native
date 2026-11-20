@@ -32,6 +32,7 @@
 "Edit fail" = "编辑失败";
 "Edit record" = "编辑记录";
 "Enter a valid amount with up to 2 decimal places" = "请输入最多 2 位小数的有效金额";
+"Amount exceeds the limit" = "金额超出上限";
 "Enter the Group ID shared by another member." = "输入其他成员分享给你的群组 ID。";
 "Enter name" = "输入名字";
 "Expense splitting for groups, trips, and daily costs." = "群组旅行和日常支出分账工具。";
@@ -234,6 +235,11 @@
 "Next currency" = "切换到下一个币种";
 
 "Filters" = "筛选";
+"Sort by" = "排序维度";
+"Amount" = "金额";
+"Ascending" = "升序";
+"Descending" = "降序";
+"Reset" = "重置";
 
 "All currencies" = "全部币种";
 
@@ -252,6 +258,12 @@
 "Account" = "账户";
 "Appearance" = "外观";
 "Group settings" = "群组设置";
+"Group actions" = "群组操作";
+"View options" = "查看选项";
+"Per person" = "人均金额";
+"Show split amounts in the list" = "列表显示人均金额";
+"%@ per person" = "每人 %@";
+"%@ / person" = "%@ / 人";
 "Add group" = "添加群组";
 "Me" = "我";
 "QR Code" = "二维码";

@@ -129,18 +129,22 @@ enum LocalLedgerUIFlowVerification {
                 long: "", lat: "", occurredAt: 1_710_000_000_000 + Double(index), currencyCode: index < 12 ? "CNY" : "USD", context: context)
             guard case .success = result else { fail("filter-seed") }
         }
-        let selection = GroupRecordFilters(currencyCodes: ["USD"], onlyRelatedToMe: true)
+        let ascending = GroupRecordSort(order: .ascending)
+        let selection = GroupRecordFilters(currencyCodes: ["USD"], onlyRelatedToMe: true, sort: ascending)
         store.setRecordFilters(selection, for: groupId)
         await store.refreshGroup(groupId)
         expect(store.records(groupId: groupId).count, equals: 10, prefix: "filter-first-page")
         await store.loadMoreRecords(groupId: groupId)
         expect(store.records(groupId: groupId).count, equals: 12, prefix: "filter-next-page")
+        let expectedAscending = (12..<24).map { "Dinner \($0)" }
+        expect(store.records(groupId: groupId).map(\.text), equals: expectedAscending, prefix: "sort-ascending-across-pages")
         expect(store.records(groupId: groupId).allSatisfy { $0.currencyCode == "USD" && $0.who == owner.uuid }, equals: true, prefix: "filter-all-rows")
         expect(store.canLoadMoreRecords(groupId: groupId), equals: false, prefix: "filter-end")
         await store.searchRecords(groupId: groupId, query: "Dinner")
         expect(store.records(groupId: groupId, search: "Dinner").count, equals: 10, prefix: "filter-search-page")
         await store.loadMoreRecords(groupId: groupId, search: "Dinner")
         expect(store.records(groupId: groupId, search: "Dinner").count, equals: 12, prefix: "filter-search-end")
+        expect(store.records(groupId: groupId, search: "Dinner").map(\.text), equals: expectedAscending, prefix: "sort-search-pages")
         await store.refreshSettlementSuggestion(groupId: groupId)
         let group = store.group(id: groupId)!
         expect(store.personalResolvedDebts(for: group).map(\.currencyCode), equals: ["USD"], prefix: "filter-suggestions")
@@ -175,6 +179,7 @@ enum LocalLedgerUIFlowVerification {
         await store.loadMoreRecords(groupId: groupId)
         await store.loadMoreRecords(groupId: groupId)
         expect(store.records(groupId: groupId).count, equals: 25, prefix: "filter-clear")
+        expect(store.records(groupId: groupId).first?.text, equals: "Dinner 24", prefix: "sort-reset-to-date-descending")
         NSLog("PASS: record filters verification")
     }
 

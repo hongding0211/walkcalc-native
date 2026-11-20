@@ -17,12 +17,17 @@ def method(source, signature):
     return source[start:end].replace('private func', 'func', 1)
 methods = '\n'.join(method(store, name) for name in [
     '    func preloadGroupContent(', '    func refreshGroupContent(', '    func refreshGroup(',
+    '    private func invalidateRecordList(',
     '    private func waitForPendingGroupPins(', '    private func resumeGroupPinWaiters('
 ])
 view_method = method(view, '    private func refreshGroupContent(')
 harness = r'''
 import Foundation
-struct GroupRecordFilters: Equatable { var category = 0; var isActive: Bool { category != 0 } }
+struct GroupRecordFilters: Equatable {
+    var category = 0
+    var amountBasis: Bool?
+    var isActive: Bool { category != 0 }
+}
 struct Query: Equatable { var text = ""; var filters = GroupRecordFilters() }
 struct WalkGroup { var pinnedAt: Double? }
 struct Snapshot { var group: WalkGroup?; var refreshedToken: String?; var source = 0; var records = [1]; var recordPagination: Pagination? }
@@ -53,6 +58,8 @@ enum Disposition { case silent }
     var groupListRevision = 0
     var currentGroup = WalkGroup()
     var currentFilters = GroupRecordFilters()
+    var amountBasis: Bool?
+    var recordFilterRevisions: [String: Int] = [:]
     var isFixtureMode = false
     struct API { var ledgerAPIEnabled = true }
     let api = API()
@@ -64,8 +71,13 @@ enum Disposition { case silent }
     var recordSearchTotalsByKey: [String: Int] = [:]
     func normalizedQuery(_ query: String) -> String { query }
     func recordFilters(for id: String) -> GroupRecordFilters { currentFilters }
+    func recordAmountBasis(for id: String) -> Bool? { amountBasis }
     func context(for id: String) -> Int { 0 }
-    func recordSearchRequest(for query: String, groupId: String) -> GroupRecordFilters { currentFilters }
+    func recordSearchRequest(for query: String, groupId: String) -> GroupRecordFilters {
+        var request = currentFilters
+        request.amountBasis = recordAmountBasis(for: groupId)
+        return request
+    }
     func group(id: String) -> WalkGroup? { currentGroup }
     func replaceGroup(_ group: WalkGroup) { currentGroup = group }
     func applyRefreshedToken(_ token: String?) {}
@@ -186,6 +198,29 @@ VIEW_METHOD
         await fresh.value
         precondition(store.currentGroup.pinnedAt == 100, "Fresh response must reconcile server state")
 
+        let staleSort = Task { await store.refreshGroup("g") }
+        await until { store.ledgerRepository.requests.count == 9 }
+        store.recordFilterRevisions["g", default: 0] += 2
+        store.ledgerRepository.finish(8, pin: 200)
+        await staleSort.value
+        precondition(store.currentGroup.pinnedAt == 100, "A response from before two sort changes must be ignored even when the selection matches again")
+
+        // Switching the amount basis discards the old pages and starts a fresh request.
+        store.amountBasis = false
+        store.preloadGroupContent("g")
+        await until { store.ledgerRepository.requests.count == 10 }
+        store.amountBasis = true
+        store.invalidateRecordList(for: "g")
+        precondition(store.recordsByGroup["g"] == nil && store.recordTotals["g"] == nil)
+        store.preloadGroupContent("g")
+        await until { store.ledgerRepository.requests.count == 11 }
+        precondition(store.ledgerRepository.filters[9].amountBasis == false)
+        precondition(store.ledgerRepository.filters[10].amountBasis == true)
+        store.ledgerRepository.finish(10, pin: 300)
+        store.ledgerRepository.finish(9, pin: 200)
+        await until { store.groupContentRefreshTasks.isEmpty }
+        precondition(store.currentGroup.pinnedAt == 300)
+
         // Refresh requested during a write waits for its ack instead of disappearing.
         store.pendingGroupPins["g"] = UUID()
         var resumed = false
@@ -196,7 +231,7 @@ VIEW_METHOD
         store.resumeGroupPinWaiters()
         await waiting.value
         precondition(resumed && store.groupPinWaiters.isEmpty)
-        print("PASS: cancelled loading cleanup; overlapping queries; pull refresh/failure; coalescing; filter changes; cancelled worker cleanup; stale detail pin protection; fresh server reconciliation; refresh waits for pin ack")
+        print("PASS: cancelled loading cleanup; overlapping queries; pull refresh/failure; coalescing; filter and amount basis changes; cancelled worker cleanup; stale detail pin protection; fresh server reconciliation; refresh waits for pin ack")
     }
 }
 '''.replace('STORE_METHODS', methods).replace('VIEW_METHOD', view_method)

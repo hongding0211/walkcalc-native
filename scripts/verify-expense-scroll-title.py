@@ -77,6 +77,16 @@ STATE
         groupB.setActive(true, for: yesterday, revision: groupB.layoutRevision)
         await flushLayout()
         precondition(state.date == today && groupB.date == nil)
+        state.retainDates([yesterday, today])
+        state.setActive(true, for: yesterday, revision: state.layoutRevision)
+        state.setActive(true, for: today, revision: state.layoutRevision)
+        await flushLayout()
+        precondition(state.date == today, "Ascending sections advance to the newer date during layout overlap")
+        state.retainDates([today, yesterday])
+        state.setActive(true, for: yesterday, revision: state.layoutRevision)
+        state.setActive(true, for: today, revision: state.layoutRevision)
+        await flushLayout()
+        precondition(state.date == yesterday, "Descending sections advance to the older date during layout overlap")
         print("PASS: first layout, overview, date boundaries, queued callbacks, data reset and group isolation")
     }
 }
