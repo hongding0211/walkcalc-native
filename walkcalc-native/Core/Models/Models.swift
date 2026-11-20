@@ -137,6 +137,15 @@ struct WalkGroup: Identifiable, Hashable {
         membersInfo + tempUsers
     }
 
+    mutating func reconcileParticipantPreview(with members: [Member]) {
+        guard !participantPreview.isEmpty else { return }
+        let membersByID = Dictionary(members.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let previewIDs = Set(participantPreview.map(\.id))
+        let retained = participantPreview.compactMap { membersByID[$0.id] }
+        let remaining = members.filter { !previewIDs.contains($0.id) }
+        participantPreview = Array((retained + remaining).prefix(max(3, participantPreview.count)))
+    }
+
     var recordMembers: [Member] {
         allMembers + historicalMembers
     }

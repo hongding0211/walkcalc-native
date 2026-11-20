@@ -1872,6 +1872,7 @@ final class WalkcalcStore: ObservableObject {
         groups[index].membersInfo = members.filter { !$0.isTemporary }
         groups[index].tempUsers = members.filter(\.isTemporary)
         groups[index].participantCount = members.count
+        groups[index].reconcileParticipantPreview(with: members)
     }
 
     private func replaceMemberProjection(groupId: String, member: Member) {
@@ -1905,6 +1906,9 @@ final class WalkcalcStore: ObservableObject {
         }
         if merged.participantPreview.isEmpty {
             merged.participantPreview = existing.participantPreview
+            if !incoming.allMembers.isEmpty {
+                merged.reconcileParticipantPreview(with: incoming.allMembers)
+            }
         }
         if merged.historicalMembers.isEmpty {
             merged.historicalMembers = existing.historicalMembers

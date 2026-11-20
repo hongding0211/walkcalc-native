@@ -531,6 +531,7 @@ struct SoftLedgerAvatarStack: View {
     var size: CGFloat?
     var borderColor: Color = SoftLedgerTheme.paper
     var showsTotal = false
+    var totalCount: Int? = nil
 
     private var avatarSize: CGFloat {
         size ?? defaultSize
@@ -540,8 +541,12 @@ struct SoftLedgerAvatarStack: View {
         Array(members.prefix(visibleCount))
     }
 
+    private var memberCount: Int {
+        max(members.count, totalCount ?? 0)
+    }
+
     private var hiddenCount: Int {
-        max(members.count - visibleMembers.count, 0)
+        memberCount - visibleMembers.count
     }
 
     private var overlapSpacing: CGFloat {
@@ -584,13 +589,13 @@ struct SoftLedgerAvatarStack: View {
             }
 
             if showsTotal {
-                Text(L("%@ total").replacingOccurrences(of: "%@", with: "\(members.count)"))
+                Text(L("%@ total").replacingOccurrences(of: "%@", with: "\(memberCount)"))
                     .font(.subheadline)
                     .foregroundStyle(SoftLedgerTheme.secondaryInk)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L("%@ members").replacingOccurrences(of: "%@", with: "\(members.count)"))
+        .accessibilityLabel(L("%@ members").replacingOccurrences(of: "%@", with: "\(memberCount)"))
     }
 }
 

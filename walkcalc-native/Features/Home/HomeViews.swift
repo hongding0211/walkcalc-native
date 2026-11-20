@@ -1689,7 +1689,7 @@ private struct GroupSummaryRow: View {
     }
 
     private var displayMembers: [Member] {
-        group.allMembers.isEmpty ? group.participantPreview : group.allMembers
+        group.participantPreview.isEmpty ? group.allMembers : group.participantPreview
     }
 
     private var currentMember: Member? {
@@ -1756,7 +1756,12 @@ private struct GroupSummaryRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                SoftLedgerAvatarStack(members: displayMembers, visibleCount: 3, size: memberAvatarSize, showsTotal: false)
+                SoftLedgerAvatarStack(
+                    members: displayMembers,
+                    visibleCount: 3,
+                    size: memberAvatarSize,
+                    totalCount: group.participantCount
+                )
             }
             .layoutPriority(1)
 
