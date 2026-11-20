@@ -956,6 +956,7 @@ final class WalkcalcStore: ObservableObject {
         if isFixtureMode { return }
         guard api.ledgerAPIEnabled else { return }
         let result = await ledgerRepository.groupBalances(groupId: id, context: context(for: id))
+        guard !Task.isCancelled else { return }
         switch result {
         case .success(let response):
             applyRefreshedToken(response.refreshedToken)
@@ -1791,7 +1792,9 @@ final class WalkcalcStore: ObservableObject {
     func refreshSettlementSuggestion(groupId: String) async {
         if isFixtureMode { return }
         guard let group = group(id: groupId) else { return }
-        defer { settlementSuggestionReadyGroupIds.insert(groupId) }
+        defer {
+            if !Task.isCancelled { settlementSuggestionReadyGroupIds.insert(groupId) }
+        }
         let context = context(for: groupId)
         var merged: [SettlementTransfer] = []
         var receivedResponse = false
@@ -1801,6 +1804,7 @@ final class WalkcalcStore: ObservableObject {
                 currencyCode: currencyCode,
                 context: context
             )
+            guard !Task.isCancelled else { return }
             switch result {
             case .success(let response):
                 receivedResponse = true

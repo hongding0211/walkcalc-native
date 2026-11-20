@@ -792,6 +792,9 @@ struct RootHomeView: View {
         } message: {
             Text(pinError ?? L("Please try again."))
         }
+        .onChange(of: store.isLoggedIn) { _, isLoggedIn in
+            if !isLoggedIn { path = [] }
+        }
         .onChange(of: store.completedGroupPinUpdates) { _, _ in
             if store.pendingGroupPins.isEmpty, path.isEmpty, store.needsGroupOrderRefresh {
                 Task { await store.refreshHome() }
@@ -1823,31 +1826,36 @@ private struct GroupsEmptyState: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    onCreateGroup()
-                } label: {
-                    Label(L("Create group"), systemImage: "plus")
-                }
-                .buttonStyle(.glass)
-                .controlSize(.regular)
-
-                if let onJoinGroup {
-                    Button {
-                        onJoinGroup()
-                    } label: {
-                        Label(L("Join group"), systemImage: "person.2.badge.plus")
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.regular)
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { actionButtons }
+                    .fixedSize(horizontal: true, vertical: false)
+                VStack(spacing: 10) { actionButtons }
+                    .fixedSize(horizontal: true, vertical: false)
+                HStack(spacing: 10) { actionButtons }
+                    .labelStyle(.iconOnly)
             }
-
+            .buttonStyle(.glass)
+            .controlSize(.regular)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18)
         .padding(.top, 80)
         .padding(.bottom, 40)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        Button(action: onCreateGroup) {
+            Label(L("Create group"), systemImage: "plus")
+        }
+        .accessibilityLabel(L("Create group"))
+
+        if let onJoinGroup {
+            Button(action: onJoinGroup) {
+                Label(L("Join group"), systemImage: "person.2.badge.plus")
+            }
+            .accessibilityLabel(L("Join group"))
+        }
     }
 }
 
