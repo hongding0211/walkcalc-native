@@ -352,7 +352,6 @@ private struct SoftLedgerGlassModifier: ViewModifier {
 }
 
 struct SoftLedgerAvatar: View {
-    @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var colorScheme
 
     var user: UserProfile?
@@ -365,12 +364,8 @@ struct SoftLedgerAvatar: View {
         user?.name ?? member?.name ?? initial ?? "?"
     }
 
-    private var avatarURL: String {
-        user?.avatar ?? member?.avatar ?? ""
-    }
-
-    private var optimizedURL: URL? {
-        SoftLedgerAvatarURL.url(from: avatarURL, displaySize: size, displayScale: displayScale)
+    private var avatarURL: URL? {
+        SoftLedgerAvatarURL.url(from: user?.avatar ?? member?.avatar ?? "")
     }
 
     private var fallbackColors: WalletColorPair {
@@ -387,10 +382,11 @@ struct SoftLedgerAvatar: View {
 
     var body: some View {
         Group {
-            if let optimizedURL {
-                SoftLedgerCachedAvatarImage(url: optimizedURL) {
+            if let avatarURL {
+                SoftLedgerCachedAvatarImage(url: avatarURL) {
                     fallback
                 }
+                .id(avatarURL)
             } else {
                 fallback
             }
@@ -413,15 +409,24 @@ struct SoftLedgerAvatar: View {
 }
 
 private enum SoftLedgerAvatarURL {
-    static func url(from rawValue: String, displaySize: CGFloat, displayScale: CGFloat) -> URL? {
+    static func url(from rawValue: String) -> URL? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        guard let url = URL(string: trimmed) ?? percentEncodedURL(from: trimmed) else {
+        guard let url = URL(string: trimmed) ?? percentEncodedURL(from: trimmed),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = components.host?.lowercased() else {
             return nil
         }
 
-        return urlWithAvatarSize(url, displaySize: displaySize, displayScale: displayScale)
+        // Uploads include dimensions and a thumbnail hash in the fragment.
+        components.fragment = nil
+        if host.hasSuffix(".aliyuncs.com"), components.query == nil {
+            components.queryItems = [
+                URLQueryItem(name: "x-oss-process", value: "image/resize,w_320")
+            ]
+        }
+        return components.url
     }
 
     private static func percentEncodedURL(from value: String) -> URL? {
@@ -430,25 +435,6 @@ private enum SoftLedgerAvatarURL {
         return value
             .addingPercentEncoding(withAllowedCharacters: allowed)
             .flatMap(URL.init(string:))
-    }
-
-    private static func urlWithAvatarSize(_ url: URL, displaySize: CGFloat, displayScale: CGFloat) -> URL {
-        guard url.host?.contains("aliyuncs.com") == true,
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return url
-        }
-
-        let queryItems = components.queryItems ?? []
-        guard !queryItems.contains(where: { $0.name == "x-oss-process" }) else {
-            return url
-        }
-
-        let scale = max(displayScale, 2)
-        let pixelWidth = max(64, Int((displaySize * scale).rounded(.up)))
-        components.queryItems = queryItems + [
-            URLQueryItem(name: "x-oss-process", value: "image/resize,w_\(pixelWidth)")
-        ]
-        return components.url ?? url
     }
 }
 
@@ -468,77 +454,72 @@ private struct SoftLedgerCachedAvatarImage<Placeholder: View>: View {
                 placeholder
             }
         }
-        .task(id: url) {
-            await loadImage()
-        }
-    }
-
-    @MainActor
-    private func loadImage() async {
-        if let cachedImage = SoftLedgerAvatarImageCache.shared.image(for: url) {
-            image = cachedImage
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.cachePolicy = .returnCacheDataElseLoad
-
-        if let cachedImage = SoftLedgerAvatarImageCache.shared.diskImage(for: request) {
-            SoftLedgerAvatarImageCache.shared.insert(cachedImage, for: url)
-            image = cachedImage
-            return
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard !Task.isCancelled,
-                  let httpResponse = response as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode),
-                  let downloadedImage = UIImage(data: data) else {
-                return
+        .task {
+            let loadedImage = await SoftLedgerAvatarImageCache.shared.image(for: url)
+            if !Task.isCancelled {
+                image = loadedImage
             }
-            SoftLedgerAvatarImageCache.shared.store(data: data, response: response, for: request)
-            SoftLedgerAvatarImageCache.shared.insert(downloadedImage, for: url)
-            image = downloadedImage
-        } catch {
-            return
         }
     }
 }
 
-private final class SoftLedgerAvatarImageCache {
+private actor SoftLedgerAvatarImageCache {
     static let shared = SoftLedgerAvatarImageCache()
 
     private let cache = NSCache<NSURL, UIImage>()
     private let diskCache = URLCache(
-        memoryCapacity: 32 * 1024 * 1024,
+        memoryCapacity: 0,
         diskCapacity: 128 * 1024 * 1024,
         diskPath: "walkcalc-avatar-cache"
     )
+    private let session: URLSession
+    private var downloads: [URL: Task<UIImage?, Never>] = [:]
 
     private init() {
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = nil
+        session = URLSession(configuration: configuration)
         cache.countLimit = 240
         cache.totalCostLimit = 24 * 1024 * 1024
     }
 
-    func image(for url: URL) -> UIImage? {
-        cache.object(forKey: url as NSURL)
+    func image(for url: URL) async -> UIImage? {
+        if let image = cache.object(forKey: url as NSURL) {
+            return image
+        }
+        if let download = downloads[url] {
+            return await download.value
+        }
+
+        let request = URLRequest(url: url)
+        if let response = diskCache.cachedResponse(for: request), let image = UIImage(data: response.data) {
+            insert(image, for: url)
+            return image
+        }
+
+        let download = Task { await fetch(request, for: url) }
+        downloads[url] = download
+        let image = await download.value
+        downloads[url] = nil
+        return image
     }
 
-    func insert(_ image: UIImage, for url: URL) {
-        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
-        cache.setObject(image, forKey: url as NSURL, cost: cost)
-    }
-
-    func diskImage(for request: URLRequest) -> UIImage? {
-        guard let response = diskCache.cachedResponse(for: request) else {
+    private func fetch(_ request: URLRequest, for url: URL) async -> UIImage? {
+        guard let (data, response) = try? await session.data(for: request),
+              let response = response as? HTTPURLResponse,
+              (200..<300).contains(response.statusCode),
+              let image = UIImage(data: data) else {
             return nil
         }
-        return UIImage(data: response.data)
+
+        diskCache.storeCachedResponse(CachedURLResponse(response: response, data: data), for: request)
+        insert(image, for: url)
+        return image
     }
 
-    func store(data: Data, response: URLResponse, for request: URLRequest) {
-        diskCache.storeCachedResponse(CachedURLResponse(response: response, data: data), for: request)
+    private func insert(_ image: UIImage, for url: URL) {
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        cache.setObject(image, forKey: url as NSURL, cost: cost)
     }
 }
 

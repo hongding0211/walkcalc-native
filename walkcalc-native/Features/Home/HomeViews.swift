@@ -650,6 +650,8 @@ struct RootHomeView: View {
             // A tall window keeps the familiar single-column navigation.
             let windowHeight = viewportHeight > 0 ? viewportHeight : proxy.size.height
             let showsColumns = horizontalSizeClass == .regular && proxy.size.width > windowHeight
+            let usesPortraitDetailWidth = proxy.size.width < windowHeight
+                && (horizontalSizeClass == .regular || UIDevice.current.userInterfaceIdiom == .pad)
             NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: compactColumn) {
                 homeContent(isSidebar: showsColumns)
                     // Allow the native split view to follow the fold while
@@ -670,7 +672,11 @@ struct RootHomeView: View {
             } detail: {
                 NavigationStack {
                     if let groupID = selectedGroupID {
-                        GroupView(groupId: groupID, onClose: { path = [] })
+                        GroupView(
+                            groupId: groupID,
+                            contentMaxWidth: usesPortraitDetailWidth ? min(560, proxy.size.width * 0.75) : nil,
+                            onClose: { path = [] }
+                        )
                     } else {
                         ContentUnavailableView(L("Select a group"), systemImage: "person.2",
                             description: Text(L("Choose a group to view its records.")))
@@ -1744,7 +1750,7 @@ private struct GroupSummaryRow: View {
                 Text(group.name)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(SoftLedgerTheme.ink)
-                    .lineLimit(isSidebar ? 2 : 1)
+                    .lineLimit(1)
                     .truncationMode(.tail)
 
                 SoftLedgerAvatarStack(members: displayMembers, visibleCount: 3, size: memberAvatarSize, showsTotal: false)

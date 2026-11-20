@@ -13,6 +13,7 @@ sources = [
     "Core/Ledger/LedgerDataLayer.swift", "Core/Ledger/InMemoryLedgerDataSource.swift",
     "Core/Ledger/SwiftDataLedgerModels.swift", "Core/Ledger/SwiftDataLedgerDataSource.swift",
     "Shared/UI/ThemeConfig.swift", "Shared/Localization/L10n.swift",
+    "Features/Groups/WalletColor.swift",
     "Debug/LedgerRepositoryVerification.swift",
 ]
 with tempfile.TemporaryDirectory(prefix="walkcalc-repository-verification-") as directory:
@@ -24,6 +25,9 @@ with tempfile.TemporaryDirectory(prefix="walkcalc-repository-verification-") as 
         + ui[ui.index("enum SoftLedgerTheme {"):ui.index("private struct SoftLedgerAppThemeKey")]
         + ui[ui.index("struct ExpenseCategory:"):ui.index("func signedMoney(")]
     )
+    debug_colors = (root / "walkcalc-native/Debug/DebugMoneyColors.swift").read_text()
+    color_model = Path(directory) / "DebugMoneyColorModel.swift"
+    color_model.write_text(debug_colors[:debug_colors.index("struct MoneyColorDebugControls:")] + "\n#endif\n")
     runner = Path(directory) / "Runner.swift"
     runner.write_text(
         "@main struct Runner { @MainActor static func main() async { "
@@ -35,6 +39,6 @@ with tempfile.TemporaryDirectory(prefix="walkcalc-repository-verification-") as 
         "-target", "arm64-apple-ios26.0-macabi", "-sdk", sdk,
         "-F", str(support / "System/Library/Frameworks"), "-I", str(support / "usr/include"),
         *[str(root / "walkcalc-native" / source) for source in sources],
-        str(shared), str(runner), "-o", str(binary),
+        str(shared), str(color_model), str(runner), "-o", str(binary),
     ], check=True)
     subprocess.run([str(binary)], check=True)

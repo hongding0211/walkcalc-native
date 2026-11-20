@@ -28,6 +28,7 @@ struct GroupView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let groupId: String
+    var contentMaxWidth: CGFloat? = nil
     var onClose: (() -> Void)? = nil
     @State private var activeSheet: GroupSheet? = Self.initialSheet()
     @State private var isSearchPresented = false
@@ -147,7 +148,9 @@ struct GroupView: View {
                             .padding(.top, 80)
                     }
                 }
+                .frame(maxWidth: contentMaxWidth, alignment: .leading)
                 .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity)
                 .padding(.top, 8)
                 .padding(.bottom, 34)
             }

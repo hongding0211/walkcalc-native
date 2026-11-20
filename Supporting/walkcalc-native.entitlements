@@ -6,6 +6,10 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:hong97.ltd</string>
+	</array>
 	<key>aps-environment</key>
 	<string>development</string>
 </dict>
