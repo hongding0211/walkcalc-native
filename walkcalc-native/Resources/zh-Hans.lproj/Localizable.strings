@@ -308,6 +308,7 @@
 "Personal spending: %@" = "我的开销：%@";
 "My spending" = "我的开销";
 "Statistics" = "统计";
+"Total" = "全部";
 "My spending by category" = "我的消费分类";
 "Statistics unavailable" = "暂时无法加载统计";
 "No personal spending in this currency" = "你在该币种下暂无消费";

@@ -125,9 +125,11 @@ struct GroupSpendingStatisticsView: View {
             sectors.contains { $0.id == row.id } ? row.id : CategoryRow.remainderID
         }
         let diameter = min(ringSize, 250)
+        let displayedAmount = selected?.amount ?? total
+        let formattedAmount = amountText(displayedAmount, currency: currency)
 
         return VStack(spacing: 20) {
-            ZStack {
+            Group {
                 if rows.isEmpty {
                     Circle().strokeBorder(SoftLedgerTheme.rule, lineWidth: diameter * 0.13)
                         .accessibilityHidden(true)
@@ -163,27 +165,26 @@ struct GroupSpendingStatisticsView: View {
                     }
                     .accessibilityHidden(true)
                 }
-
-                VStack(spacing: 3) {
-                    if let selected {
-                        Text(selected.name)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(amountText(selected?.amount ?? total, currency: currency))
-                        .font(.title2.weight(.semibold))
-                        .monospacedDigit()
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-                .padding(.horizontal, diameter * 0.18)
-                .allowsHitTesting(false)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(selected?.name ?? L("My spending by category"))
-                .accessibilityValue(amountText(selected?.amount ?? total, currency: currency))
             }
             .frame(width: diameter, height: diameter)
             .frame(maxWidth: .infinity)
+
+            VStack(spacing: 3) {
+                AnimatedGroupLabel(text: selected?.name ?? L("Total"))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                AnimatedGroupLabel(
+                    text: formattedAmount,
+                    numericValue: NSDecimalNumber(decimal: displayedAmount / 100).doubleValue
+                )
+                .font(.title2.weight(.semibold))
+                .monospacedDigit()
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(selected?.name ?? L("My spending by category"))
+            .accessibilityValue(formattedAmount)
 
             if rows.isEmpty {
                 Text(L("No personal spending in this currency"))
