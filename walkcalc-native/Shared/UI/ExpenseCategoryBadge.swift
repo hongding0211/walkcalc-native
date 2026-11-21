@@ -139,31 +139,18 @@ struct CategoryIconDebugControls: View {
 }
 #endif
 
-/// One palette and glyph treatment for the editor and every expense row.
-struct ExpenseCategoryBadge: View {
-    let category: ExpenseCategory
-    let size: CGFloat
-    let symbolSize: CGFloat
-
+struct CategoryBadgeBackground: DynamicProperty {
     #if DEBUG
-    @AppStorage(CategoryIconDebugSettings.storageKey) private var usesEmoji = false
     @CategorySaturationSettings private var saturation: Double
-    @AppStorage(CategoryIconDebugSettings.foregroundKey) private var foreground = CategoryBadgeAppearance.defaultForeground
-    @CategoryDepthSettings private var depth: Double
     @WalletPaletteSettings private var palette: WalletPalette
     #else
-    private let usesEmoji = false
     @Environment(\.colorScheme) private var colorScheme
     private var saturation: Double {
         colorScheme == .dark ? CategoryBadgeAppearance.darkSaturation : CategoryBadgeAppearance.lightSaturation
     }
-    private let foreground = CategoryBadgeAppearance.defaultForeground
-    private var depth: Double {
-        colorScheme == .dark ? CategoryBadgeAppearance.darkDepth : CategoryBadgeAppearance.lightDepth
-    }
     #endif
 
-    private var colors: WalletColorPair {
+    func colors(for category: ExpenseCategory) -> WalletColorPair {
         #if DEBUG
         // Resolve by ID so reordering or deleting a debug palette entry never
         // silently reassigns a category to a different color.
@@ -175,9 +162,30 @@ struct ExpenseCategoryBadge: View {
         // extra saturation, but applying that boost to small badges is too vivid.
         return CategoryBadgeAppearance.colors(base: base, saturation: saturation)
     }
+}
+
+/// One palette and glyph treatment for the editor and every expense row.
+struct ExpenseCategoryBadge: View {
+    let category: ExpenseCategory
+    let size: CGFloat
+    let symbolSize: CGFloat
+    private var badgeBackground = CategoryBadgeBackground()
+
+    #if DEBUG
+    @AppStorage(CategoryIconDebugSettings.storageKey) private var usesEmoji = false
+    @AppStorage(CategoryIconDebugSettings.foregroundKey) private var foreground = CategoryBadgeAppearance.defaultForeground
+    @CategoryDepthSettings private var depth: Double
+    #else
+    private let usesEmoji = false
+    @Environment(\.colorScheme) private var colorScheme
+    private let foreground = CategoryBadgeAppearance.defaultForeground
+    private var depth: Double {
+        colorScheme == .dark ? CategoryBadgeAppearance.darkDepth : CategoryBadgeAppearance.lightDepth
+    }
+    #endif
 
     var body: some View {
-        let colors = colors
+        let colors = badgeBackground.colors(for: category)
         let ink = CategoryBadgeAppearance.ink(for: colors, mode: foreground, depth: depth)
         Group {
             if usesEmoji {

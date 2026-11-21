@@ -1152,6 +1152,7 @@ private enum GroupSettingsPendingAction {
 private struct CurrencySelectionView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.groupSheetContentMaxWidth) private var contentMaxWidth
 
     let group: WalkGroup?
     let currencyGroupId: String?
@@ -1235,6 +1236,8 @@ private struct CurrencySelectionView: View {
                 )
             }
         }
+        .frame(maxWidth: contentMaxWidth)
+        .frame(maxWidth: .infinity)
         .background {
             SoftLedgerBackground()
         }
@@ -2892,6 +2895,13 @@ private struct SettlementPlanRow: View {
     }
 }
 
+func memberBillsTitle(_ member: Member, currentParticipantID: String?) -> String {
+    if member.uuid == currentParticipantID {
+        return L("All bills involving you")
+    }
+    return String(format: L("All bills involving %@"), member.name)
+}
+
 private struct MemberBalanceDetailView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.groupSheetContentMaxWidth) private var contentMaxWidth
@@ -2962,10 +2972,7 @@ private struct MemberBalanceDetailView: View {
     }
 
     private var pageTitle: String {
-        if currentMember.uuid == store.currentParticipantID(for: currentGroup) {
-            return L("All bills involving you")
-        }
-        return String(format: L("All bills involving %@"), currentMember.name)
+        memberBillsTitle(currentMember, currentParticipantID: store.currentParticipantID(for: currentGroup))
     }
 
     private var recordSummary: String {

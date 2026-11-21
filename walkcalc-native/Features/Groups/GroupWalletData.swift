@@ -81,7 +81,7 @@ enum GroupWalletData {
         }
     }
 
-    private static func paletteStart(groupID: String, count: Int) -> Int {
+    static func paletteStart(groupID: String, count: Int) -> Int {
         // FNV-1a over UTF-8 is stable across launches and devices. Swift's
         // Hasher/hashValue is randomly seeded and cannot persist this mapping.
         let hash = groupID.utf8.reduce(UInt64(14_695_981_039_346_656_037)) {

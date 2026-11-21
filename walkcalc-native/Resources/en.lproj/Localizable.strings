@@ -311,6 +311,8 @@
 "Total" = "Total";
 "My spending by category" = "My spending by category";
 "Statistics unavailable" = "Statistics unavailable";
+"Show records for %@" = "Show records for %@";
+"Could not load records" = "Could not load records";
 "No personal spending in this currency" = "You have no spending in this currency.";
 "No member spending in this currency" = "Members have no spending in this currency.";
 "Uncategorized" = "Uncategorized";

@@ -133,10 +133,10 @@ struct SpendingCategoryTotal {
         _ records: some Sequence<WalkRecord>, participantId: String, defaultCurrency: String
     ) -> [Self] {
         var totals: [String: [String?: MoneyMinor]] = [:]
-        for record in records where !record.isDebtResolve && record.forWhom.contains(participantId) {
+        for record in records {
+            guard let share = record.expenseShareMinor(for: participantId) else { continue }
             let currency = CurrencyCatalog.normalizedCode(record.currencyCode ?? defaultCurrency)
             let category = record.type.isEmpty ? nil : record.type
-            let share = Money.splitFirst(record.paidMinor, count: record.forWhom.count)
             let previous = totals[currency]?[category] ?? "0"
             totals[currency, default: [:]][category] = Money.add(previous, share)
         }
@@ -151,6 +151,11 @@ struct SpendingCategoryTotal {
 struct GroupSpendingStatistics {
     let categories: [SpendingCategoryTotal]
     let members: [Member]
+}
+
+enum SpendingRecordsFilter {
+    case category(ids: [String], includeUncategorized: Bool)
+    case member(id: String)
 }
 
 struct LedgerMutationResponse<Value> {
@@ -496,7 +501,15 @@ final class LedgerRepository {
     }
 
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>> {
-        await source(for: context).records(groupId: groupId, page: page, pageSize: pageSize, search: search, context: context)
+        let result = await source(for: context).records(groupId: groupId, page: page, pageSize: pageSize, search: search, context: context)
+        guard let scope = search?.expenseScope, case .success(var page) = result else { return result }
+        page.items = page.items.compactMap { record in
+            guard let share = record.expenseShareMinor(for: scope.participantID) else { return nil }
+            var scopedRecord = record
+            scopedRecord.spendingShareMinor = record.spendingShareMinor ?? share
+            return scopedRecord
+        }
+        return .success(page)
     }
 
     func memberRecords(groupId: String, memberId: String, page: Int, pageSize: Int, currencyCodes: [String] = [], context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMemberRecordSnapshot> {

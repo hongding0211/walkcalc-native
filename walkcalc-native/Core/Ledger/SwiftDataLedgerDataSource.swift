@@ -693,9 +693,9 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             payer.recordCount += 1
             applyCurrencyDelta(to: payer, currencyCode: currencyCode, debtMinor: record.paidMinor, paidTotalMinor: record.paidMinor, recordCount: 1)
         }
-        let share = Money.splitFirst(record.paidMinor, count: record.forWhom.count)
-        for participantId in record.forWhom {
+        for (shareIndex, participantId) in record.forWhom.enumerated() {
             guard let participant = participants.first(where: { $0.id == participantId }) else { continue }
+            let share = Money.splitShare(record.paidMinor, count: record.forWhom.count, index: shareIndex)
             participant.debtMinor = Money.add(participant.debtMinor, Money.negate(share))
             participant.costMinor = Money.add(participant.costMinor, share)
             if participantId != record.who {

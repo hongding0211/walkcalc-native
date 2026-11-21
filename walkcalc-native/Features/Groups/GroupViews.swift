@@ -911,9 +911,13 @@ struct ExpenseRow: View {
     }
 
     var body: some View {
-        let isSplit = showsPerPersonAmount && record.hasSplitAmount
-        let amount = record.amountMinor(perPerson: showsPerPersonAmount)
-        let amountLabel = CurrencyCatalog.formatted(amount, currencyCode: record.currencyCode ?? group.currencyCode)
+        let spendingShare = record.spendingShareMinor
+        let isSplit = spendingShare == nil && showsPerPersonAmount && record.hasSplitAmount
+        let amount = spendingShare ?? record.amountMinor(perPerson: showsPerPersonAmount)
+        let amountLabel = CurrencyCatalog.formatted(
+            amount, currencyCode: record.currencyCode ?? group.currencyCode,
+            style: spendingShare == nil ? .compact : .exact
+        )
         let spokenAmount = isSplit ? String(format: L("%@ per person"), amountLabel) : amountLabel
 
         Button(action: action) {

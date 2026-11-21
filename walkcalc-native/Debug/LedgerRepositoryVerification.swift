@@ -200,7 +200,7 @@ enum LedgerRepositoryVerification {
         let entries = [
             ("Dinner cheap", "900", today.addingTimeInterval(7200), "USD", "food", [ownerId]),
             ("Dinner yesterday", "100", yesterday.addingTimeInterval(3600), "CNY", "food", [ownerId]),
-            ("Dinner expensive", "1000", today.addingTimeInterval(3600), "CNY", "food", [ownerId, guestId]),
+            ("Dinner expensive", "1001", today.addingTimeInterval(3600), "CNY", "food", [ownerId, guestId]),
             ("Dinner taxi", "4000", today.addingTimeInterval(10800), "CNY", "traffic", [ownerId]),
         ]
         for (note, amount, date, currency, category, participantIds) in entries {
@@ -225,7 +225,7 @@ enum LedgerRepositoryVerification {
         expect(descending.items.map(\.text), equals: ["Dinner expensive", "Dinner cheap", "Dinner yesterday"], prefix: "local-amount-global-descending")
         expect(
             descending.items.map { Money.averageShare($0.paidMinor, count: $0.forWhom.count) },
-            equals: ["500", "900", "100"], prefix: "local-sort-uses-paid-amount"
+            equals: ["501", "900", "100"], prefix: "local-sort-uses-paid-amount"
         )
 
         request.amountBasis = .perPerson
@@ -244,7 +244,29 @@ enum LedgerRepositoryVerification {
         ), prefix: "statistics-paid-for-guest")
         let spending = expectSuccess(await repository.spendingCategories(groupId: groupId, context: context), prefix: "local-statistics").value ?? []
         let amounts = Dictionary(uniqueKeysWithValues: spending.map { ("\($0.currencyCode)/\($0.categoryId ?? "")", $0.expenseMinor) })
-        expect(amounts, equals: ["CNY/food": "600", "CNY/traffic": "4000", "USD/food": "900"], prefix: "local-statistics-uses-personal-share-by-currency")
+        expect(amounts, equals: ["CNY/food": "601", "CNY/traffic": "4000", "USD/food": "900"], prefix: "local-statistics-uses-personal-share-by-currency")
+
+        let drilldown = RecordSearchRequest(
+            operator: "or", conditions: [], currencyCodes: ["CNY"], categoryIds: ["food"],
+            expenseScope: .mine(participantID: ownerId), sort: GroupRecordSort()
+        )
+        let expenseFirst = expectSuccess(await repository.records(groupId: groupId, page: 1, pageSize: 1, search: drilldown, context: context), prefix: "local-statistics-records-first")
+        let expenseNext = expectSuccess(await repository.records(groupId: groupId, page: 2, pageSize: 1, search: drilldown, context: context), prefix: "local-statistics-records-next")
+        expect((expenseFirst.items + expenseNext.items).map(\.text), equals: ["Dinner expensive", "Dinner yesterday"], prefix: "local-statistics-records-match-share-currency-and-date-order")
+        expect(expenseFirst.pagination?.total, equals: 2, prefix: "local-statistics-records-filter-before-pagination")
+        expect((expenseFirst.items + expenseNext.items).compactMap(\.spendingShareMinor),
+               equals: ["501", "100"], prefix: "local-category-records-add-up-to-personal-share")
+
+        let memberDrilldown = RecordSearchRequest(
+            operator: "or", conditions: [], currencyCodes: ["CNY"],
+            expenseScope: .member(participantID: guestId), sort: GroupRecordSort()
+        )
+        let memberExpenses = expectSuccess(await repository.records(groupId: groupId, page: 1, pageSize: 10, search: memberDrilldown, context: context), prefix: "local-member-statistics-records")
+        expect(memberExpenses.items.map(\.text), equals: ["Dinner expensive", "Paid for guest"], prefix: "local-member-statistics-excludes-settlements")
+        expect(memberExpenses.items.compactMap(\.spendingShareMinor), equals: ["500", "800"], prefix: "local-member-records-use-their-own-shares")
+        let members = expectSuccess(await repository.groupBalances(groupId: groupId, context: context), prefix: "local-member-statistics-balances").value ?? []
+        expect(members.first { $0.id == guestId }?.currencyBalances.first { $0.currencyCode == "CNY" }?.costMinor,
+               equals: "1300", prefix: "local-member-statistics-excludes-settlement-amount")
     }
 
     private static let mockBaseURL = URL(string: "https://ledger-verification.invalid/api")!
@@ -327,6 +349,29 @@ enum LedgerRepositoryVerification {
                 && $0.query["search"]?.contains("\"field\":\"note\"") == true
                 && $0.query["search"]?.contains("\"field\":\"categoryName\"") == true
         }, equals: true, prefix: "remote-combined-query")
+
+        let drilldown = RecordSearchRequest(
+            operator: "or", conditions: [], currencyCodes: ["USD"], includeUncategorized: true,
+            expenseScope: .mine(participantID: "user-1"), sort: GroupRecordSort()
+        )
+        let personalRecords = expectSuccess(await repository.records(groupId: "AB12", page: 2, pageSize: 10, search: drilldown, context: context), prefix: "remote-statistics-records")
+        expect(personalRecords.items.first?.spendingShareMinor, equals: "51", prefix: "remote-statistics-personal-share")
+        expect(personalRecords.items.first?.paidMinor, equals: "101", prefix: "remote-statistics-retains-original-bill-amount")
+        expect(MockLedgerURLProtocol.requests.last?.query, equals: [
+            "page": "2", "pageSize": "10", "scope": "myExpense", "includeUncategorized": "true",
+            "currencyCodes": "USD", "sortBy": "occurredAt", "sortOrder": "desc",
+        ], prefix: "remote-statistics-records-query")
+
+        let memberDrilldown = RecordSearchRequest(
+            operator: "or", conditions: [], currencyCodes: ["USD"],
+            expenseScope: .member(participantID: "user-2"), sort: GroupRecordSort()
+        )
+        let memberRecords = expectSuccess(await repository.records(groupId: "AB12", page: 1, pageSize: 10, search: memberDrilldown, context: context), prefix: "remote-member-statistics-records")
+        expect(memberRecords.items.first?.spendingShareMinor, equals: "50", prefix: "remote-statistics-selected-member-share")
+        expect(MockLedgerURLProtocol.requests.last?.query, equals: [
+            "page": "1", "pageSize": "10", "expenseParticipantIds": "user-2",
+            "currencyCodes": "USD", "sortBy": "occurredAt", "sortOrder": "desc",
+        ], prefix: "remote-member-statistics-records-query")
 
         let requests = MockLedgerURLProtocol.requests
         expect(requests.containsPath("/api/walkcalc/home/summary", method: "GET"), equals: true, prefix: "remote-home-summary-path")
@@ -518,7 +563,14 @@ private final class MockLedgerURLProtocol: URLProtocol {
         case ("GET", "/api/walkcalc/groups/AB12"):
             return (200, envelope(groupPayload(code: "AB12")))
         case ("GET", "/api/walkcalc/groups/AB12/records"):
-            return (200, pagedEnvelope([recordPayload(id: "record-1")], page: Int(query["page"] ?? "1") ?? 1, pageSize: Int(query["pageSize"] ?? "10") ?? 10, total: 1))
+            var record = recordPayload(id: "record-1")
+            if query["scope"] == "myExpense" || query["expenseParticipantIds"] == "user-2" {
+                record["amount"] = "1.01"
+                record["participantIds"] = ["user-1", "user-2"]
+                record["currentUserExpenseShare"] = "0.51"
+                record["matchedExpenseShare"] = "0.50"
+            }
+            return (200, pagedEnvelope([record], page: Int(query["page"] ?? "1") ?? 1, pageSize: Int(query["pageSize"] ?? "10") ?? 10, total: 1))
         case ("GET", "/api/walkcalc/groups/AB12/balances"):
             return (200, envelope(["participants": participantsPayload()]))
         case ("GET", "/api/walkcalc/groups/AB12/statistics"):

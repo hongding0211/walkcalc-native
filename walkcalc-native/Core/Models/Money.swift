@@ -89,15 +89,13 @@ enum Money {
         decimal(value) > 0
     }
 
-    static func splitFirst(_ value: MoneyMinor?, count: Int) -> MoneyMinor {
-        guard count > 0 else { return "0" }
+    static func splitShare(_ value: MoneyMinor?, count: Int, index: Int) -> MoneyMinor {
+        guard index >= 0, index < count else { return "0" }
         let total = NSDecimalNumber(decimal: decimal(value)).int64Value
         let base = total / Int64(count)
         let remainder = total % Int64(count)
-        if remainder == 0 {
-            return "\(base)"
-        }
-        return "\(base + (remainder > 0 ? 1 : -1))"
+        let extra: Int64 = UInt64(index) < remainder.magnitude ? (remainder > 0 ? 1 : -1) : 0
+        return String(base + extra)
     }
 
     static func averageShare(_ value: MoneyMinor, count: Int) -> MoneyMinor {

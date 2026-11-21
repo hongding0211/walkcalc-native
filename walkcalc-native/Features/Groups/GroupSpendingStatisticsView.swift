@@ -3,9 +3,17 @@ import SwiftUI
 
 struct GroupSpendingStatisticsView: View {
     @EnvironmentObject private var store: WalkcalcStore
-    @Environment(\.softLedgerAppTheme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .title2) private var ringSize = 174.0
+    @ScaledMetric(relativeTo: .subheadline) private var categoryBarHeight = 36
+    @ScaledMetric(relativeTo: .subheadline) private var categoryIconSize = 30
+    @ScaledMetric(relativeTo: .subheadline) private var categorySymbolSize = 14
+    @ScaledMetric(relativeTo: .subheadline) private var categoryRowMinHeight = 54
+    private let categoryRowSpacing: CGFloat = 12
+    private let categoryCardPadding: CGFloat = 18
+    private let contentMaxWidth: CGFloat = 560
+    private var badgeBackground = CategoryBadgeBackground()
+    #if DEBUG
+    @WalletPaletteSettings private var walletPalette: WalletPalette
+    #endif
 
     let group: WalkGroup
     let participantID: String?
@@ -14,6 +22,7 @@ struct GroupSpendingStatisticsView: View {
     @AppStorage private var savedCurrency: String
     @State private var statistics: GroupSpendingStatistics?
     @State private var selectedCategoryID: String?
+    @State private var recordsSelection: RecordsSelection?
     @State private var loadFailed = false
     @State private var retryCount = 0
 
@@ -65,7 +74,7 @@ struct GroupSpendingStatisticsView: View {
                         .frame(maxWidth: .infinity, minHeight: 240)
                 }
             }
-            .frame(maxWidth: 560)
+            .frame(maxWidth: contentMaxWidth)
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity)
@@ -102,6 +111,15 @@ struct GroupSpendingStatisticsView: View {
             loadFailed = result.failure != nil
         }
         .onChange(of: selectedCurrency) { _, _ in selectedCategoryID = nil }
+        .sheet(item: $recordsSelection) { selection in
+            SpendingRecordsSheet(
+                group: currentGroup, title: selection.title, filter: selection.filter,
+                currencyCode: selection.currencyCode
+            ) {
+                retryCount += 1
+            }
+            .environment(\.groupSheetContentMaxWidth, contentMaxWidth)
+        }
     }
 
     @ViewBuilder
@@ -114,77 +132,19 @@ struct GroupSpendingStatisticsView: View {
 
     private func categoryCard(_ rows: [CategoryRow], currency: String) -> some View {
         let total = rows.reduce(Decimal.zero) { $0 + $1.amount }
-        let visibleSectorCount = rows.count > 7 ? 6 : 7
-        let featured = Array(rows.prefix(visibleSectorCount))
-        let remainder = rows.dropFirst(visibleSectorCount).reduce(Decimal.zero) { $0 + $1.amount }
-        let sectors = remainder > 0 ? featured + [CategoryRow(id: CategoryRow.remainderID, amount: remainder)] : featured
-        let selected = selectedCategoryID.flatMap { id in
-            rows.first { $0.id == id } ?? sectors.first { $0.id == id }
-        }
-        let selectedSectorID = selected.map { row in
-            sectors.contains { $0.id == row.id } ? row.id : CategoryRow.remainderID
-        }
-        let diameter = min(ringSize, 250)
-        let displayedAmount = selected?.amount ?? total
-        let formattedAmount = amountText(displayedAmount, currency: currency)
+        let selected = rows.first { $0.id == selectedCategoryID }
 
-        return VStack(spacing: 20) {
-            Group {
+        return VStack(spacing: 12) {
+            VStack(spacing: 10) {
+                categorySummary(selected: selected, total: total, currency: currency)
                 if rows.isEmpty {
-                    Circle().strokeBorder(SoftLedgerTheme.rule, lineWidth: diameter * 0.13)
+                    Capsule().fill(SoftLedgerTheme.rule)
+                        .frame(height: categoryBarHeight)
                         .accessibilityHidden(true)
                 } else {
-                    Chart {
-                        ForEach(sectors) { row in
-                            SectorMark(angle: .value(L("Amount"), ratio(row.amount, to: total)),
-                                       innerRadius: .ratio(0.73), angularInset: sectors.count > 1 ? 1 : 0)
-                                .foregroundStyle(row.color)
-                                .opacity(selectedSectorID == nil || row.id == selectedSectorID ? 1 : 0.28)
-                        }
-                    }
-                    .chartOverlay { proxy in
-                        GeometryReader { geometry in
-                            Rectangle().fill(.clear)
-                                .contentShape(.rect)
-                                .gesture(SpatialTapGesture().onEnded { tap in
-                                    let frame = proxy.plotFrame.map { geometry[$0] } ?? CGRect(origin: .zero, size: geometry.size)
-                                    let distance = hypot(tap.location.x - frame.midX, tap.location.y - frame.midY)
-                                    let radius = min(frame.width, frame.height) / 2
-                                    if distance < radius * 0.73 {
-                                        selectedCategoryID = nil
-                                    } else if distance <= radius {
-                                        let position = CGPoint(x: tap.location.x - frame.minX, y: tap.location.y - frame.minY)
-                                        let angle = proxy.angle(at: position).degrees
-                                        let fraction = (angle + 360).truncatingRemainder(dividingBy: 360) / 360
-                                        if let sector = sector(at: fraction, in: sectors, total: total) {
-                                            toggleSelection(sector.id)
-                                        }
-                                    }
-                                })
-                        }
-                    }
-                    .accessibilityHidden(true)
+                    categoryBar(rows, total: total, selectedID: selected?.id)
                 }
             }
-            .frame(width: diameter, height: diameter)
-            .frame(maxWidth: .infinity)
-
-            VStack(spacing: 3) {
-                AnimatedGroupLabel(text: selected?.name ?? L("Total"))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                AnimatedGroupLabel(
-                    text: formattedAmount,
-                    numericValue: NSDecimalNumber(decimal: displayedAmount / 100).doubleValue
-                )
-                .font(.title2.weight(.semibold))
-                .monospacedDigit()
-            }
-            .lineLimit(1)
-            .minimumScaleFactor(0.5)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(selected?.name ?? L("My spending by category"))
-            .accessibilityValue(formattedAmount)
 
             if rows.isEmpty {
                 Text(L("No personal spending in this currency"))
@@ -193,54 +153,177 @@ struct GroupSpendingStatisticsView: View {
                     .multilineTextAlignment(.center)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        let isSelected = selected?.id == row.id
-                        Button {
-                            toggleSelection(row.id)
-                        } label: {
-                            HStack(spacing: 9) {
-                                Circle().fill(index < visibleSectorCount ? row.color : Color.secondary)
-                                    .frame(width: 8, height: 8)
-                                    .accessibilityHidden(true)
-                                Text(row.name)
-                                    .fontWeight(isSelected ? .semibold : .regular)
-                                Spacer(minLength: 8)
-                                Text(ratio(row.amount, to: total).formatted(.percent.precision(.fractionLength(0))))
-                                    .foregroundStyle(.secondary)
-                                Text(amountText(row.amount, currency: currency))
-                            }
-                            .font(.subheadline)
-                            .monospacedDigit()
-                            .frame(minHeight: 34)
-                            .contentShape(.rect)
+                    ForEach(rows) { row in
+                        categoryLegendRow(row, currency: currency, selectedID: selected?.id)
+                        if row.id != rows.last?.id {
+                            Divider()
+                                .overlay(SoftLedgerTheme.rule.opacity(0.56))
+                                .padding(.leading, categoryIconSize + categoryRowSpacing)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
+                }
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
                 }
             }
         }
-        .padding(18)
+        .padding(categoryCardPadding)
         .frame(maxWidth: .infinity)
         .background(SoftLedgerTheme.formPaper, in: RoundedRectangle(cornerRadius: 24))
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: selectedCategoryID)
     }
 
-    private func sector(at value: Double, in sectors: [CategoryRow], total: Decimal) -> CategoryRow? {
-        var upperBound = 0.0
-        for sector in sectors {
-            upperBound += ratio(sector.amount, to: total)
-            if value < upperBound { return sector }
+    private func categorySummary(selected: CategoryRow?, total: Decimal, currency: String) -> some View {
+        let amount = selected?.amount ?? total
+        let number = NSDecimalNumber(decimal: amount)
+        let compactAmount = CurrencyCatalog.formatted(number.stringValue, currencyCode: currency)
+        let share = selected.map { ratio($0.amount, to: total).formatted(.percent.precision(.fractionLength(0))) }
+        let title = selected?.name ?? L("Total")
+
+        return HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.headline)
+                if let share {
+                    Text(share)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+            }
+            .transaction { $0.animation = nil }
+            Spacer(minLength: 8)
+            AnimatedGroupLabel(text: compactAmount, numericValue: number.doubleValue / 100)
+                .font(.headline)
+                .monospacedDigit()
+                .minimumScaleFactor(0.6)
+                .layoutPriority(1)
         }
-        return sectors.last
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(share.map { "\(title), \($0)" } ?? L("My spending by category"))
+        .accessibilityValue(amountText(amount, currency: currency))
+    }
+
+    private func categoryBar(_ rows: [CategoryRow], total: Decimal, selectedID: String?) -> some View {
+        var cumulativeAmount: Decimal = 0
+        let segments = rows.map { row in
+            let start = ratio(cumulativeAmount, to: total)
+            cumulativeAmount += row.amount
+            return CategorySegment(id: row.id, start: start, end: ratio(cumulativeAmount, to: total))
+        }
+
+        return Chart(segments) { segment in
+            let colors = badgeBackground.colors(for: expenseCategory(for: segment.id))
+            RectangleMark(
+                xStart: .value(L("Amount"), segment.start),
+                xEnd: .value(L("Amount"), segment.end),
+                yStart: .value("Bottom", 0.0),
+                yEnd: .value("Top", 1.0)
+            )
+            .cornerRadius(0)
+            .foregroundStyle(colors.first.mixed(with: colors.second, amount: 0.5).color)
+            .opacity(selectedID == nil || segment.id == selectedID ? 1 : 0.28)
+        }
+        .chartXScale(domain: 0.0...1.0, range: .plotDimension(padding: 0))
+        .chartYScale(domain: 0.0...1.0, range: .plotDimension(padding: 0))
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle().fill(.clear)
+                    .contentShape(.rect)
+                    .gesture(SpatialTapGesture().onEnded { tap in
+                        guard let plot = proxy.plotFrame else { return }
+                        let frame = geometry[plot]
+                        guard frame.contains(tap.location),
+                              let share = proxy.value(atX: tap.location.x - frame.minX, as: Double.self),
+                              let segment = segments.first(where: { share >= $0.start && share < $0.end }) else { return }
+                        toggleSelection(segment.id)
+                    })
+            }
+        }
+        .frame(height: categoryBarHeight)
+        .clipShape(Capsule())
+        .transaction { $0.animation = nil }
+        .accessibilityHidden(true)
+    }
+
+    private func categoryLegendRow(_ row: CategoryRow, currency: String, selectedID: String?) -> some View {
+        let isSelected = selectedID == row.id
+        let isDimmed = selectedID != nil && !isSelected
+        let textColor: Color = isDimmed ? .secondary : .primary
+
+        return HStack(spacing: 8) {
+            Button {
+                toggleSelection(row.id)
+            } label: {
+                HStack(spacing: categoryRowSpacing) {
+                    ExpenseCategoryBadge(
+                        category: expenseCategory(for: row.id),
+                        size: categoryIconSize,
+                        symbolSize: categorySymbolSize
+                    )
+                    ZStack(alignment: .leading) {
+                        Text(row.name)
+                            .opacity(isSelected ? 0 : 1)
+                        Text(row.name)
+                            .fontWeight(.semibold)
+                            .opacity(isSelected ? 1 : 0)
+                    }
+                    .foregroundStyle(textColor)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(row.name)
+                    Spacer(minLength: 8)
+                    Text(amountText(row.amount, currency: currency))
+                        .foregroundStyle(textColor)
+                        .layoutPriority(1)
+                }
+                .font(.subheadline)
+                .monospacedDigit()
+                .frame(minHeight: categoryRowMinHeight)
+                .contentShape(.rect)
+            }
+            .buttonStyle(StatisticsRowButtonStyle())
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+
+            Button {
+                recordsSelection = RecordsSelection(
+                    title: row.name, currencyCode: currency,
+                    filter: .category(ids: row.categoryIDs, includeUncategorized: row.id == CategoryRow.uncategorizedID)
+                )
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+                    .frame(width: 32, height: categoryRowMinHeight, alignment: .leading)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(format: L("Show records for %@"), row.name))
+        }
+        .padding(.trailing, -categoryCardPadding)
     }
 
     private func toggleSelection(_ id: String) {
-        selectedCategoryID = selectedCategoryID == id ? nil : id
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            selectedCategoryID = selectedCategoryID == id ? nil : id
+        }
     }
 
     private func memberCard(_ rows: [MemberRow], currency: String) -> some View {
         let highest = rows.first?.amount ?? 0
+        #if DEBUG
+        let palette = walletPalette.entries.map(\.color)
+        #else
+        let palette = WalletColorPair.defaults.map(\.first)
+        #endif
+        let paletteStart = GroupWalletData.paletteStart(groupID: group.id, count: palette.count)
+        let memberColors = Dictionary(uniqueKeysWithValues: Set(rows.map(\.id)).sorted().enumerated().map { index, id in
+            (id, palette[(paletteStart + index) % palette.count].color)
+        })
 
         return LazyVStack(alignment: .leading, spacing: 16) {
             if highest <= 0 {
@@ -249,42 +332,59 @@ struct GroupSpendingStatisticsView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(rows) { row in
-                    let isCurrentUser = row.member.id == participantID
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack(spacing: 8) {
-                            SoftLedgerAvatarStack(members: [row.member], visibleCount: 1, size: 22, borderColor: SoftLedgerTheme.formPaper)
-                                .accessibilityHidden(true)
-                            Text(isCurrentUser ? L("Me") : row.member.name)
-                                .fontWeight(isCurrentUser ? .semibold : .regular)
-                            Spacer(minLength: 8)
-                            Text(amountText(row.amount, currency: currency))
-                                .monospacedDigit()
-                        }
-                        .font(.subheadline)
-
-                        Chart {
-                            BarMark(
-                                x: .value(L("Amount"), ratio(row.amount, to: highest)),
-                                y: .value(L("Members"), row.id),
-                                height: .fixed(7)
-                            )
-                                .cornerRadius(4)
-                                .foregroundStyle(isCurrentUser ? theme.accent : theme.accent.opacity(0.38))
-                        }
-                        .chartXScale(domain: 0.0...1.0, range: .plotDimension(padding: 0))
-                        .chartXAxis(.hidden)
-                        .chartYAxis(.hidden)
-                        .frame(height: 7)
-                        .background(SoftLedgerTheme.rule, in: Capsule())
-                        .accessibilityHidden(true)
-                    }
-                    .accessibilityElement(children: .combine)
+                    memberRankingRow(row, currency: currency, highest: highest,
+                                     color: memberColors[row.id] ?? palette[paletteStart].color)
                 }
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SoftLedgerTheme.formPaper, in: RoundedRectangle(cornerRadius: 24))
+    }
+
+    private func memberRankingRow(_ row: MemberRow, currency: String, highest: Decimal, color: Color) -> some View {
+        let isCurrentUser = row.id == participantID
+        let name = isCurrentUser ? L("You") : row.member.name
+
+        return Button {
+            recordsSelection = RecordsSelection(
+                title: memberBillsTitle(row.member, currentParticipantID: participantID),
+                currencyCode: currency,
+                filter: .member(id: row.id)
+            )
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    SoftLedgerAvatarStack(members: [row.member], visibleCount: 1, size: 22, borderColor: SoftLedgerTheme.formPaper)
+                        .accessibilityHidden(true)
+                    Text(name)
+                        .fontWeight(isCurrentUser ? .semibold : .regular)
+                    Spacer(minLength: 8)
+                    Text(amountText(row.amount, currency: currency))
+                        .monospacedDigit()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+                        .accessibilityHidden(true)
+                }
+                .font(.subheadline)
+
+                GeometryReader { geometry in
+                    let fraction = max(0, CGFloat(ratio(row.amount, to: highest)))
+                    Capsule().fill(SoftLedgerTheme.rule)
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(color)
+                                .frame(width: geometry.size.width * fraction)
+                        }
+                }
+                .frame(height: 7)
+                .accessibilityHidden(true)
+            }
+            .foregroundStyle(SoftLedgerTheme.ink)
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+        }
+        .buttonStyle(StatisticsRowButtonStyle())
     }
 
     private var filterCurrencyCodes: [String] {
@@ -301,13 +401,15 @@ struct GroupSpendingStatisticsView: View {
     }
 
     private func categoryRows(_ totals: [SpendingCategoryTotal], currency: String) -> [CategoryRow] {
-        var byCategory: [String: Decimal] = [:]
-        for total in totals where total.currencyCode == currency {
-            let category = total.categoryId.map { expenseCategory(for: $0).id } ?? "uncategorized"
-            byCategory[category, default: .zero] += Money.decimal(total.expenseMinor)
+        let byCategory = Dictionary(grouping: totals.filter { $0.currencyCode == currency }) { total in
+            guard let id = total.categoryId, !id.isEmpty else { return CategoryRow.uncategorizedID }
+            return expenseCategory(for: id).id
         }
-        return byCategory.compactMap { id, amount in
-            amount > 0 ? CategoryRow(id: id, amount: amount) : nil
+        return byCategory.compactMap { id, entries in
+            let amount = entries.reduce(Decimal.zero) { $0 + Money.decimal($1.expenseMinor) }
+            guard amount > 0 else { return nil }
+            let categoryIDs = Set(entries.compactMap(\.categoryId).filter { !$0.isEmpty }).sorted()
+            return CategoryRow(id: id, amount: amount, categoryIDs: categoryIDs)
         }.sorted { $0.amount == $1.amount ? $0.id < $1.id : $0.amount > $1.amount }
     }
 
@@ -329,28 +431,38 @@ struct GroupSpendingStatisticsView: View {
     }
 
     private struct CategoryRow: Identifiable {
-        static let remainderID = "remainingCategories"
+        static let uncategorizedID = "uncategorized"
         let id: String
         let amount: Decimal
+        let categoryIDs: [String]
 
         var name: String {
-            switch id {
-            case Self.remainderID: L("Remaining categories")
-            case "uncategorized": L("Uncategorized")
-            default: L(expenseCategory(for: id).titleKey)
-            }
+            id == Self.uncategorizedID ? L("Uncategorized") : L(expenseCategory(for: id).titleKey)
         }
+    }
 
-        var color: Color {
-            if id == "uncategorized" || id == Self.remainderID { return .secondary }
-            let rgb = expenseCategory(for: id).paletteColor
-            return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
-        }
+    private struct CategorySegment: Identifiable {
+        let id: String
+        let start: Double
+        let end: Double
     }
 
     private struct MemberRow: Identifiable {
         var id: String { member.id }
         let member: Member
         let amount: Decimal
+    }
+
+    private struct RecordsSelection: Identifiable {
+        let id = UUID()
+        let title: String
+        let currencyCode: String
+        let filter: SpendingRecordsFilter
+    }
+}
+
+private struct StatisticsRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }

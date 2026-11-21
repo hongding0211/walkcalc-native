@@ -311,6 +311,8 @@
 "Total" = "全部";
 "My spending by category" = "我的消费分类";
 "Statistics unavailable" = "暂时无法加载统计";
+"Show records for %@" = "查看%@账单";
+"Could not load records" = "暂时无法加载账单";
 "No personal spending in this currency" = "你在该币种下暂无消费";
 "No member spending in this currency" = "成员在该币种下暂无消费";
 "Uncategorized" = "未分类";

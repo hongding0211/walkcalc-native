@@ -257,6 +257,15 @@ struct APIClient: Sendable {
             query["categoryIds"] = categories.joined(separator: ",")
         }
         if recordSearch?.includeSettlements == true { query["includeSettlements"] = "true" }
+        if recordSearch?.includeUncategorized == true { query["includeUncategorized"] = "true" }
+        if let expenseScope = recordSearch?.expenseScope {
+            switch expenseScope {
+            case .mine:
+                query["scope"] = "myExpense"
+            case .member(let participantID):
+                query["expenseParticipantIds"] = participantID
+            }
+        }
         if let participantId = recordSearch?.participantId { query["participantId"] = participantId }
         if let sort = recordSearch?.sort {
             query["sortBy"] = sort.field.rawValue
@@ -266,7 +275,19 @@ struct APIClient: Sendable {
             }
         }
         return try await request(.get, path: "/walkcalc/groups/\(groupCode)/records", query: query, token: token) { raw in
-            arrayPayload(raw).map(mapRecord)
+            arrayPayload(raw).map { rawRecord in
+                var record = mapRecord(rawRecord)
+                if let scope = recordSearch?.expenseScope {
+                    let key = switch scope {
+                    case .mine: "currentUserExpenseShare"
+                    case .member: "matchedExpenseShare"
+                    }
+                    if let share = dictPayload(rawRecord)[key] as? String {
+                        record.spendingShareMinor = try? Money.parseDisplay(share)
+                    }
+                }
+                return record
+            }
         }
     }
 

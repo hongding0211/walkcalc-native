@@ -213,11 +213,17 @@ struct WalkRecord: Identifiable, Hashable {
     var createdBy: String?
     var modifiedBy: String?
     var currencyCode: String? = nil
+    var spendingShareMinor: MoneyMinor? = nil
 
     var hasSplitAmount: Bool { !isDebtResolve && forWhom.count > 1 }
 
     func amountMinor(perPerson: Bool) -> MoneyMinor {
         perPerson && hasSplitAmount ? Money.averageShare(paidMinor, count: forWhom.count) : paidMinor
+    }
+
+    func expenseShareMinor(for participantID: String) -> MoneyMinor? {
+        guard !isDebtResolve, let index = forWhom.firstIndex(of: participantID) else { return nil }
+        return Money.splitShare(paidMinor, count: forWhom.count, index: index)
     }
 }
 
@@ -324,12 +330,25 @@ struct GroupRecordFilters: Codable, Hashable {
 }
 
 struct RecordSearchRequest: Encodable, Hashable {
+    enum ExpenseScope: Hashable {
+        case mine(participantID: String)
+        case member(participantID: String)
+
+        var participantID: String {
+            switch self {
+            case .mine(let id), .member(let id): id
+            }
+        }
+    }
+
     var `operator`: String
     var conditions: [RecordSearchCondition]
     var currencyCodes: [String] = []
     var participantId: String? = nil
     var categoryIds: [String] = []
     var includeSettlements = false
+    var includeUncategorized = false
+    var expenseScope: ExpenseScope? = nil
     var sort: GroupRecordSort? = nil
     var amountBasis: GroupRecordSort.AmountBasis? = nil
 
@@ -343,10 +362,11 @@ struct RecordSearchRequest: Encodable, Hashable {
     func matches(_ record: WalkRecord, defaultCurrency: String?) -> Bool {
         guard currencyCodes.isEmpty || currencyCodes.contains(CurrencyCatalog.normalizedCode(record.currencyCode ?? defaultCurrency)) else { return false }
         if let participantId, record.who != participantId && !record.forWhom.contains(participantId) { return false }
-        if !categoryIds.isEmpty || includeSettlements {
+        if let expenseScope, record.isDebtResolve || !record.forWhom.contains(expenseScope.participantID) { return false }
+        if !categoryIds.isEmpty || includeSettlements || includeUncategorized {
             let matchesCategory = record.isDebtResolve
                 ? includeSettlements || categoryIds.contains(settlementCategory.id)
-                : categoryIds.contains(record.type)
+                : categoryIds.contains(record.type) || (includeUncategorized && record.type.isEmpty)
             guard matchesCategory else { return false }
         }
         guard !conditions.isEmpty else { return true }

@@ -997,14 +997,7 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func groupSpendingStatistics(for group: WalkGroup) async -> LedgerOperationResult<GroupSpendingStatistics> {
-        var repository = ledgerRepository
-        var session = context(for: group.id)
-        if isFixtureMode, let participant = group.allMembers.first(where: { $0.uuid == currentParticipantID(for: group) }) {
-            let source = InMemoryLedgerDataSource(groups: [group], recordsByGroup: [group.id: recordsByGroup[group.id] ?? []])
-            repository = LedgerRepository(remoteSource: source, localSource: source)
-            session = .local(owner: participant)
-        }
-
+        let (repository, session) = statisticsLedger(for: group)
         async let categoryRequest = repository.spendingCategories(groupId: group.id, context: session)
         async let memberRequest = repository.groupBalances(groupId: group.id, context: session)
         let (categories, members) = await (categoryRequest, memberRequest)
@@ -1020,6 +1013,45 @@ final class WalkcalcStore: ObservableObject {
             return .failure(.sourceUnavailable())
         }
         return .success(GroupSpendingStatistics(categories: categoryRows, members: memberRows))
+    }
+
+    func spendingRecords(
+        for group: WalkGroup, filter: SpendingRecordsFilter, currencyCode: String, page: Int
+    ) async -> LedgerOperationResult<LedgerPage<WalkRecord>> {
+        var search = RecordSearchRequest(operator: "or", conditions: [], currencyCodes: [currencyCode], sort: GroupRecordSort())
+        switch filter {
+        case .category(let ids, let includeUncategorized):
+            guard let participantID = currentParticipantID(for: group) else {
+                return .failure(.authenticationRequired())
+            }
+            search.expenseScope = .mine(participantID: participantID)
+            search.categoryIds = ids
+            search.includeUncategorized = includeUncategorized
+        case .member(let id):
+            search.expenseScope = .member(participantID: id)
+        }
+
+        let (repository, session) = statisticsLedger(for: group)
+        let result = await repository.records(
+            groupId: group.id, page: page, pageSize: recordPageSize, search: search, context: session
+        )
+        guard !Task.isCancelled else { return .failure(.sourceUnavailable()) }
+        switch result {
+        case .success(let result):
+            applyRefreshedToken(result.refreshedToken)
+        case .failure(let failure):
+            recordFailure(operation: "spendingRecords", intent: page == 1 ? .secondaryLoad : .pagination,
+                          disposition: .local, failure: failure)
+        }
+        return result
+    }
+
+    private func statisticsLedger(for group: WalkGroup) -> (LedgerRepository, LedgerSessionContext) {
+        if isFixtureMode, let participant = group.allMembers.first(where: { $0.uuid == currentParticipantID(for: group) }) {
+            let source = InMemoryLedgerDataSource(groups: [group], recordsByGroup: [group.id: recordsByGroup[group.id] ?? []])
+            return (LedgerRepository(remoteSource: source, localSource: source), .local(owner: participant))
+        }
+        return (ledgerRepository, context(for: group.id))
     }
 
     func loadMoreRecords(groupId: String, search: String = "") async {

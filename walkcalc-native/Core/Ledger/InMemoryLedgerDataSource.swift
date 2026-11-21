@@ -438,9 +438,9 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
                 recordCount: 1
             )
         }
-        let share = Money.splitFirst(record.paidMinor, count: record.forWhom.count)
-        for participantId in record.forWhom {
+        for (shareIndex, participantId) in record.forWhom.enumerated() {
             guard let index = members.firstIndex(where: { $0.uuid == participantId }) else { continue }
+            let share = Money.splitShare(record.paidMinor, count: record.forWhom.count, index: shareIndex)
             members[index].debtMinor = Money.add(members[index].debtMinor, Money.negate(share))
             members[index].costMinor = Money.add(members[index].costMinor, share)
             if participantId != record.who {
