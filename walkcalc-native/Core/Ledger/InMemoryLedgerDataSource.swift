@@ -255,7 +255,7 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
             who: fromId,
             paidMinor: amountMinor,
             forWhom: [toId],
-            type: transferCategory.id,
+            type: settlementCategory.id,
             text: note,
             long: "",
             lat: "",
@@ -276,6 +276,9 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         guard let index = recordsByGroup[groupId]?.firstIndex(where: { $0.recordId == recordId }) else { return .failure(.sourceUnavailable()) }
         guard let group = group(id: groupId), recordCanMutate(recordsByGroup[groupId]![index], in: group) else { return .failure(.sourceUnavailable()) }
+        guard !isSettlement, recordsByGroup[groupId]?[index].isDebtResolve == false else {
+            return .failure(.init(kind: .validation, message: L("Settlement records are read-only.")))
+        }
         let memberIds = Set(group.allMembers.map(\.uuid))
         guard memberIds.contains(who), forWhom.allSatisfy(memberIds.contains) else { return .failure(.sourceUnavailable()) }
         recordsByGroup[groupId]?[index].who = who

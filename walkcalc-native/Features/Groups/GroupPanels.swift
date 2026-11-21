@@ -1891,8 +1891,12 @@ struct RecordEditorView: View {
         return store.canMutateRecord(record, in: group)
     }
 
+    private var allowsEditing: Bool {
+        allowsMutation && record?.isDebtResolve != true
+    }
+
     private var showsEditActions: Bool {
-        allowsMutation && (record == nil || hasEditIntent)
+        allowsEditing && (record == nil || hasEditIntent)
     }
 
     var body: some View {
@@ -1958,7 +1962,7 @@ struct RecordEditorView: View {
                 }
                 .padding(.vertical, 10)
             }
-            .disabled(!allowsMutation)
+            .disabled(!allowsEditing)
             .listRowBackground(SoftLedgerTheme.formPaper)
 
             Section {
@@ -1975,7 +1979,7 @@ struct RecordEditorView: View {
                     selection: $splitMembers,
                     onEdit: beginEditing
                 )
-                CategoryInlineEditor(selection: $categoryId, onEdit: beginEditing)
+                CategoryInlineEditor(selection: $categoryId, isSettlement: record?.isDebtResolve == true, onEdit: beginEditing)
 
                 ExpenseEditorFieldBlock(title: L("Date")) {
                     DatePicker(L("Date"), selection: $date)
@@ -2000,16 +2004,18 @@ struct RecordEditorView: View {
                         .foregroundStyle(SoftLedgerTheme.negative)
                 }
             }
-            .disabled(!allowsMutation)
+            .disabled(!allowsEditing)
             .listRowBackground(SoftLedgerTheme.formPaper)
 
-            if record != nil && !allowsMutation {
+            if record != nil && !allowsEditing {
                 Section {
                     Label(L("Read only"), systemImage: "lock.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SoftLedgerTheme.secondaryInk)
                 } footer: {
-                    Text(L("This expense includes a removed member and can no longer be edited."))
+                    Text(L(record?.isDebtResolve == true
+                        ? "Settlement records are read-only."
+                        : "This expense includes a removed member and can no longer be edited."))
                 }
                 .listRowBackground(SoftLedgerTheme.formPaper)
             }
@@ -2116,7 +2122,7 @@ struct RecordEditorView: View {
     }
 
     private func beginEditing() {
-        guard record != nil, allowsMutation else { return }
+        guard record != nil, allowsEditing else { return }
         hasEditIntent = true
     }
 
@@ -2152,7 +2158,7 @@ struct RecordEditorView: View {
     }
 
     private func submit() async {
-        guard !isSubmitting else { return }
+        guard allowsEditing, !isSubmitting else { return }
         do {
             _ = try Money.parseDisplay(amount)
         } catch {
@@ -2431,6 +2437,7 @@ private struct CategoryInlineEditor: View {
     @ScaledMetric(relativeTo: .caption2) private var verticalPadding = 8
 
     @Binding var selection: String
+    let isSettlement: Bool
     let onEdit: () -> Void
 
     var body: some View {
@@ -2439,7 +2446,7 @@ private struct CategoryInlineEditor: View {
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(SoftLedgerTheme.secondaryInk.opacity(0.74))
 
-            ExpenseEditorChoiceGrid(items: expenseCategories, id: \.id) { category, itemWidth in
+            ExpenseEditorChoiceGrid(items: isSettlement ? recordFilterCategories : expenseCategories, id: \.id) { category, itemWidth in
                 let isSelected = selection == category.id
 
                 Button {
@@ -2465,6 +2472,7 @@ private struct CategoryInlineEditor: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(isSettlement)
                 .accessibilityLabel(L(category.titleKey))
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }

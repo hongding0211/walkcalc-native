@@ -345,7 +345,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
             who: fromId,
             paidMinor: amountMinor,
             forWhom: [toId],
-            type: transferCategory.id,
+            type: settlementCategory.id,
             text: note,
             long: "",
             lat: "",
@@ -364,6 +364,9 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                   let record = group.records.first(where: { $0.id == recordId }),
                   recordCanMutate(record, in: group) else {
                 return .failure(.sourceUnavailable())
+            }
+            guard !isSettlement, !record.isDebtResolve else {
+                return .failure(.init(kind: .validation, message: L("Settlement records are read-only.")))
             }
             let memberIds = Set(group.participants.filter(\.isActive).map(\.id))
             guard memberIds.contains(who), forWhom.allSatisfy(memberIds.contains) else { return .failure(.sourceUnavailable()) }
@@ -420,7 +423,7 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
                     who: transfer.fromId,
                     paidMinor: transfer.amountMinor,
                     forWhom: [transfer.toId],
-                    type: transferCategory.id,
+                    type: settlementCategory.id,
                     text: WalkRecord.automaticSettlementNote,
                     long: "",
                     lat: "",

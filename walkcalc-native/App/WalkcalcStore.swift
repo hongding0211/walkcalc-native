@@ -1653,9 +1653,10 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func editRecordWithFeedback(groupId: String, recordId: String, who: String, paid: String, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool = false, currencyCode: String? = nil) async -> StoreActionResult {
+        guard !isSettlement else { return .failure(L("Settlement records are read-only.")) }
         if let group = group(id: groupId),
            let record = recordsByGroup[groupId]?.first(where: { $0.recordId == recordId }),
-           !canMutateRecord(record, in: group) {
+           (record.isDebtResolve || !canMutateRecord(record, in: group)) {
             return .failure(nil)
         }
         if isFixtureMode {
@@ -2098,7 +2099,7 @@ final class WalkcalcStore: ObservableObject {
         request.amountBasis = recordAmountBasis(for: groupId)
         request.currencyCodes = filters.currencyCodes.sorted()
         request.categoryIds = filters.categoryIds.sorted()
-        request.includeSettlements = filters.categoryIds.contains(transferCategory.id)
+        request.includeSettlements = filters.categoryIds.contains(settlementCategory.id)
         if filters.onlyRelatedToMe {
             request.participantId = group(id: groupId).flatMap { currentParticipantID(for: $0) }
         }

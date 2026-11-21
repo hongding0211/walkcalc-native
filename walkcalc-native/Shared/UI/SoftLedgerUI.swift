@@ -652,6 +652,8 @@ struct ExpenseCategory: Identifiable, Hashable {
     let paletteID: String
 
     var paletteColor: WalletRGB {
+        // Neutral category color, independent of the wallet palette.
+        if paletteID == "neutral-gray" { return WalletRGB(hex: 0xC0C0C0) }
         let entry = WalletColorPair.defaultPalette.first { $0.id == paletteID }
         return WalletRGB(hex: entry?.hex ?? 0xA4BAEA)
     }
@@ -666,22 +668,29 @@ let expenseCategories: [ExpenseCategory] = [
     .init(id: "stay", titleKey: "Stay", symbol: "house.fill", emoji: "🏠", paletteID: "mint"),
     .init(id: "vacation", titleKey: "Vacation", symbol: "beach.umbrella.fill", emoji: "🏖️", paletteID: "sky"),
     .init(id: "transfer", titleKey: "Transfer", symbol: "banknote.fill", emoji: "💸", paletteID: "pistachio"),
-    .init(id: "ticket", titleKey: "Ticket", symbol: "ticket.fill", emoji: "🎟️", paletteID: "rose"),
+    .init(id: "ticket", titleKey: "Ticket", symbol: "ticket.fill", emoji: "🎟️", paletteID: "cream"),
     .init(id: "game", titleKey: "Game", symbol: "dice.fill", emoji: "🎲", paletteID: "iris"),
-    .init(id: "other", titleKey: "Other", symbol: "tag.fill", emoji: "🏷️", paletteID: "cornflower")
+    .init(id: "other", titleKey: "Other", symbol: "tag.fill", emoji: "🏷️", paletteID: "neutral-gray")
 ]
 
 let transferCategory = expenseCategories.first(where: { $0.id == "transfer" })!
 
+// Settlement is a system category, excluded from ordinary expense editors.
+let settlementCategory = ExpenseCategory(
+    id: "settlement", titleKey: "Resolve", symbol: "checkmark.arrow.trianglehead.counterclockwise",
+    emoji: "🤝", paletteID: "pistachio"
+)
+let recordFilterCategories = expenseCategories + [settlementCategory]
+
 func expenseCategory(for id: String) -> ExpenseCategory {
-    if id == "debtResolve" || id == "debt-resolve" {
-        return transferCategory
+    if [settlementCategory.id, "debtResolve", "debt-resolve"].contains(id) {
+        return settlementCategory
     }
     return expenseCategories.first(where: { $0.id == id }) ?? expenseCategories.last!
 }
 
 func expenseCategory(for record: WalkRecord) -> ExpenseCategory {
-    record.isDebtResolve ? transferCategory : expenseCategory(for: record.type)
+    record.isDebtResolve ? settlementCategory : expenseCategory(for: record.type)
 }
 
 enum MoneyDisplayStyle {

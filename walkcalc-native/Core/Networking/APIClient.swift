@@ -730,7 +730,7 @@ private func mapRecord(_ raw: Any?) -> WalkRecord {
         who: payerId ?? fromId ?? "",
         paidMinor: Money.minorFromDecimalString(dict["amount"]),
         forWhom: participants ?? toId.map { [$0] } ?? involved.filter { $0 != fromId },
-        type: isSettlement ? transferCategory.id : category ?? "food",
+        type: isSettlement ? settlementCategory.id : category ?? "food",
         text: dict["note"] as? String ?? "",
         long: dict["long"] as? String ?? "",
         lat: dict["lat"] as? String ?? "",
@@ -980,7 +980,7 @@ enum LedgerAPIContractVerification {
         expect(settlement.who, equals: "user_2", prefix: "settlement-from")
         expect(settlement.forWhom, equals: ["user_1"], prefix: "settlement-to")
         expect(settlement.paidMinor, equals: "3000", prefix: "settlement-amount")
-        expect(settlement.type, equals: transferCategory.id, prefix: "settlement-category")
+        expect(settlement.type, equals: settlementCategory.id, prefix: "settlement-category")
         expect(settlement.occurredAt, equals: 1_710_000_025_000, prefix: "settlement-occurred-at")
         expect(settlement.isDebtResolve, equals: true, prefix: "settlement-flag")
     }

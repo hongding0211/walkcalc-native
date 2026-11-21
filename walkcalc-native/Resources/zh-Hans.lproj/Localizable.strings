@@ -321,3 +321,6 @@
 "Select a group" = "选择群组";
 
 "Choose a group to view its records." = "选择一个群组以查看账目。";
+
+"Resolve" = "和解";
+"Settlement records are read-only." = "和解账单为只读，无法编辑。";

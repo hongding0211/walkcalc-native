@@ -387,7 +387,10 @@ struct RemoteLedgerDataSource: LedgerDataSource {
     }
 
     func updateRecord(groupId: String, recordId: String, who: String, paidMinor: MoneyMinor, forWhom: [String], type: String, text: String, occurredAt: TimeInterval, isSettlement: Bool, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<WalkRecord>> {
-        await envelopeMutation(context: context) { token in
+        guard !isSettlement else {
+            return .failure(.init(kind: .validation, message: L("Settlement records are read-only.")))
+        }
+        return await envelopeMutation(context: context) { token in
             try await api.updateRecord(groupCode: groupId, recordId: recordId, who: who, paidMinor: paidMinor, forWhom: forWhom, type: type, text: text, currencyCode: currencyCode, token: token, occurredAt: occurredAt, isSettlement: isSettlement)
         }
     }

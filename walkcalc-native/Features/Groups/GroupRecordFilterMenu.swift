@@ -13,7 +13,7 @@ struct GroupRecordFilterToolbar: View {
     let onReset: () -> Void
 
     private var categorySummary: String {
-        summary(expenseCategories.filter { filters.categoryIds.contains($0.id) }.map { L($0.titleKey) }, empty: L("All categories"))
+        summary(recordFilterCategories.filter { filters.categoryIds.contains($0.id) }.map { L($0.titleKey) }, empty: L("All categories"))
     }
 
     private func summary(_ values: [String], empty: String) -> String {
@@ -35,7 +35,7 @@ struct GroupRecordFilterToolbar: View {
             Menu {
                 Toggle(L("All"), isOn: Binding(get: { filters.categoryIds.isEmpty }, set: { _ in onCategoryChange([]) }))
                     .menuActionDismissBehavior(.disabled)
-                ForEach(expenseCategories, id: \.id) { category in
+                ForEach(recordFilterCategories, id: \.id) { category in
                     Toggle(isOn: membership(category.id, in: filters.categoryIds, update: onCategoryChange)) {
                         Label(L(category.titleKey), systemImage: category.symbol)
                     }

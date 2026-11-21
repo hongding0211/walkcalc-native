@@ -310,7 +310,7 @@ struct GroupRecordFilters: Codable, Hashable {
         currencyCodes.isEmpty ? L("All currencies") : currencyCodes.sorted().joined(separator: ", ")
     }
     var categorySummary: String {
-        categoryIds.isEmpty ? L("All categories") : expenseCategories.filter { categoryIds.contains($0.id) }.map { L($0.titleKey) }.joined(separator: ", ")
+        categoryIds.isEmpty ? L("All categories") : recordFilterCategories.filter { categoryIds.contains($0.id) }.map { L($0.titleKey) }.joined(separator: ", ")
     }
     var summary: String {
         [currencyCodes.isEmpty ? nil : currencySummary, onlyRelatedToMe ? L("Related to me") : nil,
@@ -344,7 +344,10 @@ struct RecordSearchRequest: Encodable, Hashable {
         guard currencyCodes.isEmpty || currencyCodes.contains(CurrencyCatalog.normalizedCode(record.currencyCode ?? defaultCurrency)) else { return false }
         if let participantId, record.who != participantId && !record.forWhom.contains(participantId) { return false }
         if !categoryIds.isEmpty || includeSettlements {
-            guard categoryIds.contains(record.type) || (includeSettlements && record.isDebtResolve) else { return false }
+            let matchesCategory = record.isDebtResolve
+                ? includeSettlements || categoryIds.contains(settlementCategory.id)
+                : categoryIds.contains(record.type)
+            guard matchesCategory else { return false }
         }
         guard !conditions.isEmpty else { return true }
         let matches = conditions.map { condition in

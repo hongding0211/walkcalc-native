@@ -321,3 +321,6 @@
 "Select a group" = "Select a group";
 
 "Choose a group to view its records." = "Choose a group to view its records.";
+
+"Resolve" = "Resolve";
+"Settlement records are read-only." = "Settlement records are read-only.";

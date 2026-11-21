@@ -96,6 +96,18 @@ enum LedgerRepositoryVerification {
         categorySearch.categoryIds = ["traffic"]
         categorySearch.includeSettlements = true
         expect(categorySearch.matches(settlementFixture, defaultCurrency: "CNY"), equals: true, prefix: "local-settlement-included")
+        categorySearch.includeSettlements = false
+        categorySearch.categoryIds = ["transfer"]
+        expect(categorySearch.matches(settlementFixture, defaultCurrency: "CNY"), equals: false, prefix: "transfer-excludes-legacy-settlement")
+        categorySearch.categoryIds = [settlementCategory.id]
+        categorySearch.includeSettlements = true
+        expect(categorySearch.matches(settlementFixture, defaultCurrency: "CNY"), equals: true, prefix: "resolve-includes-legacy-settlement")
+        var transferFixture = settlementFixture
+        transferFixture.isDebtResolve = false
+        expect(categorySearch.matches(transferFixture, defaultCurrency: "CNY"), equals: false, prefix: "resolve-excludes-normal-transfer")
+        expect(expenseCategory(for: settlementFixture).id, equals: settlementCategory.id, prefix: "legacy-settlement-display")
+        expect(expenseCategories.contains(settlementCategory), equals: false, prefix: "settlement-hidden-in-expense-editor")
+        expect(recordFilterCategories.suffix(2).map(\.id), equals: ["other", settlementCategory.id], prefix: "settlement-category-last")
         categorySearch.currencyCodes = ["USD"]
         expect(categorySearch.matches(settlementFixture, defaultCurrency: "CNY"), equals: false, prefix: "local-settlement-retains-currency-filter")
 
@@ -125,9 +137,32 @@ enum LedgerRepositoryVerification {
         await verifyPersistentLocalPins(owner: owner)
         await verifyLocalRecordSorting(source: InMemoryLedgerDataSource(), context: localContext)
         await verifyLocalRecordSorting(source: try! SwiftDataLedgerDataSource.inMemory(), context: localContext)
+        await verifySettlementReadOnly(source: InMemoryLedgerDataSource(), context: localContext)
+        await verifySettlementReadOnly(source: try! SwiftDataLedgerDataSource.inMemory(), context: localContext)
         await verifyRemoteContracts()
         await verifyRemoteAuthFailures()
         NSLog("PASS: ledger repository and filtered request verification")
+    }
+
+    private static func verifySettlementReadOnly(source: any LedgerDataSource, context: LedgerSessionContext) async {
+        let groupId = expectSuccess(await source.createGroup(name: "Settlement", currencyCode: "CNY", context: context), prefix: "readonly-group").value!
+        let ownerId = context.localOwner!.uuid
+        let guestId = expectSuccess(await source.addTempUser(code: groupId, name: "Guest", context: context), prefix: "readonly-guest").value!
+        _ = expectSuccess(await source.addRecord(groupId: groupId, who: ownerId, paidMinor: "1200", forWhom: [guestId], type: "food", text: "Dinner", long: "", lat: "", occurredAt: 1, currencyCode: "CNY", context: context), prefix: "readonly-expense")
+        let record = expectSuccess(await source.addSettlementRecord(groupId: groupId, fromId: guestId, toId: ownerId, amountMinor: "1200", note: WalkRecord.automaticSettlementNote, currencyCode: "CNY", context: context), prefix: "readonly-settlement").value!
+        expect(record.isDebtResolve, equals: true, prefix: "settlement-flag")
+        expect(record.type, equals: settlementCategory.id, prefix: "settlement-category")
+        for flag in [true, false] {
+            let result = await source.updateRecord(groupId: groupId, recordId: record.id, who: ownerId, paidMinor: "200", forWhom: [guestId], type: "food", text: "Changed", occurredAt: 2, isSettlement: flag, currencyCode: "USD", context: context)
+            expectFailure(result, kind: .validation, prefix: "settlement-edit-rejected")
+        }
+        let unchanged = expectSuccess(await source.records(groupId: groupId, page: 1, pageSize: 10, search: nil, context: context), prefix: "readonly-reload").items.first { $0.id == record.id }
+        expect(unchanged, equals: Optional(record), prefix: "settlement-unchanged")
+        _ = expectSuccess(await source.deleteRecord(groupId: groupId, recordId: record.id, context: context), prefix: "settlement-delete-allowed")
+        let remaining = expectSuccess(await source.records(groupId: groupId, page: 1, pageSize: 10, search: nil, context: context), prefix: "readonly-after-delete").items
+        expect(remaining.contains { $0.id == record.id }, equals: false, prefix: "settlement-deleted")
+        let debts = expectSuccess(await source.settlementSuggestion(groupId: groupId, currencyCode: "CNY", context: context), prefix: "readonly-restored-debt").value!
+        expect(debts.first?.amountMinor, equals: Optional("1200"), prefix: "deleting-settlement-restores-debt")
     }
 
     private static func verifyPersistentLocalPins(owner: Member) async {
@@ -251,6 +286,9 @@ enum LedgerRepositoryVerification {
         _ = expectSuccess(await repository.unarchiveGroup(code: "AB12", context: context), prefix: "remote-unarchive")
         _ = expectSuccess(await repository.addRecord(groupId: "AB12", who: "user-1", paidMinor: "1200", forWhom: ["user-1", "tmp-1"], type: "food", text: "Dinner", long: "", lat: "", occurredAt: 1_710_000_000_000, currencyCode: "USD", context: context), prefix: "remote-add-record")
         _ = expectSuccess(await repository.updateRecord(groupId: "AB12", recordId: "record-1", who: "user-1", paidMinor: "1300", forWhom: ["user-1"], type: "food", text: "Updated", occurredAt: 1_710_000_000_001, isSettlement: false, currencyCode: "USD", context: context), prefix: "remote-update-record")
+        let requestsBeforeEdit = MockLedgerURLProtocol.requests.count
+        expectFailure(await repository.updateRecord(groupId: "AB12", recordId: "settlement-1", who: "tmp-1", paidMinor: "600", forWhom: ["user-1"], type: settlementCategory.id, text: "Changed", occurredAt: 1, isSettlement: true, currencyCode: "USD", context: context), kind: .validation, prefix: "remote-settlement-edit-rejected")
+        expect(MockLedgerURLProtocol.requests.count, equals: requestsBeforeEdit, prefix: "remote-settlement-edit-no-request")
         _ = expectSuccess(await repository.deleteRecord(groupId: "AB12", recordId: "record-1", context: context), prefix: "remote-delete-record")
         _ = expectSuccess(await repository.addSettlementRecord(groupId: "AB12", fromId: "tmp-1", toId: "user-1", amountMinor: "600", note: "resolve", currencyCode: "USD", context: context), prefix: "remote-settlement-record")
         _ = expectSuccess(await repository.resolveDebts(groupId: "AB12", currencyCode: "USD", context: context), prefix: "remote-resolve-all")
@@ -269,7 +307,7 @@ enum LedgerRepositoryVerification {
         var combinedSearch = RecordSearchRequest.noteOrCategoryName(query: "Dinner")
         combinedSearch.currencyCodes = filters.currencyCodes
         combinedSearch.participantId = filters.participantId
-        combinedSearch.categoryIds = ["food", "transfer"]
+        combinedSearch.categoryIds = ["food", settlementCategory.id]
         combinedSearch.includeSettlements = true
         combinedSearch.sort = GroupRecordSort(field: .amount, order: .ascending)
         combinedSearch.amountBasis = .perPerson
@@ -282,7 +320,7 @@ enum LedgerRepositoryVerification {
         expect(Set(combinedRequests.compactMap { $0.query["page"] }), equals: Set(["1", "2"]), prefix: "remote-combined-pages")
         expect(combinedRequests.allSatisfy {
             $0.query["currencyCodes"] == "CNY,USD" && $0.query["participantId"] == "user-1"
-                && $0.query["categoryIds"] == "food,transfer" && $0.query["includeSettlements"] == "true"
+                && $0.query["categoryIds"] == "food,settlement" && $0.query["includeSettlements"] == "true"
                 && $0.query["sortBy"] == "amount" && $0.query["sortOrder"] == "asc" && $0.query["timeZone"] == nil
                 && $0.query["amountBasis"] == "perPerson"
                 && $0.query["search"]?.contains("Dinner") == true
