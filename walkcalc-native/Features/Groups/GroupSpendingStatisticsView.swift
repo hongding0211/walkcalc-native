@@ -20,6 +20,7 @@ struct GroupSpendingStatisticsView: View {
 
     @AppStorage private var walletPositionData: Data
     @AppStorage private var savedCurrency: String
+    @AppStorage private var timelineRange: SpendingTimelineRange
     @State private var statistics: GroupSpendingStatistics?
     @State private var selectedCategoryID: String?
     @State private var recordsSelection: RecordsSelection?
@@ -32,6 +33,7 @@ struct GroupSpendingStatisticsView: View {
         let walletKey = WalletCardPosition.storageKey(groupID: group.id, participantID: participantID)
         _walletPositionData = AppStorage(wrappedValue: Data(), walletKey)
         _savedCurrency = AppStorage(wrappedValue: "", "statistics.currency.\(walletKey)")
+        _timelineRange = AppStorage(wrappedValue: .week, "statistics.timelineRange.\(walletKey)")
     }
 
     private var currentGroup: WalkGroup { store.group(id: group.id) ?? group }
@@ -128,6 +130,9 @@ struct GroupSpendingStatisticsView: View {
 
         categoryCard(categoryRows(statistics.categories, currency: currency), currency: currency)
         memberCard(memberRows(statistics.members, currency: currency), currency: currency)
+        SpendingTimelineCard(group: currentGroup, currencyCode: currency, refreshID: retryCount, range: $timelineRange) { interval, title in
+            recordsSelection = RecordsSelection(title: title, currencyCode: currency, filter: .period(interval))
+        }
     }
 
     private func categoryCard(_ rows: [CategoryRow], currency: String) -> some View {
@@ -293,9 +298,7 @@ struct GroupSpendingStatisticsView: View {
                     filter: .category(ids: row.categoryIDs, includeUncategorized: row.id == CategoryRow.uncategorizedID)
                 )
             } label: {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+                SpendingStatisticsChevron()
                     .frame(width: 32, height: categoryRowMinHeight, alignment: .leading)
                     .contentShape(.rect)
             }
@@ -362,10 +365,7 @@ struct GroupSpendingStatisticsView: View {
                     Spacer(minLength: 8)
                     Text(amountText(row.amount, currency: currency))
                         .monospacedDigit()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
-                        .accessibilityHidden(true)
+                    SpendingStatisticsChevron()
                 }
                 .font(.subheadline)
 
@@ -458,6 +458,15 @@ struct GroupSpendingStatisticsView: View {
         let title: String
         let currencyCode: String
         let filter: SpendingRecordsFilter
+    }
+}
+
+struct SpendingStatisticsChevron: View {
+    var body: some View {
+        Image(systemName: "chevron.right")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(SoftLedgerTheme.mutedInk.opacity(0.7))
+            .accessibilityHidden(true)
     }
 }
 

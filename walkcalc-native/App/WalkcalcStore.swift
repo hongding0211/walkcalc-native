@@ -1029,6 +1029,12 @@ final class WalkcalcStore: ObservableObject {
             search.includeUncategorized = includeUncategorized
         case .member(let id):
             search.expenseScope = .member(participantID: id)
+        case .period(let interval):
+            guard let participantID = currentParticipantID(for: group) else {
+                return .failure(.authenticationRequired())
+            }
+            search.expenseScope = .mine(participantID: participantID)
+            search.occurredWithin = interval
         }
 
         let (repository, session) = statisticsLedger(for: group)
@@ -1044,6 +1050,105 @@ final class WalkcalcStore: ObservableObject {
                           disposition: .local, failure: failure)
         }
         return result
+    }
+
+    func spendingTimelineBounds(
+        for group: WalkGroup, currencyCode: String
+    ) async -> LedgerOperationResult<ClosedRange<Date>?> {
+        guard let participantID = currentParticipantID(for: group) else {
+            return .failure(.authenticationRequired())
+        }
+        let (repository, initialSession) = statisticsLedger(for: group)
+        var session = initialSession
+        var dates: [Date] = []
+        for order in [GroupRecordSort.Order.ascending, .descending] {
+            let search = RecordSearchRequest(
+                operator: "or", conditions: [], currencyCodes: [currencyCode],
+                expenseScope: .mine(participantID: participantID), sort: GroupRecordSort(order: order)
+            )
+            var page = 1
+            while !Task.isCancelled {
+                let result = await repository.records(
+                    groupId: group.id, page: page, pageSize: 25, search: search, context: session
+                )
+                guard !Task.isCancelled else { return .failure(.sourceUnavailable()) }
+                switch result {
+                case .success(let response):
+                    if let refreshedToken = response.refreshedToken {
+                        applyRefreshedToken(refreshedToken)
+                        session = context(for: group.id)
+                    }
+                    if let record = response.items.first(where: { Money.isPositive($0.spendingShareMinor) }) {
+                        dates.append(record.occurredAt.walkDate)
+                    } else if let pagination = response.pagination, page * pagination.size < pagination.total {
+                        page += 1
+                        continue
+                    } else {
+                        return .success(nil)
+                    }
+                case .failure(let failure):
+                    recordFailure(operation: "spendingTimelineBounds", intent: .secondaryLoad, disposition: .local, failure: failure)
+                    return .failure(failure)
+                }
+                break
+            }
+        }
+        guard dates.count == 2 else { return .failure(.sourceUnavailable()) }
+        return .success(min(dates[0], dates[1])...max(dates[0], dates[1]))
+    }
+
+    func spendingTimeline(
+        for group: WalkGroup, currencyCode: String, interval: DateInterval,
+        bucket: Calendar.Component, calendar: Calendar
+    ) async -> LedgerOperationResult<[SpendingTimelinePoint]> {
+        guard let participantID = currentParticipantID(for: group) else {
+            return .failure(.authenticationRequired())
+        }
+        let (repository, initialSession) = statisticsLedger(for: group)
+        let search = RecordSearchRequest(
+            operator: "or", conditions: [], currencyCodes: [currencyCode],
+            expenseScope: .mine(participantID: participantID), occurredWithin: interval,
+            sort: GroupRecordSort()
+        )
+        let pageSize = 100
+        var page = 1
+        var session = initialSession
+        var seen = Set<String>()
+        var totals: [Date: [String?: MoneyMinor]] = [:]
+
+        while !Task.isCancelled {
+            let result = await repository.records(
+                groupId: group.id, page: page, pageSize: pageSize, search: search, context: session
+            )
+            guard !Task.isCancelled else { break }
+            switch result {
+            case .success(let response):
+                if let refreshedToken = response.refreshedToken {
+                    applyRefreshedToken(refreshedToken)
+                    session = context(for: group.id)
+                }
+                for record in response.items where seen.insert(record.id).inserted {
+                    guard let share = record.spendingShareMinor, Money.isPositive(share),
+                          let date = calendar.dateInterval(of: bucket, for: record.occurredAt.walkDate)?.start else { continue }
+                    let category = record.type.isEmpty ? nil : record.type
+                    let previous = totals[date]?[category] ?? "0"
+                    totals[date, default: [:]][category] = Money.add(previous, share)
+                }
+                if let pagination = response.pagination, page * pagination.size < pagination.total {
+                    page += 1
+                } else {
+                    return .success(totals.flatMap { date, categories in
+                        categories.map { category, amount in
+                            SpendingTimelinePoint(date: date, categoryID: category, expenseMinor: amount)
+                        }
+                    })
+                }
+            case .failure(let failure):
+                recordFailure(operation: "spendingTimeline", intent: .secondaryLoad, disposition: .local, failure: failure)
+                return .failure(failure)
+            }
+        }
+        return .failure(.sourceUnavailable())
     }
 
     private func statisticsLedger(for group: WalkGroup) -> (LedgerRepository, LedgerSessionContext) {

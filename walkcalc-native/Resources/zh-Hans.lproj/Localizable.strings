@@ -308,6 +308,10 @@
 "Personal spending: %@" = "我的开销：%@";
 "My spending" = "我的开销";
 "Statistics" = "统计";
+"Time range" = "时间范围";
+"Week" = "周";
+"Month" = "月";
+"Year" = "年";
 "Total" = "全部";
 "My spending by category" = "我的消费分类";
 "Statistics unavailable" = "暂时无法加载统计";

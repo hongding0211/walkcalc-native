@@ -264,6 +264,12 @@ enum LedgerRepositoryVerification {
         let memberExpenses = expectSuccess(await repository.records(groupId: groupId, page: 1, pageSize: 10, search: memberDrilldown, context: context), prefix: "local-member-statistics-records")
         expect(memberExpenses.items.map(\.text), equals: ["Dinner expensive", "Paid for guest"], prefix: "local-member-statistics-excludes-settlements")
         expect(memberExpenses.items.compactMap(\.spendingShareMinor), equals: ["500", "800"], prefix: "local-member-records-use-their-own-shares")
+        var periodDrilldown = memberDrilldown
+        periodDrilldown.occurredWithin = DateInterval(start: today, end: today.addingTimeInterval(3600))
+        let periodExpenses = expectSuccess(await repository.records(
+            groupId: groupId, page: 1, pageSize: 10, search: periodDrilldown, context: context
+        ), prefix: "local-timeline-records")
+        expect(periodExpenses.items.map(\.text), equals: ["Paid for guest"], prefix: "local-timeline-start-inclusive-end-exclusive")
         let members = expectSuccess(await repository.groupBalances(groupId: groupId, context: context), prefix: "local-member-statistics-balances").value ?? []
         expect(members.first { $0.id == guestId }?.currencyBalances.first { $0.currencyCode == "CNY" }?.costMinor,
                equals: "1300", prefix: "local-member-statistics-excludes-settlement-amount")
@@ -361,6 +367,13 @@ enum LedgerRepositoryVerification {
             "page": "2", "pageSize": "10", "scope": "myExpense", "includeUncategorized": "true",
             "currencyCodes": "USD", "sortBy": "occurredAt", "sortOrder": "desc",
         ], prefix: "remote-statistics-records-query")
+
+        var timeline = drilldown
+        timeline.occurredWithin = DateInterval(start: Date(timeIntervalSince1970: 1_710_000_000), duration: 86_400)
+        _ = expectSuccess(await repository.records(groupId: "AB12", page: 1, pageSize: 100, search: timeline, context: context), prefix: "remote-timeline-records")
+        let timelineQuery = MockLedgerURLProtocol.requests.last?.query
+        expect(timelineQuery?["fromOccurredAt"], equals: "1710000000000", prefix: "remote-timeline-start-milliseconds")
+        expect(timelineQuery?["toOccurredAt"], equals: "1710086400000", prefix: "remote-timeline-end-milliseconds")
 
         let memberDrilldown = RecordSearchRequest(
             operator: "or", conditions: [], currencyCodes: ["USD"],

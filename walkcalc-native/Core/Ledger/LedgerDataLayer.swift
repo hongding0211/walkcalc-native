@@ -153,9 +153,16 @@ struct GroupSpendingStatistics {
     let members: [Member]
 }
 
+nonisolated struct SpendingTimelinePoint: Codable, Sendable {
+    let date: Date
+    let categoryID: String?
+    let expenseMinor: MoneyMinor
+}
+
 enum SpendingRecordsFilter {
     case category(ids: [String], includeUncategorized: Bool)
     case member(id: String)
+    case period(DateInterval)
 }
 
 struct LedgerMutationResponse<Value> {

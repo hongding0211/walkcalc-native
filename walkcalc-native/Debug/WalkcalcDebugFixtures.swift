@@ -96,7 +96,9 @@ extension WalkcalcStore {
             groups[0].currentUserRecordCount = 180
             groups[0].membersInfo[0].currencyBalances = balances
             let calendar = Calendar.autoupdatingCurrent
-            let today = calendar.startOfDay(for: Date())
+            let timelineHistory = ProcessInfo.processInfo.arguments.contains("--ui-fixture-timeline-history")
+            let anchor = timelineHistory ? calendar.date(byAdding: .day, value: -400, to: .now) ?? .now : .now
+            let today = calendar.startOfDay(for: anchor)
             recordsByGroup["stress-0"] = (recordsByGroup["stress-0"] ?? []).enumerated().map { index, record in
                 var record = record
                 let day = calendar.date(byAdding: .day, value: -(index / 6), to: today) ?? today

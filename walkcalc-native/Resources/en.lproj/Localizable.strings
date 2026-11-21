@@ -308,6 +308,10 @@
 "Personal spending: %@" = "Personal spending: %@";
 "My spending" = "My spending";
 "Statistics" = "Statistics";
+"Time range" = "Time range";
+"Week" = "Week";
+"Month" = "Month";
+"Year" = "Year";
 "Total" = "Total";
 "My spending by category" = "My spending by category";
 "Statistics unavailable" = "Statistics unavailable";

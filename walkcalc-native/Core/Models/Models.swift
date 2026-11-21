@@ -349,6 +349,7 @@ struct RecordSearchRequest: Encodable, Hashable {
     var includeSettlements = false
     var includeUncategorized = false
     var expenseScope: ExpenseScope? = nil
+    var occurredWithin: DateInterval? = nil
     var sort: GroupRecordSort? = nil
     var amountBasis: GroupRecordSort.AmountBasis? = nil
 
@@ -363,6 +364,10 @@ struct RecordSearchRequest: Encodable, Hashable {
         guard currencyCodes.isEmpty || currencyCodes.contains(CurrencyCatalog.normalizedCode(record.currencyCode ?? defaultCurrency)) else { return false }
         if let participantId, record.who != participantId && !record.forWhom.contains(participantId) { return false }
         if let expenseScope, record.isDebtResolve || !record.forWhom.contains(expenseScope.participantID) { return false }
+        if let occurredWithin {
+            let date = record.occurredAt.walkDate
+            guard date >= occurredWithin.start, date < occurredWithin.end else { return false }
+        }
         if !categoryIds.isEmpty || includeSettlements || includeUncategorized {
             let matchesCategory = record.isDebtResolve
                 ? includeSettlements || categoryIds.contains(settlementCategory.id)

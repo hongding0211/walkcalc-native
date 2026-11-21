@@ -267,6 +267,10 @@ struct APIClient: Sendable {
             }
         }
         if let participantId = recordSearch?.participantId { query["participantId"] = participantId }
+        if let interval = recordSearch?.occurredWithin {
+            query["fromOccurredAt"] = String(Int64(interval.start.timeIntervalSince1970 * 1_000))
+            query["toOccurredAt"] = String(Int64(interval.end.timeIntervalSince1970 * 1_000))
+        }
         if let sort = recordSearch?.sort {
             query["sortBy"] = sort.field.rawValue
             query["sortOrder"] = sort.order.rawValue
@@ -278,12 +282,16 @@ struct APIClient: Sendable {
             arrayPayload(raw).map { rawRecord in
                 var record = mapRecord(rawRecord)
                 if let scope = recordSearch?.expenseScope {
+                    let fields = dictPayload(rawRecord)
                     let key = switch scope {
                     case .mine: "currentUserExpenseShare"
                     case .member: "matchedExpenseShare"
                     }
-                    if let share = dictPayload(rawRecord)[key] as? String {
+                    if let share = fields[key] as? String {
                         record.spendingShareMinor = try? Money.parseDisplay(share)
+                    }
+                    if recordSearch?.occurredWithin != nil, !record.isDebtResolve {
+                        record.type = fields["category"] as? String ?? ""
                     }
                 }
                 return record
