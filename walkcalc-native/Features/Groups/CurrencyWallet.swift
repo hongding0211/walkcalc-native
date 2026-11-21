@@ -470,12 +470,10 @@ struct CurrencyWallet: View {
 
     private var availableIDs: [String] { samples.map(\.id) }
     private var orderedIDs: [String] { savedPosition.order.resolved(in: availableIDs) }
-    private var orderedSamples: [WalletCurrency] {
-        orderedIDs.compactMap { id in samples.first { $0.id == id } }
-    }
 
     private var selected: WalletCurrency? {
-        samples.first { $0.id == savedPosition.selectedID } ?? orderedSamples.last
+        guard let id = savedPosition.frontCardID(in: availableIDs) else { return nil }
+        return samples.first { $0.id == id }
     }
 
     var body: some View {

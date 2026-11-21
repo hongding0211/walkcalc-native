@@ -1,9 +1,6 @@
 import SwiftUI
 
 struct GroupRecordFilterToolbar: View {
-    // The circular symbol includes padding: these sizes align the inner three-line glyph.
-    @ScaledMetric(relativeTo: .body) private var activeSymbolSize = 36
-    @ScaledMetric(relativeTo: .body) private var inactiveSymbolSize = 22
     let groupId: String
     let filters: GroupRecordFilters
     let currencyCodes: [String]
@@ -14,10 +11,6 @@ struct GroupRecordFilterToolbar: View {
     let onSortFieldChange: (GroupRecordSort.Field) -> Void
     let onSortOrderChange: (GroupRecordSort.Order) -> Void
     let onReset: () -> Void
-
-    private var currencySummary: String {
-        summary(filters.currencyCodes.sorted(), empty: L("All currencies"))
-    }
 
     private var categorySummary: String {
         summary(expenseCategories.filter { filters.categoryIds.contains($0.id) }.map { L($0.titleKey) }, empty: L("All categories"))
@@ -30,22 +23,15 @@ struct GroupRecordFilterToolbar: View {
     }
 
     var body: some View {
-        Menu {
+        GroupFilterMenu(isActive: filters.isActive, summary: filters.summary) {
             Toggle(isOn: Binding(get: { filters.onlyRelatedToMe }, set: onRelatedChange)) {
                 Label(L("Related to me"), systemImage: "person.crop.circle")
             }
             .menuActionDismissBehavior(.disabled)
-            Menu {
-                Toggle(L("All"), isOn: Binding(get: { filters.currencyCodes.isEmpty }, set: { _ in onCurrencyChange([]) }))
-                    .menuActionDismissBehavior(.disabled)
-                ForEach(currencyCodes, id: \.self) { code in
-                    Toggle("\(code) · \(CurrencyCatalog.currencyInfo(for: code).name)", isOn: membership(code, in: filters.currencyCodes, update: onCurrencyChange))
-                        .menuActionDismissBehavior(.disabled)
-                }
-            } label: {
-                Label(L("Currency"), systemImage: "dollarsign.circle")
-                Text(currencySummary)
-            }
+            GroupCurrencyFilterMenu(
+                currencyCodes: currencyCodes,
+                selection: Binding(get: { filters.currencyCodes }, set: onCurrencyChange)
+            )
             Menu {
                 Toggle(L("All"), isOn: Binding(get: { filters.categoryIds.isEmpty }, set: { _ in onCategoryChange([]) }))
                     .menuActionDismissBehavior(.disabled)
@@ -88,18 +74,7 @@ struct GroupRecordFilterToolbar: View {
                     .menuActionDismissBehavior(.disabled)
                 }
             }
-        } label: {
-            Image(systemName: filters.isActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
-                .resizable()
-                .scaledToFit()
-                .frame(width: filters.isActive ? activeSymbolSize : inactiveSymbolSize,
-                       height: filters.isActive ? activeSymbolSize : inactiveSymbolSize)
-                // The toolbar uses the label's size as part of the menu's source layout.
-                .frame(width: activeSymbolSize, height: activeSymbolSize)
         }
-        .menuOrder(.fixed)
-        .accessibilityLabel(L("Filters"))
-        .accessibilityValue(filters.summary)
     }
 
     private func membership(_ id: String, in selected: Set<String>, update: @escaping (Set<String>) -> Void) -> Binding<Bool> {
@@ -108,5 +83,63 @@ struct GroupRecordFilterToolbar: View {
             if enabled { next.insert(id) } else { next.remove(id) }
             update(next)
         })
+    }
+}
+
+struct GroupFilterMenu<Content: View>: View {
+    // The circular symbol includes padding: these sizes align the inner three-line glyph.
+    @ScaledMetric(relativeTo: .body) private var activeSymbolSize = 36
+    @ScaledMetric(relativeTo: .body) private var inactiveSymbolSize = 22
+    let isActive: Bool
+    let summary: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Menu(content: content) {
+            Image(systemName: isActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+                .resizable()
+                .scaledToFit()
+                .frame(width: isActive ? activeSymbolSize : inactiveSymbolSize,
+                       height: isActive ? activeSymbolSize : inactiveSymbolSize)
+                // The toolbar uses the label's size as part of the menu's source layout.
+                .frame(width: activeSymbolSize, height: activeSymbolSize)
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel(L("Filters"))
+        .accessibilityValue(summary)
+    }
+}
+
+struct GroupCurrencyFilterMenu: View {
+    let currencyCodes: [String]
+    @Binding var selection: Set<String>
+
+    var body: some View {
+        Menu {
+            Toggle(L("All"), isOn: Binding(get: { selection.isEmpty }, set: { _ in selection = [] }))
+                .menuActionDismissBehavior(.disabled)
+            ForEach(currencyCodes, id: \.self) { code in
+                Toggle(Self.title(for: code), isOn: Binding(
+                    get: { selection.contains(code) },
+                    set: { enabled in
+                        if enabled { selection.insert(code) } else { selection.remove(code) }
+                    }
+                ))
+                .menuActionDismissBehavior(.disabled)
+            }
+        } label: {
+            Label(L("Currency"), systemImage: "dollarsign.circle")
+            Text(Self.summary(selection))
+        }
+    }
+
+    static func title(for code: String) -> String {
+        "\(code) · \(CurrencyCatalog.currencyInfo(for: code).name)"
+    }
+
+    static func summary(_ selection: Set<String>) -> String {
+        guard !selection.isEmpty else { return L("All currencies") }
+        let visible = selection.sorted().prefix(2).joined(separator: ", ")
+        return selection.count > 2 ? "\(visible), … +\(selection.count - 2)" : visible
     }
 }

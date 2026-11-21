@@ -17,7 +17,6 @@ struct GroupSheetView: View {
     let groupId: String
     let sheet: GroupSheet
     @Binding var activeSheet: GroupSheet?
-    let dismissGroup: () -> Void
 
     private var group: WalkGroup? {
         store.group(id: groupId)
@@ -42,23 +41,6 @@ struct GroupSheetView: View {
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-
-        case .groupSettings:
-            if let group {
-                NavigationStack {
-                    GroupSettingsSheet(group: group, onDone: {
-                        activeSheet = nil
-                    }, onArchive: {
-                        activeSheet = nil
-                        dismissGroup()
-                    }, onDelete: {
-                        activeSheet = nil
-                        dismissGroup()
-                    })
-                }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-            }
 
         case .balances(let member):
             if let group {
@@ -504,15 +486,12 @@ private struct AddTemporaryMemberView: View {
     }
 }
 
-struct SettingsSheet: View {
+struct AppSettingsView: View {
     @EnvironmentObject private var store: WalkcalcStore
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @ScaledMetric(relativeTo: .body) private var accountAvatarSize = 32
     @ScaledMetric(relativeTo: .body) private var accountRowSpacing = 12
 
-    let archivedGroups: [WalkGroup]
-    let onDone: () -> Void
     @State private var confirmLogout = false
     @State private var showingProfile = false
     @State private var showingSignIn = false
@@ -598,9 +577,7 @@ struct SettingsSheet: View {
             Section(L("Groups")) {
                 Toggle(L("Show split amounts in the list"), isOn: $store.showsPerPersonAmount)
 
-                NavigationLink {
-                    ArchivedGroupsView(groups: archivedGroups)
-                } label: {
+                NavigationLink(value: Route.archivedGroups) {
                     Text(L("Archived groups"))
                         .foregroundStyle(.primary)
                 }
@@ -637,44 +614,15 @@ struct SettingsSheet: View {
         .background(SoftLedgerTheme.canvas)
         .navigationTitle(L("Settings"))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(role: .cancel) {
-                    dismiss()
-                    onDone()
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .accessibilityLabel(L("Cancel"))
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    dismiss()
-                    onDone()
-                } label: {
-                    Image(systemName: "checkmark")
-                }
-                .tint(store.selectedTheme.accent)
-                .buttonStyle(.borderedProminent)
-                .accessibilityLabel(L("Done"))
-            }
-        }
         .alert(L("Confirm logout?"), isPresented: $confirmLogout) {
             Button(L("Cancel"), role: .cancel) {}
             Button(L("Confirm"), role: .destructive) {
                 store.logout()
-                dismiss()
-                onDone()
             }
         }
         .sheet(isPresented: $showingProfile, onDismiss: {
             Task { @MainActor in
                 await store.reconcileSessionAfterProfileDismiss()
-                if !store.isLoggedIn {
-                    dismiss()
-                    onDone()
-                }
             }
         }) {
             SSOProfileView(url: store.api.profileURL(), token: store.token)
@@ -836,32 +784,29 @@ private enum ArchivedGroupPendingAction: Equatable {
     }
 }
 
-struct GroupSettingsSheet: View {
+struct GroupSettingsView: View {
     @EnvironmentObject private var store: WalkcalcStore
-    @Environment(\.dismiss) private var dismiss
     @ScaledMetric(relativeTo: .body) private var memberAvatarSize = 20
+    @FocusState private var isGroupNameFocused: Bool
 
     let group: WalkGroup
-    let onDone: () -> Void
-    let onArchive: () -> Void
-    let onDelete: () -> Void
+    let onGroupRemoved: () -> Void
 
-    @State private var name: String
+    @State private var draftGroupName: String?
     @State private var confirmation: GroupSettingsConfirmation?
     @State private var isShowingArchiveBlockedAlert = false
     @State private var actionMessage: String?
     @State private var pendingAction: GroupSettingsPendingAction?
 
-    init(group: WalkGroup, onDone: @escaping () -> Void, onArchive: @escaping () -> Void, onDelete: @escaping () -> Void) {
-        self.group = group
-        self.onDone = onDone
-        self.onArchive = onArchive
-        self.onDelete = onDelete
-        _name = State(initialValue: group.name)
-    }
-
     private var currentGroup: WalkGroup {
         store.group(id: group.id) ?? group
+    }
+
+    private var groupName: Binding<String> {
+        Binding(
+            get: { draftGroupName ?? store.pendingGroupNames[group.id] ?? currentGroup.name },
+            set: { draftGroupName = $0 }
+        )
     }
 
     private var isSubmitting: Bool {
@@ -889,10 +834,17 @@ struct GroupSettingsSheet: View {
 
                     Spacer()
 
-                    TextField(L("Group name"), text: $name)
+                    TextField(L("Group name"), text: groupName)
                         .textInputAutocapitalization(.words)
                         .multilineTextAlignment(.trailing)
                         .softLedgerAccentTint()
+                        .focused($isGroupNameFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            isGroupNameFocused = false
+                            saveGroupName()
+                        }
+                        .disabled(store.pendingGroupNames[group.id] != nil)
                 }
 
                 HStack {
@@ -1071,31 +1023,14 @@ struct GroupSettingsSheet: View {
         }
         .navigationTitle(L("Group settings"))
         .navigationBarTitleDisplayMode(.inline)
-        .softLedgerDismissesKeyboardOnBackgroundTap()
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(role: .cancel) {
-                    dismiss()
-                    onDone()
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .accessibilityLabel(L("Cancel"))
-                .disabled(isSubmitting)
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    Task { await saveAndDismiss() }
-                } label: {
-                    AsyncConfirmationIcon(isPending: pendingAction == .rename)
-                }
-                .buttonStyle(.borderedProminent)
-                .softLedgerAccentTint()
-                .disabled(isSubmitting)
-                .accessibilityLabel(L("Done"))
-            }
+        .toolbarVisibility(.hidden, for: .bottomBar)
+        .softLedgerDismissesKeyboardOnBackgroundTap(isActive: isGroupNameFocused) {
+            isGroupNameFocused = false
         }
+        .onChange(of: isGroupNameFocused) { _, isFocused in
+            if !isFocused { saveGroupName() }
+        }
+        .onDisappear(perform: saveGroupName)
         .alert(confirmationTitle, isPresented: confirmationBinding) {
             switch confirmation {
             case .archive:
@@ -1149,22 +1084,23 @@ struct GroupSettingsSheet: View {
         )
     }
 
-    private func saveAndDismiss() async {
-        guard !isSubmitting else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty, trimmed != group.name {
-            actionMessage = nil
-            pendingAction = .rename
-            let result = await store.changeGroupNameWithFeedback(group.id, name: trimmed)
-            if !result.success {
-                pendingAction = nil
-                actionMessage = result.message
-                return
+    private func saveGroupName() {
+        guard let draftGroupName else { return }
+        self.draftGroupName = nil
+        let name = draftGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let currentGroup = store.group(id: group.id), !name.isEmpty, name != currentGroup.name else { return }
+
+        // Let a save complete even when the system Back button removes this view.
+        Task {
+            guard store.group(id: group.id) != nil, store.pendingGroupNames[group.id] == nil else { return }
+            let result = await store.changeGroupNameWithFeedback(group.id, name: name)
+            if !result.success, store.group(id: group.id) != nil {
+                store.urgentAlert = StoreAlert(
+                    title: L("Could not change group name"),
+                    message: result.message ?? L("Please try again.")
+                )
             }
-            pendingAction = nil
         }
-        dismiss()
-        onDone()
     }
 
     private func archiveGroup() async {
@@ -1173,8 +1109,7 @@ struct GroupSettingsSheet: View {
         pendingAction = .archive
         let result = await store.archiveGroupWithFeedback(group.id)
         if result.success {
-            dismiss()
-            onArchive()
+            onGroupRemoved()
         } else {
             pendingAction = nil
             actionMessage = result.message
@@ -1189,8 +1124,7 @@ struct GroupSettingsSheet: View {
         let result = await store.deleteGroupWithFeedback(group.id)
         if result.success {
             SoftLedgerHaptics.success()
-            dismiss()
-            onDelete()
+            onGroupRemoved()
         } else {
             pendingAction = nil
             actionMessage = result.message
@@ -1211,7 +1145,6 @@ enum GroupSettingsConfirmation: Identifiable {
 }
 
 private enum GroupSettingsPendingAction {
-    case rename
     case archive
     case delete
 }

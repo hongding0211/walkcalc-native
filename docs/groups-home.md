@@ -37,8 +37,7 @@ The Groups home page uses a native iOS navigation header, following the Notes ap
 - The add menu contains:
   - `Create group`
   - `Join group`
-- `ellipsis` opens `Settings` directly as a full-height native sheet.
-- Do not show a top-level action menu from this `ellipsis`.
+- `ellipsis` opens a menu. `Settings` and `Archived groups` each push a native navigation page.
 - Do not place per-group actions such as `Archive` or `Delete` behind the home `ellipsis` action.
 - Per-group actions belong to each group row's context menu.
 - Both actions must have accessibility labels:
@@ -210,7 +209,7 @@ The empty state is the first-run version of the Groups home page. It should feel
 - Tapping `Create group` starts the new group flow.
 - Tapping `Join group` starts the join group flow.
 - Tapping the navigation bar `plus` opens the add menu with both choices.
-- The `ellipsis` action opens the full-height Settings sheet.
+- Choosing `Settings` from the `ellipsis` menu pushes the Settings page.
 - Empty state content should expose the same creation and joining concepts as the toolbar add menu.
 
 ### Current SwiftUI Pattern
@@ -401,20 +400,15 @@ Member-add behavior:
 - `Add member` pushes into the shared member-search flow inside the current create-group sheet stack, with a native trailing chevron.
 - `Add temporary member` opens the same lightweight name-entry dialog used in `Group settings`.
 
-### Page-Level Settings Sheet
+### Settings Page
 
-The top-right `ellipsis` opens `Settings` directly. This is an account-level management surface, so it should default to a full-height native sheet instead of a medium detent.
+The top-right `ellipsis` menu opens the account-level `Settings` page.
 
 Presentation:
 
-- Use a local `NavigationStack`.
-- Use the large detent by default:
-  - `.presentationDetents([.large])`
-- Show the drag indicator:
-  - `.presentationDragIndicator(.visible)`
+- Use one native navigation path for both layouts. A single-column layout pushes Settings directly from the home list. In the split layout, Settings replaces the detail stack's current path.
 - Title: `Settings`.
-- Use cancellation action `xmark` on the left.
-- Use confirmation action `checkmark` on the right.
+- Use native back navigation. Settings apply as they change.
 
 Content:
 
@@ -430,18 +424,18 @@ Rules:
 
 - `Edit profile` opens the external SSO profile page in production.
 - In the playground, `Edit profile` may show a placeholder notice instead of opening SSO.
-- `Archived groups` pushes inside the Settings sheet's navigation stack.
+- `Archived groups` pushes onto the same navigation stack.
 - Do not give `Log out` a section title such as `Session`; the destructive action should stand alone.
 - Do not include per-group actions in Settings except archived-group management inside `Archived groups`.
 
 ### Archived groups entry
 
-- `Archived groups` is reached from `Settings`.
-- It pushes a secondary view inside the Settings sheet's `NavigationStack`.
+- `Archived groups` is reached from `Settings` or directly from the home ellipsis menu.
+- It pushes a secondary view onto the detail navigation stack.
 - The panel is for low-frequency archive management, not for normal group browsing.
 - The panel owns its own title: `Archived groups`.
 - The panel should include archived group rows and local actions for restoring or deleting archived groups.
-- Going back returns to `Settings`; closing Settings returns to the Groups home page.
+- Going back returns to the previous page.
 
 ### Row Context Menu
 

@@ -18,6 +18,7 @@ source += ui[ui.index('enum MoneyDisplayStyle {'):ui.index('func signedMoney(')]
 source += models[models.index('struct Member:'):models.index('struct WalkRecord:')]
 source += models[models.index('struct ResolvedDebt:'):models.index('struct SettlementTransfer:')]
 source += (app / 'Features/Groups/GroupWalletData.swift').read_text()
+source += (app / 'Features/Groups/WalletCardOrder.swift').read_text()
 source += r'''
 func projection(_ code: String, cost: String, debt: String = "0", paid: String = "0", records: Int = 1) -> MemberCurrencyProjection {
     MemberCurrencyProjection(currencyCode: code, debtMinor: debt, costMinor: cost,
@@ -42,6 +43,16 @@ func cards(_ g: WalkGroup, _ transfers: [ResolvedDebt] = debts, ready: Bool = tr
 }
 let all = cards(group)
 precondition(all.map(\.id) == ["CNY", "THB", "SGD"])
+let walletCodes = GroupWalletData.visibleCurrencyCodes(group: group, participantID: "me", currencyCodes: [])
+precondition(walletCodes == all.map(\.id), "Statistics uses the same currency order as the wallet")
+var position = WalletCardPosition()
+precondition(position.frontCardID(in: walletCodes) == "CNY")
+position.select("THB", available: walletCodes)
+let savedPosition = WalletCardPosition.decode(position.encoded)
+precondition(savedPosition.frontCardID(in: walletCodes) == "THB")
+let remainingCodes = GroupWalletData.visibleCurrencyCodes(group: group, participantID: "me", currencyCodes: ["EUR", "SGD"])
+precondition(remainingCodes == cards(group, filter: ["EUR", "SGD"]).map(\.id))
+precondition(savedPosition.frontCardID(in: remainingCodes) == "SGD", "Use the visible front card when the saved currency is filtered out")
 // FNV-1a("g") % 8 = 6. Color ranks follow CNY, SGD, THB,
 // independently of the default-first card order CNY, THB, SGD.
 precondition(all.map(\.artworkIndex) == [6, 0, 7], "Group hash sets the start; alphabetical currency ranks wrap the palette")

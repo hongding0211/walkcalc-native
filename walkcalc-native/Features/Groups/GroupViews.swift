@@ -4,7 +4,6 @@ import UIKit
 enum GroupSheet: Identifiable {
     case newExpense
     case editExpense(WalkRecord)
-    case groupSettings
     case balances(Member?)
     case myBalance(Member)
     case peopleSetup
@@ -13,7 +12,6 @@ enum GroupSheet: Identifiable {
         switch self {
         case .newExpense: "newExpense"
         case .editExpense(let record): "editExpense-\(record.recordId)"
-        case .groupSettings: "groupSettings"
         case .balances(let member): "balances-\(member?.id ?? "root")"
         case .myBalance(let member): "myBalance-\(member.id)"
         case .peopleSetup: "peopleSetup"
@@ -24,12 +22,10 @@ enum GroupSheet: Identifiable {
 struct GroupView: View {
     @EnvironmentObject private var store: WalkcalcStore
     @Environment(\.softLedgerAppTheme) private var appTheme
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let groupId: String
     var contentMaxWidth: CGFloat? = nil
-    var onClose: (() -> Void)? = nil
     @State private var activeSheet: GroupSheet? = Self.initialSheet()
     @State private var isSearchPresented = false
     @State private var searchText = ""
@@ -48,9 +44,6 @@ struct GroupView: View {
 
     private static func initialSheet() -> GroupSheet? {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ui-open-group-settings") {
-            return .groupSettings
-        }
         if ProcessInfo.processInfo.arguments.contains("--ui-open-new-expense") {
             return .newExpense
         }
@@ -127,7 +120,6 @@ struct GroupView: View {
                                     group: group,
                                     records: records,
                                     sort: filters.sort,
-                                    showsPerPersonAmount: store.showsPerPersonAmount,
                                     isLoadingMore: store.isLoadingRecords(groupId: group.id, search: submittedSearchText),
                                     onDelete: { record in
                                         guard store.canMutateRecord(record, in: group) else { return }
@@ -254,9 +246,7 @@ struct GroupView: View {
             if isEmpty { scrollTitle.reset() }
         }
         .sheet(item: $activeSheet) { sheet in
-            GroupSheetView(groupId: groupId, sheet: sheet, activeSheet: $activeSheet) {
-                if let onClose { onClose() } else { dismiss() }
-            }
+            GroupSheetView(groupId: groupId, sheet: sheet, activeSheet: $activeSheet)
         }
         .environment(\.groupSheetContentMaxWidth, contentMaxWidth)
     }
@@ -318,10 +308,11 @@ struct GroupView: View {
                         Label(L("Per person"), systemImage: "dollarsign.circle")
                     }
                 }
-                Button {
-                    activeSheet = .groupSettings
-                } label: {
-                    Label(L("Group settings"), systemImage: "gearshape")
+                NavigationLink(value: Route.spendingStatistics(groupId)) {
+                    Label(L("Statistics"), systemImage: "chart.bar.xaxis")
+                }
+                NavigationLink(value: Route.groupSettings(groupId)) {
+                    Label(L("Group settings"), systemImage: "person.2")
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -758,7 +749,6 @@ struct GroupExpensesSection: View {
     let group: WalkGroup
     let records: [WalkRecord]
     var sort: GroupRecordSort? = nil
-    var showsPerPersonAmount = false
     @State private var sections: [ExpenseDateSection] = []
     let isLoadingMore: Bool
     let onDelete: (WalkRecord) -> Void
@@ -772,7 +762,7 @@ struct GroupExpensesSection: View {
     var body: some View {
         if let sort, sort.field == .amount {
             TimelineView(.periodic(from: .now, by: 60)) { context in
-                let rows = sort.ordered(records, amountBasis: showsPerPersonAmount ? .perPerson : .total)
+                let rows = sort.ordered(records, amountBasis: store.showsPerPersonAmount ? .perPerson : .total)
                 recordCard(rows, showsTimeOnly: false, now: context.date, isLoadingMore: isLoadingMore)
             }
             .onAppear { scrollTitle?.retainDates([]) }
@@ -820,7 +810,7 @@ struct GroupExpensesSection: View {
                     group: group,
                     showsTimeOnly: showsTimeOnly,
                     now: now,
-                    showsPerPersonAmount: showsPerPersonAmount,
+                    showsPerPersonAmount: store.showsPerPersonAmount,
                     onDelete: store.canMutateRecord(record, in: group) ? { onDelete(record) } : nil
                 ) {
                     onEdit(record)
@@ -883,7 +873,7 @@ struct ExpenseRow: View {
     let onDelete: (() -> Void)?
     let action: () -> Void
 
-    init(record: WalkRecord, group: WalkGroup, showsTimeOnly: Bool, now: Date, showsPerPersonAmount: Bool = false, onDelete: (() -> Void)? = nil, action: @escaping () -> Void) {
+    init(record: WalkRecord, group: WalkGroup, showsTimeOnly: Bool, now: Date, showsPerPersonAmount: Bool, onDelete: (() -> Void)? = nil, action: @escaping () -> Void) {
         self.record = record
         self.group = group
         self.showsTimeOnly = showsTimeOnly

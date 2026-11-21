@@ -41,6 +41,7 @@
 "Group" = "群组";
 "Group ID" = "群组 ID";
 "Group name" = "群名";
+"Could not change group name" = "无法修改群名";
 "Group owner" = "群主";
 "Group owner marker" = "（群主）";
 "Group setting" = "群组设置";
@@ -305,6 +306,14 @@
 "Wallet.loadingSettlement" = "正在更新结清建议…";
 "Wallet.spendingUnavailable" = "暂无个人开销数据";
 "Personal spending: %@" = "我的开销：%@";
+"My spending" = "我的开销";
+"Statistics" = "统计";
+"My spending by category" = "我的消费分类";
+"Statistics unavailable" = "暂时无法加载统计";
+"No personal spending in this currency" = "你在该币种下暂无消费";
+"No member spending in this currency" = "成员在该币种下暂无消费";
+"Uncategorized" = "未分类";
+"Remaining categories" = "其余类别";
 "Show settlement overview for this currency" = "显示这个币种的结清概览";
 
 "Earlier" = "更早";

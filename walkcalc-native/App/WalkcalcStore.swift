@@ -89,6 +89,7 @@ final class WalkcalcStore: ObservableObject {
     @Published private(set) var isLoadingMoreGroups = false
     @Published private(set) var needsGroupOrderRefresh = false
     @Published private(set) var pendingGroupPins: [String: UUID] = [:]
+    @Published private(set) var pendingGroupNames: [String: String] = [:]
     @Published private(set) var completedGroupPinUpdates = 0
     @Published var isBootstrapping = true
     @Published private(set) var startupRoute: StartupRoute = .resolving
@@ -995,6 +996,32 @@ final class WalkcalcStore: ObservableObject {
         }
     }
 
+    func groupSpendingStatistics(for group: WalkGroup) async -> LedgerOperationResult<GroupSpendingStatistics> {
+        var repository = ledgerRepository
+        var session = context(for: group.id)
+        if isFixtureMode, let participant = group.allMembers.first(where: { $0.uuid == currentParticipantID(for: group) }) {
+            let source = InMemoryLedgerDataSource(groups: [group], recordsByGroup: [group.id: recordsByGroup[group.id] ?? []])
+            repository = LedgerRepository(remoteSource: source, localSource: source)
+            session = .local(owner: participant)
+        }
+
+        async let categoryRequest = repository.spendingCategories(groupId: group.id, context: session)
+        async let memberRequest = repository.groupBalances(groupId: group.id, context: session)
+        let (categories, members) = await (categoryRequest, memberRequest)
+        guard !Task.isCancelled else { return .failure(.sourceUnavailable()) }
+        if let refreshedToken = categories.value?.refreshedToken ?? members.value?.refreshedToken {
+            applyRefreshedToken(refreshedToken)
+        }
+        if let failure = categories.failure ?? members.failure {
+            recordFailure(operation: "groupSpendingStatistics", intent: .secondaryLoad, disposition: .local, failure: failure)
+            return .failure(failure)
+        }
+        guard let categoryRows = categories.value?.value, let memberRows = members.value?.value else {
+            return .failure(.sourceUnavailable())
+        }
+        return .success(GroupSpendingStatistics(categories: categoryRows, members: memberRows))
+    }
+
     func loadMoreRecords(groupId: String, search: String = "") async {
         if isFixtureMode { return }
         guard api.ledgerAPIEnabled else { return }
@@ -1417,6 +1444,9 @@ final class WalkcalcStore: ObservableObject {
     }
 
     func changeGroupNameWithFeedback(_ code: String, name: String) async -> StoreActionResult {
+        guard pendingGroupNames[code] == nil else { return .failure(nil) }
+        pendingGroupNames[code] = name
+        defer { pendingGroupNames[code] = nil }
         if isFixtureMode {
             guard let index = groups.firstIndex(where: { $0.id == code }) else { return .failure(nil) }
             groups[index].name = name

@@ -41,6 +41,7 @@
 "Group" = "Group";
 "Group ID" = "Group ID";
 "Group name" = "Group name";
+"Could not change group name" = "Could not change group name";
 "Group owner" = "Group owner";
 "Group owner marker" = " (Group owner)";
 "Group setting" = "Group setting";
@@ -305,6 +306,14 @@
 "Wallet.loadingSettlement" = "Updating settlement suggestions…";
 "Wallet.spendingUnavailable" = "Personal spending unavailable";
 "Personal spending: %@" = "Personal spending: %@";
+"My spending" = "My spending";
+"Statistics" = "Statistics";
+"My spending by category" = "My spending by category";
+"Statistics unavailable" = "Statistics unavailable";
+"No personal spending in this currency" = "You have no spending in this currency.";
+"No member spending in this currency" = "Members have no spending in this currency.";
+"Uncategorized" = "Uncategorized";
+"Remaining categories" = "Remaining categories";
 "Show settlement overview for this currency" = "Show settlement overview for this currency";
 
 "Earlier" = "Earlier";

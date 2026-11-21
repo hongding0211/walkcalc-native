@@ -124,6 +124,35 @@ struct LedgerMemberRecordSnapshot {
     var refreshedToken: String?
 }
 
+struct SpendingCategoryTotal {
+    let currencyCode: String
+    let categoryId: String?
+    let expenseMinor: MoneyMinor
+
+    static func localTotals(
+        _ records: some Sequence<WalkRecord>, participantId: String, defaultCurrency: String
+    ) -> [Self] {
+        var totals: [String: [String?: MoneyMinor]] = [:]
+        for record in records where !record.isDebtResolve && record.forWhom.contains(participantId) {
+            let currency = CurrencyCatalog.normalizedCode(record.currencyCode ?? defaultCurrency)
+            let category = record.type.isEmpty ? nil : record.type
+            let share = Money.splitFirst(record.paidMinor, count: record.forWhom.count)
+            let previous = totals[currency]?[category] ?? "0"
+            totals[currency, default: [:]][category] = Money.add(previous, share)
+        }
+        return totals.flatMap { currency, categories in
+            categories.map { category, amount in
+                Self(currencyCode: currency, categoryId: category, expenseMinor: amount)
+            }
+        }
+    }
+}
+
+struct GroupSpendingStatistics {
+    let categories: [SpendingCategoryTotal]
+    let members: [Member]
+}
+
 struct LedgerMutationResponse<Value> {
     var value: Value?
     var message: String?
@@ -139,6 +168,7 @@ protocol LedgerDataSource {
     func groups(page: Int, pageSize: Int, search: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkGroup>>
     func groupDetail(groupId: String, recordPageSize: Int, recordSearch: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerGroupSnapshot>
     func groupBalances(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[Member]>>
+    func spendingCategories(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SpendingCategoryTotal]>>
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>>
     func memberRecords(groupId: String, memberId: String, page: Int, pageSize: Int, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMemberRecordSnapshot>
     func settlementSuggestion(groupId: String, currencyCode: String?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SettlementTransfer]>>
@@ -219,6 +249,12 @@ struct RemoteLedgerDataSource: LedgerDataSource {
     func groupBalances(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[Member]>> {
         await envelopeMutation(context: context) { token in
             try await api.groupBalances(groupCode: groupId, token: token)
+        }
+    }
+
+    func spendingCategories(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SpendingCategoryTotal]>> {
+        await envelopeMutation(context: context) { token in
+            try await api.spendingCategories(groupCode: groupId, token: token)
         }
     }
 
@@ -450,6 +486,10 @@ final class LedgerRepository {
 
     func groupBalances(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[Member]>> {
         await source(for: context).groupBalances(groupId: groupId, context: context)
+    }
+
+    func spendingCategories(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SpendingCategoryTotal]>> {
+        await source(for: context).spendingCategories(groupId: groupId, context: context)
     }
 
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>> {

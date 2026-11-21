@@ -153,6 +153,21 @@ struct APIClient: Sendable {
         }
     }
 
+    func spendingCategories(groupCode: String, token: String) async throws -> APIEnvelope<[SpendingCategoryTotal]> {
+        try await request(.get, path: "/walkcalc/groups/\(groupCode)/statistics", token: token) { raw in
+            arrayPayload(dictPayload(raw)["byCategory"]).compactMap { row in
+                guard let currency = row["currencyCode"] as? String,
+                      let amount = row["expenseShare"] as? String,
+                      let minor = try? Money.parseDisplay(amount) else { return nil }
+                return SpendingCategoryTotal(
+                    currencyCode: CurrencyCatalog.normalizedCode(currency),
+                    categoryId: row["categoryId"] as? String,
+                    expenseMinor: minor
+                )
+            }
+        }
+    }
+
     func createGroup(name: String, currencyCode: String, token: String) async throws -> APIEnvelope<String> {
         try await request(.post, path: "/walkcalc/groups", token: token, body: ["name": name, "currencyCode": currencyCode]) { raw in
             dictPayload(raw)["code"] as? String ?? ""

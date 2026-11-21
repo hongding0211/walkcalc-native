@@ -201,6 +201,15 @@ enum LedgerRepositoryVerification {
         request.sort = GroupRecordSort(order: .ascending)
         let ascending = expectSuccess(await repository.records(groupId: groupId, page: 1, pageSize: 10, search: request, context: context), prefix: "local-date-ascending")
         expect(ascending.items.map(\.text), equals: ["Dinner yesterday", "Dinner expensive", "Dinner cheap"], prefix: "local-date-sort")
+
+        _ = expectSuccess(await repository.addSettlementRecord(groupId: groupId, fromId: guestId, toId: ownerId, amountMinor: "1200", note: "Settlement", context: context), prefix: "statistics-create-settlement")
+        _ = expectSuccess(await repository.addRecord(
+            groupId: groupId, who: ownerId, paidMinor: "800", forWhom: [guestId], type: "food",
+            text: "Paid for guest", long: "", lat: "", occurredAt: today.timeIntervalSince1970 * 1000, context: context
+        ), prefix: "statistics-paid-for-guest")
+        let spending = expectSuccess(await repository.spendingCategories(groupId: groupId, context: context), prefix: "local-statistics").value ?? []
+        let amounts = Dictionary(uniqueKeysWithValues: spending.map { ("\($0.currencyCode)/\($0.categoryId ?? "")", $0.expenseMinor) })
+        expect(amounts, equals: ["CNY/food": "600", "CNY/traffic": "4000", "USD/food": "900"], prefix: "local-statistics-uses-personal-share-by-currency")
     }
 
     private static let mockBaseURL = URL(string: "https://ledger-verification.invalid/api")!
@@ -225,6 +234,11 @@ enum LedgerRepositoryVerification {
         _ = expectSuccess(await repository.groups(page: 2, pageSize: 20, search: "trip", context: context), prefix: "remote-groups")
         _ = expectSuccess(await repository.groupDetail(groupId: "AB12", recordPageSize: 10, context: context), prefix: "remote-group-detail")
         _ = expectSuccess(await repository.groupBalances(groupId: "AB12", context: context), prefix: "remote-balances")
+        let spending = expectSuccess(await repository.spendingCategories(groupId: "AB12", context: context), prefix: "remote-statistics").value ?? []
+        expect(spending.count, equals: 2, prefix: "remote-statistics-category-count")
+        expect(spending.first { $0.categoryId == "food" }?.expenseMinor, equals: "3334", prefix: "remote-statistics-exact-share")
+        expect(spending.first { $0.categoryId == nil }?.currencyCode, equals: "USD", prefix: "remote-statistics-uncategorized")
+        expect(MockLedgerURLProtocol.requests.first { $0.path.hasSuffix("/statistics") }?.query, equals: [:], prefix: "remote-statistics-all-time")
         let usdSuggestion = expectSuccess(await repository.settlementSuggestion(groupId: "AB12", currencyCode: "USD", context: context), prefix: "remote-usd-settlement-suggestion").value ?? []
         expect(usdSuggestion.first?.currencyCode, equals: Optional("USD"), prefix: "remote-usd-settlement-currency")
         _ = expectSuccess(await repository.records(groupId: "AB12", page: 1, pageSize: 10, search: .noteOrCategoryName(query: "Dinner"), context: context), prefix: "remote-record-search")
@@ -469,6 +483,11 @@ private final class MockLedgerURLProtocol: URLProtocol {
             return (200, pagedEnvelope([recordPayload(id: "record-1")], page: Int(query["page"] ?? "1") ?? 1, pageSize: Int(query["pageSize"] ?? "10") ?? 10, total: 1))
         case ("GET", "/api/walkcalc/groups/AB12/balances"):
             return (200, envelope(["participants": participantsPayload()]))
+        case ("GET", "/api/walkcalc/groups/AB12/statistics"):
+            return (200, envelope(["byCategory": [
+                ["currencyCode": "CNY", "categoryId": "food", "expenseShare": "33.34"],
+                ["currencyCode": "USD", "categoryId": NSNull(), "expenseShare": "10.00"],
+            ]]))
         case ("GET", "/api/walkcalc/groups/AB12/settlement-suggestion"):
             return (200, envelope([
                 "groupCode": "AB12",

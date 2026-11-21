@@ -12,25 +12,15 @@ Group settings is a low-frequency management surface for one group. It should be
 
 ### Presentation
 
-- Present as a native sheet from the group detail page.
-- Use a local `NavigationStack` inside the sheet.
-- Use the large detent by default:
-  - `.presentationDetents([.large])`
-- Show the drag indicator:
-  - `.presentationDragIndicator(.visible)`
-- Closing or confirming returns to the group detail page without changing the parent scroll position.
+- Push onto the group detail navigation stack.
+- The native Back button returns to the group detail page without changing the parent scroll position.
 
 ### Top bar
 
 - Title: `Group settings`.
 - Use sentence case for all English copy.
-- Use native toolbar placements:
-  - cancellation action on the left
-  - confirmation action on the right
-- The cancel action uses `xmark`.
-- The confirmation action uses `checkmark`.
-- The confirmation action uses the app theme color.
-- The sheet root should apply the app theme tint so native controls, insertion cursors, and confirmation actions use the same accent.
+- Keep only the native Back button in the navigation bar.
+- The settings page uses the app theme tint for native controls and insertion cursors.
 
 ## 2. Group section
 
@@ -40,10 +30,12 @@ The Group section contains only information and edits that define the group itse
 
 - Show one editable text field for the group name.
 - Label/placeholder: `Group name`.
-- Keep the field unfocused when the sheet opens; a user taps the row to edit.
+- Keep the field unfocused when settings opens. A user taps the row to edit.
 - Show a subtle trailing pencil affordance while the field is unfocused so the editable state is discoverable.
 - The insertion cursor should use the app theme tint.
 - Use native text field behavior; do not custom draw the cursor, underline, or focus state.
+- Save the group name when editing ends, including when navigating back. Trim whitespace and keep the saved name if the result is empty.
+- Apply default currency selection and pin changes when the user makes them.
 - Do not show created date, metadata, audit information, or currency while those concepts are not supported by the product.
 
 ### Group ID
@@ -82,7 +74,7 @@ Entry points:
 
 - Create group sheet: add initial real members before the group is created.
 - People setup empty state: add members when a group has only the current user and no records.
-- Group settings sheet: add members to an existing group.
+- Group settings page: add members to an existing group.
 
 All three entry points use the same product language and flow:
 
@@ -94,8 +86,8 @@ All three entry points use the same product language and flow:
 - Label: `Add member`.
 - Use a native stack-push row with the system chevron on the trailing edge.
 - Do not show an icon.
-- Use primary text color, not the theme accent, so it does not compete with the confirmation action.
-- Push into the shared member-search flow inside the current sheet's `NavigationStack`; do not present a second modal.
+- Use the primary text color.
+- Push into the shared member-search flow on the current navigation stack.
 - Search existing users by name.
 - Allow selecting one or more users from the search results.
 - Hide or disable users who are already in the group.
@@ -155,9 +147,7 @@ Do not include these items in the current settings surface:
 ## 6. SwiftUI pattern
 
 ```swift
-struct GroupSettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
+struct GroupSettingsPage: View {
     @State private var groupName = "May Trip"
     @State private var isShowingAddTemporaryMember = false
     @State private var tempMemberName = ""
@@ -220,25 +210,6 @@ struct GroupSettingsSheet: View {
         .navigationTitle("Group settings")
         .navigationBarTitleDisplayMode(.inline)
         .tint(theme.accent)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(role: .cancel) {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                }
-            }
-
-            ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "checkmark")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(theme.accent)
-            }
-        }
     }
 }
 ```

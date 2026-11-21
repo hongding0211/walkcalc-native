@@ -6,13 +6,15 @@ import UIKit
 
 enum Route: Hashable {
     case group(String)
+    case groupSettings(String)
+    case spendingStatistics(String)
+    case settings
+    case archivedGroups
 }
 
 enum HomeSheet: Identifiable {
     case create
     case join
-    case settings
-    case archivedGroups
     case about
     case signIn
     #if DEBUG
@@ -23,8 +25,6 @@ enum HomeSheet: Identifiable {
         switch self {
         case .create: "create"
         case .join: "join"
-        case .settings: "settings"
-        case .archivedGroups: "archivedGroups"
         case .about: "about"
         case .signIn: "signIn"
         #if DEBUG
@@ -373,7 +373,6 @@ struct RootHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var path: [Route] = Self.initialPath()
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     #if DEBUG
     @State private var activeSheet: HomeSheet? = ProcessInfo.processInfo.arguments.contains("--ui-open-appearance-debug") ? .debug : nil
     #else
@@ -388,18 +387,25 @@ struct RootHomeView: View {
 
     private static func initialPath() -> [Route] {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ui-poster-data"),
-           let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-poster-group=") }) {
-            return [.group(String(argument.dropFirst("--ui-poster-group=".count)))]
+        let arguments = ProcessInfo.processInfo.arguments
+        let groupID: String
+        if arguments.contains("--ui-poster-data"),
+           let argument = arguments.first(where: { $0.hasPrefix("--ui-poster-group=") }) {
+            groupID = String(argument.dropFirst("--ui-poster-group=".count))
+        } else if arguments.contains("--ui-fixture-scroll") {
+            groupID = "stress-0"
+        } else if arguments.contains("--ui-open-appstore-group") {
+            groupID = "appstore-tokyo"
+        } else {
+            return []
         }
-        if ProcessInfo.processInfo.arguments.contains("--ui-fixture-scroll") {
-            return [.group("stress-0")]
+        if arguments.contains("--ui-open-group-settings") {
+            return [.group(groupID), .groupSettings(groupID)]
         }
-        if ProcessInfo.processInfo.arguments.contains("--ui-open-appstore-group") {
-            return [.group("appstore-tokyo")]
-        }
-        #endif
+        return [.group(groupID)]
+        #else
         return []
+        #endif
     }
 
     private var activeGroups: [WalkGroup] {
@@ -439,11 +445,21 @@ struct RootHomeView: View {
             .accessibilityAddTraits(.isHeader)
     }
 
+    @ViewBuilder
+    private func homeNavigationLink<Label: View>(_ route: Route, isSidebar: Bool, @ViewBuilder label: () -> Label) -> some View {
+        if isSidebar {
+            Button {
+                path = [route]
+            } label: {
+                label()
+            }
+        } else {
+            NavigationLink(value: route, label: label)
+        }
+    }
+
     private func groupRow(_ group: WalkGroup, isSidebar: Bool) -> some View {
-        Button {
-            store.preloadGroupContent(group.id)
-            path = [.group(group.id)]
-        } label: {
+        homeNavigationLink(.group(group.id), isSidebar: isSidebar) {
             GroupSummaryRow(
                 group: group,
                 isPending: pendingGroupAction?.groupID == group.id,
@@ -591,15 +607,11 @@ struct RootHomeView: View {
                         Divider()
                     }
 
-                    Button {
-                        activeSheet = .archivedGroups
-                    } label: {
+                    homeNavigationLink(.archivedGroups, isSidebar: isSidebar) {
                         Label(L("Archived groups"), systemImage: "archivebox")
                     }
 
-                    Button {
-                        activeSheet = .settings
-                    } label: {
+                    homeNavigationLink(.settings, isSidebar: isSidebar) {
                         Label(L("Settings"), systemImage: "gearshape")
                     }
                     #if DEBUG
@@ -622,8 +634,30 @@ struct RootHomeView: View {
     }
 
     private var selectedGroupID: String? {
-        guard let route = path.last, case .group(let id) = route else { return nil }
+        guard let route = path.first, case .group(let id) = route else { return nil }
         return id
+    }
+
+    @ViewBuilder
+    private func detailPage(_ route: Route, contentMaxWidth: CGFloat?) -> some View {
+        switch route {
+        case .group(let id):
+            GroupView(groupId: id, contentMaxWidth: contentMaxWidth)
+        case .groupSettings(let id):
+            if let group = store.group(id: id) {
+                GroupSettingsView(group: group) {
+                    if selectedGroupID == id { path = [] }
+                }
+            }
+        case .spendingStatistics(let id):
+            if let group = store.group(id: id) {
+                GroupSpendingStatisticsView(group: group, participantID: store.currentParticipantID(for: group))
+            }
+        case .settings:
+            AppSettingsView()
+        case .archivedGroups:
+            ArchivedGroupsView(groups: archivedGroups)
+        }
     }
 
     private func sidebarMinimumWidth(in width: CGFloat) -> CGFloat {
@@ -635,15 +669,6 @@ struct RootHomeView: View {
         return 280
     }
 
-    private var compactColumn: Binding<NavigationSplitViewColumn> {
-        Binding(
-            get: { path.isEmpty ? .sidebar : .detail },
-            set: { column in
-                if column == .sidebar { path = [] }
-            }
-        )
-    }
-
     var body: some View {
         GeometryReader { proxy in
             // Local window geometry also handles Duo Split View multitasking.
@@ -652,15 +677,14 @@ struct RootHomeView: View {
             let showsColumns = horizontalSizeClass == .regular && proxy.size.width > windowHeight
             let usesPortraitDetailWidth = proxy.size.width < windowHeight
                 && (horizontalSizeClass == .regular || UIDevice.current.userInterfaceIdiom == .pad)
-            NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: compactColumn) {
-                homeContent(isSidebar: showsColumns)
-                    // Allow the native split view to follow the fold while
-                    // preferring equal halves instead of a fixed 320pt sidebar.
-                    .navigationSplitViewColumnWidth(min: sidebarMinimumWidth(in: proxy.size.width),
-                        ideal: max(280, proxy.size.width / 2), max: max(280, proxy.size.width / 2))
-                    .toolbar(removing: .sidebarToggle)
-                    .overlay(alignment: .trailing) {
-                        if showsColumns {
+            let detailWidth = usesPortraitDetailWidth ? min(560, proxy.size.width * 0.75) : nil
+            if showsColumns {
+                NavigationSplitView {
+                    homeContent(isSidebar: true)
+                        .navigationSplitViewColumnWidth(min: sidebarMinimumWidth(in: proxy.size.width),
+                            ideal: max(280, proxy.size.width / 2), max: max(280, proxy.size.width / 2))
+                        .toolbar(removing: .sidebarToggle)
+                        .overlay(alignment: .trailing) {
                             Rectangle()
                                 .fill(Color(uiColor: .separator))
                                 .frame(width: 1 / displayScale)
@@ -668,25 +692,27 @@ struct RootHomeView: View {
                                 .allowsHitTesting(false)
                                 .accessibilityHidden(true)
                         }
-                    }
-            } detail: {
-                NavigationStack {
-                    if let groupID = selectedGroupID {
-                        GroupView(
-                            groupId: groupID,
-                            contentMaxWidth: usesPortraitDetailWidth ? min(560, proxy.size.width * 0.75) : nil,
-                            onClose: { path = [] }
-                        )
-                    } else {
+                } detail: {
+                    NavigationStack(path: $path) {
                         ContentUnavailableView(L("Select a group"), systemImage: "person.2",
                             description: Text(L("Choose a group to view its records.")))
                             .background { SoftLedgerBackground() }
+                            .navigationDestination(for: Route.self) { route in
+                                detailPage(route, contentMaxWidth: nil)
+                            }
                     }
+                    .toolbar(removing: .sidebarToggle)
                 }
-                .toolbar(removing: .sidebarToggle)
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                NavigationStack(path: $path) {
+                    homeContent(isSidebar: false)
+                        .navigationDestination(for: Route.self) { route in
+                            detailPage(route, contentMaxWidth: detailWidth)
+                        }
+                }
+                .environment(\.horizontalSizeClass, .compact)
             }
-            .navigationSplitViewStyle(.balanced)
-            .environment(\.horizontalSizeClass, showsColumns ? .regular : .compact)
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -705,20 +731,6 @@ struct RootHomeView: View {
                     JoinGroupSheet { activeSheet = nil }
                 }
                 .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-            case .settings:
-                NavigationStack {
-                    SettingsSheet(archivedGroups: archivedGroups) {
-                        activeSheet = nil
-                    }
-                }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-            case .archivedGroups:
-                NavigationStack {
-                    ArchivedGroupsView(groups: archivedGroups)
-                }
-                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             #if DEBUG
             case .debug:
@@ -818,7 +830,7 @@ struct RootHomeView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task {
-                if let route = path.last, case .group(let groupId) = route {
+                if let groupId = selectedGroupID {
                     await store.refreshGroupContent(groupId)
                 } else if path.isEmpty {
                     await store.refreshHome()

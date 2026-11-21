@@ -108,6 +108,21 @@ final class SwiftDataLedgerDataSource: LedgerDataSource {
         }
     }
 
+    func spendingCategories(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SpendingCategoryTotal]>> {
+        guard isAvailable(context), let participantId = context.localOwner?.uuid else { return .failure(.sourceUnavailable()) }
+        let modelContext = ModelContext(container)
+        do {
+            guard let group = try fetchGroup(groupId, modelContext) else { return .failure(.sourceUnavailable()) }
+            let categories = SpendingCategoryTotal.localTotals(
+                group.records.lazy.map(projectRecord), participantId: participantId,
+                defaultCurrency: CurrencyCatalog.normalizedCode(group.currencyCode)
+            )
+            return .success(mutation(categories, source: .local(id: groupId)))
+        } catch {
+            return .failure(persistenceFailure(error))
+        }
+    }
+
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let modelContext = ModelContext(container)

@@ -36,7 +36,9 @@ The group detail page is a secondary page inside the Groups navigation flow. Its
 
 - Keep filter and `ellipsis` in the same native toolbar group. On iOS 27.1+, apply `.axisBehavior(.verticalPreferred)` to the group to prefer the shared vertical group on Duo. Older systems keep the existing horizontal layout.
 - Duo axis adaptation follows Apple’s [Raise the bar with iPhone Duo](https://developer.apple.com/videos/play/tech-talks/111462/) guidance for custom toolbar views.
-- The `ellipsis` opens a native menu with a `View options` section containing the `Per person` toggle and a coin icon. A section divider separates it from `Group settings`.
+- The `ellipsis` opens a native menu with a `View options` section containing the `Per person` toggle and a coin icon. Below the divider, `Statistics` (`chart.bar.xaxis`) and `Group settings` (`person.2`) each push onto the group navigation stack, in that order.
+- `Statistics` shows the current member’s expense shares by category, followed by member spending rankings, for one currency at a time. The initial currency comes from the wallet’s front card. The currency picker saves the selection locally for that group and participant.
+- Tapping a donut slice or a category row highlights the slice and shows the selection in the center. Tapping it again, or tapping the center, restores the total.
 - The toggle defaults to off and shares its device-wide value with `Settings → Groups → Show split amounts in the list`. When enabled, an expense with multiple participants shows the total divided by the participant count and rounded for display. Settlements and expenses with fewer than two participants show the original amount. The row displays the formatted currency amount alone.
 - The settings surface is specified in `docs/group-settings.md`.
 - Do not show a separate `Share` text button in the navigation bar.
@@ -114,8 +116,11 @@ struct GroupDetailView: View {
                             Label("Per person", systemImage: "dollarsign.circle")
                         }
                     }
-                    Button("Group settings", systemImage: "gearshape") {
-                        isShowingGroupSettings = true
+                    NavigationLink(value: Route.spendingStatistics(groupId)) {
+                        Label("Statistics", systemImage: "chart.bar.xaxis")
+                    }
+                    NavigationLink(value: Route.groupSettings(groupId)) {
+                        Label("Group settings", systemImage: "person.2")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -412,6 +417,7 @@ Record row rules:
 
 - Use a lighter version of the main `Expenses` row.
 - Keep the row tappable with a disclosure indicator.
+- Use the shared `Show split amounts in the list` setting for each record amount.
 - Include:
   - category icon
   - record title

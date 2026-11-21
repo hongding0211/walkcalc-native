@@ -55,6 +55,15 @@ final class InMemoryLedgerDataSource: LedgerDataSource {
         return .success(mutation(group.allMembers, source: .local(id: groupId)))
     }
 
+    func spendingCategories(groupId: String, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerMutationResponse<[SpendingCategoryTotal]>> {
+        guard isAvailable(context), let participantId = context.localOwner?.uuid,
+              let group = group(id: groupId) else { return .failure(.sourceUnavailable()) }
+        let categories = SpendingCategoryTotal.localTotals(
+            recordsByGroup[groupId] ?? [], participantId: participantId, defaultCurrency: group.currencyCode
+        )
+        return .success(mutation(categories, source: .local(id: groupId)))
+    }
+
     func records(groupId: String, page: Int, pageSize: Int, search: RecordSearchRequest?, context: LedgerSessionContext) async -> LedgerOperationResult<LedgerPage<WalkRecord>> {
         guard isAvailable(context) else { return .failure(.sourceUnavailable()) }
         let records = recordsByGroup[groupId] ?? []

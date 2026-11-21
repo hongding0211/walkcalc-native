@@ -14,9 +14,7 @@ struct WalletCurrency: Identifiable {
 
 // Uses whole-ledger personal projections, never the currently loaded record page.
 enum GroupWalletData {
-    static func cards(group: WalkGroup, participantID: String?, debts: [ResolvedDebt],
-                      suggestionReady: Bool, paletteCount: Int,
-                      currencyCodes: Set<String> = []) -> [WalletCurrency] {
+    static func personalCurrencyProjections(group: WalkGroup, participantID: String?) -> [MemberCurrencyProjection] {
         let member = group.allMembers.first { $0.uuid == participantID }
         guard group.hasCurrentUserBalanceSummary || member != nil else { return [] }
         let defaultCode = CurrencyCatalog.normalizedCode(group.currencyCode)
@@ -36,8 +34,28 @@ enum GroupWalletData {
             balances = [zero(defaultCode)]
         }
         // Preserve server order, but keep the default currency first when it has activity.
-        balances = balances.filter { CurrencyCatalog.normalizedCode($0.currencyCode) == defaultCode }
+        return balances.filter { CurrencyCatalog.normalizedCode($0.currencyCode) == defaultCode }
             + balances.filter { CurrencyCatalog.normalizedCode($0.currencyCode) != defaultCode }
+    }
+
+    static func visibleCurrencyCodes(group: WalkGroup, participantID: String?, currencyCodes: Set<String>) -> [String] {
+        let balances = personalCurrencyProjections(group: group, participantID: participantID)
+        let selectedCodes = Set(currencyCodes.map { CurrencyCatalog.normalizedCode($0) })
+        return visibleCurrencyCodes(in: balances, selectedCodes: selectedCodes)
+    }
+
+    private static func visibleCurrencyCodes(in balances: [MemberCurrencyProjection], selectedCodes: Set<String>) -> [String] {
+        guard !balances.isEmpty else { return [] }
+        if !selectedCodes.isEmpty { return selectedCodes.sorted() }
+        var seen = Set<String>()
+        return balances.map { CurrencyCatalog.normalizedCode($0.currencyCode) }.filter { seen.insert($0).inserted }
+    }
+
+    static func cards(group: WalkGroup, participantID: String?, debts: [ResolvedDebt],
+                      suggestionReady: Bool, paletteCount: Int,
+                      currencyCodes: Set<String> = []) -> [WalletCurrency] {
+        let balances = personalCurrencyProjections(group: group, participantID: participantID)
+        guard !balances.isEmpty else { return [] }
         let selectedCodes = Set(currencyCodes.map { CurrencyCatalog.normalizedCode($0) })
         // Rank the full set before filtering, including requested zero-balance
         // currencies. Server/default/stack order never determines card colors.
@@ -45,14 +63,12 @@ enum GroupWalletData {
             .union(selectedCodes).sorted()
         let colorCount = max(1, paletteCount)
         let colorStart = paletteStart(groupID: group.id, count: colorCount)
-        let visible = selectedCodes.isEmpty ? balances : selectedCodes.sorted().map { code in
-            balances.first { CurrencyCatalog.normalizedCode($0.currencyCode) == code } ?? zero(code)
-        }
+        let visibleCodes = visibleCurrencyCodes(in: balances, selectedCodes: selectedCodes)
+        let balancesByCode = Dictionary(balances.map { (CurrencyCatalog.normalizedCode($0.currencyCode), $0) },
+                                        uniquingKeysWith: { first, _ in first })
         let personal = BalancePresentation.personalDebts(debts, participantID: participantID)
-        var seen = Set<String>()
-        return visible.compactMap { projection in
-            let code = CurrencyCatalog.normalizedCode(projection.currencyCode)
-            guard seen.insert(code).inserted else { return nil }
+        return visibleCodes.map { code in
+            let projection = balancesByCode[code] ?? zero(code)
             let transfers = personal.filter { CurrencyCatalog.normalizedCode($0.currencyCode) == code }
             let ready = suggestionReady || !group.hasUnresolvedBalance
             let relativeIndex = colorCodes.prefix { $0 < code }.count

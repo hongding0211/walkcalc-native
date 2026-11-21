@@ -46,6 +46,11 @@ struct WalletCardPosition: Codable, Equatable {
 
     var encoded: Data { (try? JSONEncoder().encode(self)) ?? Data() }
 
+    func frontCardID(in available: [String]) -> String? {
+        if let selectedID, available.contains(selectedID) { return selectedID }
+        return order.resolved(in: available).last
+    }
+
     mutating func select(_ id: String, available: [String]) {
         guard available.contains(id) else { return }
         order.bringToFront(id, available: available)
